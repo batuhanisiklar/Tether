@@ -1,0 +1,6 @@
+# Desktop App bağımlılıkları
+# Proje kökünden tek .venv kullanıyorsanız: pip install -r requirements.txt (kök)
+PyQt6>=6.6.0
+requests>=2.31.0
+websocket-client>=1.7.0
+websockets>=12.0
