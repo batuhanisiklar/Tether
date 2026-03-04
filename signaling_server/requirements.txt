@@ -1,3 +1,0 @@
-# Signaling Server bağımlılıkları
-# Proje kökünden tek .venv kullanıyorsanız: pip install -r requirements.txt (kök)
-websockets>=12.0

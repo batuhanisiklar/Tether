@@ -1,11 +1,4 @@
-# Remote Phone Control — Tüm Python bağımlılıkları
-# Kullanım: .venv oluşturduktan sonra: pip install -r requirements.txt
-# Tek sanal ortamda hem desktop_app hem signaling_server çalıştırılabilir.
-
-# Desktop App
 PyQt6>=6.6.0
 requests>=2.31.0
 websocket-client>=1.7.0
-
-# Signaling Server + ortak
 websockets>=12.0

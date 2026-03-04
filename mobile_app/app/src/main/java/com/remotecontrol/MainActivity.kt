@@ -151,6 +151,7 @@ class MainActivity : AppCompatActivity() {
                     updateStatus("🔴 Bağlantı kesildi — Yeniden bağlanmak için butona basın")
                     btnConnect.isEnabled = true
                     btnStopStream.isEnabled = false
+                    stopAllStreams()  // PC bağlantısı kesilince ekran/kamera yayınını durdur
                     // tvCode — kodu silmiyoruz, kullanıcı tekrar deneyebilir
                 }
             }

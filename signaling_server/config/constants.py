@@ -1,7 +1,3 @@
-"""
-Signaling Server — Tüm sabitler ve yapılandırma.
-"""
-
 import os
 from dataclasses import dataclass
 from typing import Set
@@ -9,14 +5,12 @@ from typing import Set
 
 @dataclass(frozen=True)
 class ServerConfig:
-    """Sunucu dinleme ayarları."""
     HOST: str = "0.0.0.0"
     PORT: int = int(os.environ.get("PORT", "8765"))
     LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(message)s"
 
 
 class MessageTypes:
-    """WebSocket mesaj tipleri (type alanı)."""
     REGISTER: str = "register"
     JOIN: str = "join"
     REGISTERED: str = "registered"
