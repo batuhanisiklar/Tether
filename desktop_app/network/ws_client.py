@@ -1,16 +1,3 @@
-"""
-WebSocket Signaling İstemcisi
-==============================
-Signaling sunucusuna bağlanır, oturum eşleşmesini yönetir ve
-telefona komut (kamera aç/kapat, touch, swipe) gönderir.
-
-Kullanım:
-    client = WsClient()
-    client.paired.connect(on_paired)
-    client.command_received.connect(on_command)
-    client.connect_to_server("wss://your-server.onrender.com", "123456")
-"""
-
 import json
 import threading
 import base64
@@ -40,6 +27,7 @@ class WsClient(QObject):
         self._ws: websocket.WebSocketApp | None = None
         self._thread: threading.Thread | None = None
         self._session_code: str = ""
+        self._frame_processing: bool = False  # Frame throttle bayrağı
 
     # ─── PUBLIC API ────────────────────────────────────────────────────────────
 
@@ -121,51 +109,42 @@ class WsClient(QObject):
         try:
             msg = json.loads(raw)
         except json.JSONDecodeError:
-            print(f"⚠️ JSON decode hatası: {raw[:100]}...")
+            logger.warning(f"JSON decode hatası: {raw[:100]}...")
             return
 
         msg_type = msg.get("type")
-        if msg_type == "frame":
-            print(f"📨 WebSocket mesajı alındı: type={msg_type}")
-        elif msg_type:
-            print(f"📨 WebSocket mesajı: type={msg_type}")
+        if msg_type != "frame":
+            logger.debug(f"Mesaj alındı: type={msg_type}")
 
         if msg_type == "paired":
-            # Telefon bağlantısı gerçekleşti; stream URL'sini relay'den alacağız
             self.paired.emit(msg.get("stream_url", ""))
 
         elif msg_type == "stream_info":
-            # Telefon stream başlayınca URL'sini iletir
             self.paired.emit(msg.get("url", ""))
 
         elif msg_type == "frame":
-            # Telefon WebSocket üzerinden JPEG frame gönderdi
-            print(f"📥 Frame mesajı alındı!")
+            # Önceki frame henüz işlenmediyse bu frame'i atla (throttle)
+            if self._frame_processing:
+                return
+            self._frame_processing = True
             try:
                 data_str = msg.get("data", "")
                 if not data_str:
-                    print("⚠️ Frame mesajı boş data içeriyor")
                     logger.warning("Frame mesajı boş data içeriyor")
                     return
-                print(f"📥 Base64 data uzunluğu: {len(data_str)} karakter")
                 jpeg_bytes = base64.b64decode(data_str)
-                print(f"📥 Decode edildi: {len(jpeg_bytes)} bytes JPEG")
                 img = QImage()
                 if img.loadFromData(jpeg_bytes, "JPEG"):
-                    print(f"✅ JPEG decode başarılı: {img.width()}x{img.height()}")
                     pixmap = QPixmap.fromImage(img)
-                    if pixmap.isNull():
-                        print("⚠️ Pixmap null!")
-                    else:
-                        print(f"✅ Pixmap oluşturuldu, emit ediliyor...")
+                    if not pixmap.isNull():
                         self.frame_received.emit(pixmap)
-                        logger.debug(f"Frame alındı ve gönderildi: {len(jpeg_bytes)} bytes")
+                        logger.debug(f"Frame gönderildi: {len(jpeg_bytes)} bytes {img.width()}x{img.height()}")
                 else:
-                    print("❌ JPEG decode başarısız - loadFromData False döndü")
                     logger.warning("JPEG decode başarısız")
             except Exception as e:
-                print(f"❌ Frame decode hatası: {e}")
                 logger.error(f"Frame decode hatası: {e}", exc_info=True)
+            finally:
+                self._frame_processing = False
 
         elif msg_type == "peer_disconnected":
             self.peer_disconnected.emit()

@@ -1,10 +1,3 @@
-"""
-MJPEG Stream Alıcı (Background Thread)
-=======================================
-Telefon tarafından HTTP üzerinden yayınlanan MJPEG stream'ini alır
-ve her frame'i sinyal olarak ana thread'e iletir.
-"""
-
 import threading
 import requests
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -14,11 +7,10 @@ from desktop_app.config import Network
 
 
 class MjpegReceiver(QObject):
-    """MJPEG stream'inden frame'leri alır ve PyQt6 sinyali ile iletir."""
 
-    frame_ready = pyqtSignal(QPixmap)    # Yeni frame geldiğinde
-    error_occurred = pyqtSignal(str)     # Hata durumunda
-    stream_stopped = pyqtSignal()        # Stream durunca
+    frame_ready = pyqtSignal(QPixmap)
+    error_occurred = pyqtSignal(str)
+    stream_stopped = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,7 +19,6 @@ class MjpegReceiver(QObject):
         self._url: str = ""
 
     def start(self, url: str):
-        """Verilen URL'den MJPEG stream'ini almaya başla."""
         if self._running:
             self.stop()
 
@@ -37,14 +28,12 @@ class MjpegReceiver(QObject):
         self._thread.start()
 
     def stop(self):
-        """Stream'i durdur."""
         self._running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=Network.MJPEG_JOIN_TIMEOUT_SEC)
         self._thread = None
 
     def _run(self):
-        """Arka plan thread'inde MJPEG stream'ini parse et."""
         try:
             with requests.get(
                 self._url,
@@ -82,7 +71,6 @@ class MjpegReceiver(QObject):
 
     @staticmethod
     def _bytes_to_pixmap(data: bytes) -> QPixmap | None:
-        """JPEG byte dizisini QPixmap'e çevir."""
         img = QImage()
         if img.loadFromData(data, "JPEG"):
             return QPixmap.fromImage(img)
