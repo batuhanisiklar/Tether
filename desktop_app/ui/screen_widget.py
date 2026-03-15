@@ -1,25 +1,30 @@
 """
 Ekran Görüntüsü Widget'ı
 =========================
-MJPEG stream'inden gelen frame'leri gösterir.
-Tıklama ve sürükleme olaylarını normalize koordinatlar olarak
-sinyal ile yayar (touch/swipe simülasyonu için).
+Frame'leri gösterir; görsel döndürme (0/90/180/270°) destekler.
+Koordinat normalizasyonu hem gerçek image rect hem de döndürme açısına göre yapılır.
 """
 
 from PyQt6.QtWidgets import QLabel, QSizePolicy
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint
-from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont
+from PyQt6.QtCore import Qt, QRect, pyqtSignal, QPoint
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QTransform
 
 from desktop_app.config import Ui
 
 
 class ScreenWidget(QLabel):
     """
-    MJPEG stream frame'lerini gösteren ve dokunma olaylarını yakalayan widget.
-    
+    Frame görüntüleyen ve dokunma olaylarını yakalayan widget.
+
+    Özellikler:
+        • set_rotation(deg): Görüntüyü 0/90/180/270° döndürür.
+          Koordinat normalizasyonu açıya göre otomatik ayarlanır.
+        • Sadece gerçek görüntü alanında tıklama aktif — boş kenarlarda
+          hiçbir komut gönderilmez.
+
     Sinyaller:
-        touch_event(x, y)           - Normalize [0,1] koordinatlarda tıklama
-        swipe_event(x1,y1,x2,y2)   - Normalize koordinatlarda kaydırma
+        touch_event(x, y)           – Normalize [0,1] tıklama
+        swipe_event(x1,y1,x2,y2)   – Normalize kaydırma
     """
 
     touch_event = pyqtSignal(float, float)
@@ -32,15 +37,15 @@ class ScreenWidget(QLabel):
         self.setMinimumSize(280, 500)
         self.setStyleSheet(f"""
             QLabel {{
-                background-color: {Ui.BG_CARD};
-                border: 2px solid {Ui.SCREEN_BORDER};
-                border-radius: 12px;
+                background-color: {Ui.SCREEN_PLACEHOLDER_BG};
+                border: 1px solid {Ui.SCREEN_BORDER};
+                border-radius: 4px;
             }}
         """)
 
         self._current_pixmap: QPixmap | None = None
         self._drag_start: QPoint | None = None
-        self._is_streaming = False
+        self._rotation_deg: int = 0   # 0 | 90 | 180 | 270
 
         self._show_placeholder()
 
@@ -49,24 +54,37 @@ class ScreenWidget(QLabel):
     def set_frame(self, pixmap: QPixmap):
         """Yeni bir frame göster."""
         if pixmap is None or pixmap.isNull():
-            print("⚠️ ScreenWidget.set_frame: Null veya geçersiz pixmap!")
             return
         self._current_pixmap = pixmap
-        self._is_streaming = True
         self._render()
-        print(f"✅ Frame gösterildi: {pixmap.width()}x{pixmap.height()}")
 
     def clear_frame(self):
         """Stream durduğunda placeholder göster."""
         self._current_pixmap = None
-        self._is_streaming = False
         self._show_placeholder()
+
+    def set_rotation(self, degrees: int):
+        """
+        Görüntüyü belirtilen açıda döndür (0, 90, 180, 270).
+        Koordinat normalizasyonu otomatik güncellenir.
+        """
+        self._rotation_deg = degrees % 360
+        if self._current_pixmap:
+            self._render()
+        else:
+            self._show_placeholder()
+
+    def toggle_rotation(self):
+        """Her çağrıda 90° saat yönünde döndür (0→90→180→270→0)."""
+        self.set_rotation((self._rotation_deg + 90) % 360)
 
     # ─── MOUSE EVENTS ──────────────────────────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start = event.pos()
+            pos = event.pos()
+            if self._image_rect().contains(pos):
+                self._drag_start = pos
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._drag_start:
@@ -78,33 +96,72 @@ class ScreenWidget(QLabel):
             dy = abs(end.y() - start.y())
 
             if dx < Ui.TOUCH_THRESHOLD_PX and dy < Ui.TOUCH_THRESHOLD_PX:
-                # Tıklama
                 nx, ny = self._normalize(end.x(), end.y())
                 self.touch_event.emit(nx, ny)
             else:
-                # Kaydırma
                 nx1, ny1 = self._normalize(start.x(), start.y())
                 nx2, ny2 = self._normalize(end.x(), end.y())
                 self.swipe_event.emit(nx1, ny1, nx2, ny2)
 
-    # ─── INTERNAL ──────────────────────────────────────────────────────────────
+    def mouseMoveEvent(self, event):
+        if self._image_rect().contains(event.pos()):
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    # ─── COORDINATE MAPPING ────────────────────────────────────────────────────
+
+    def _image_rect(self) -> QRect:
+        """Render edilen (ölçeklenmiş+döndürülmüş) pixmap'in gerçek dikdörtgeni."""
+        p = self.pixmap()
+        if p is None or p.isNull():
+            return self.rect()
+        pw, ph = p.width(), p.height()
+        ww, wh = self.width(), self.height()
+        x = (ww - pw) // 2
+        y = (wh - ph) // 2
+        return QRect(x, y, pw, ph)
 
     def _normalize(self, x: int, y: int) -> tuple[float, float]:
-        """Widget koordinatlarını [0,1] aralığına normalize et."""
-        w = max(self.width(), 1)
-        h = max(self.height(), 1)
-        p = Ui.COORD_PRECISION
-        return round(x / w, p), round(y / h, p)
+        """
+        Widget piksel koordinatını telefon [0,1] koordinatına çevir.
+        Döndürme açısına göre eksen eşleştirmesi yapılır.
+        """
+        rect = self._image_rect()
+        # Görüntü sınırlarına clamp et
+        rx = max(rect.left(), min(x, rect.right()))
+        ry = max(rect.top(), min(y, rect.bottom()))
+        # [0,1] aralığına normalize et (görüntü içi)
+        nx = (rx - rect.left()) / max(rect.width(), 1)
+        ny = (ry - rect.top()) / max(rect.height(), 1)
+
+        # Döndürme açısına göre telefon koordinatına çevir
+        if self._rotation_deg == 90:
+            # Ekran 90° CW döndü; x_widget → y_telefon, y_widget → (1-x_telefon)
+            nx, ny = ny, 1.0 - nx
+        elif self._rotation_deg == 180:
+            nx, ny = 1.0 - nx, 1.0 - ny
+        elif self._rotation_deg == 270:
+            nx, ny = 1.0 - ny, nx
+
+        return round(nx, Ui.COORD_PRECISION), round(ny, Ui.COORD_PRECISION)
+
+    # ─── RENDERING ─────────────────────────────────────────────────────────────
 
     def _render(self):
-        """Mevcut pixmap'i widget boyutuna uyarla."""
-        if self._current_pixmap:
-            scaled = self._current_pixmap.scaled(
-                self.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.setPixmap(scaled)
+        """Mevcut pixmap'i döndürerek ve widget boyutuna uyarlayarak göster."""
+        if not self._current_pixmap:
+            return
+        source = self._current_pixmap
+        if self._rotation_deg != 0:
+            transform = QTransform().rotate(self._rotation_deg)
+            source = source.transformed(transform, Qt.TransformationMode.SmoothTransformation)
+        scaled = source.scaled(
+            self.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.setPixmap(scaled)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -114,15 +171,14 @@ class ScreenWidget(QLabel):
     def _show_placeholder(self):
         """Bağlantı bekleme ekranı."""
         ph = QPixmap(self.minimumSize())
-        ph.fill(QColor(Ui.BG_CARD))
+        ph.fill(QColor(Ui.SCREEN_PLACEHOLDER_BG))
         painter = QPainter(ph)
         painter.setPen(QColor(Ui.SCREEN_PLACEHOLDER_FG))
-        font = QFont("Segoe UI", 11)
-        painter.setFont(font)
+        painter.setFont(QFont("Segoe UI", 11))
         painter.drawText(
             ph.rect(),
             Qt.AlignmentFlag.AlignCenter,
-            "📱 Telefon bağlantısı bekleniyor..."
+            "Telefon bağlantısı bekleniyor"
         )
         painter.end()
         self.setPixmap(ph)

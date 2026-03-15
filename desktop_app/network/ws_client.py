@@ -89,6 +89,10 @@ class WsClient(QObject):
         """Android KeyEvent gönder."""
         self.send_command({"action": "key_event", "key_code": key_code})
 
+    def send_rotate_screen(self, landscape: bool):
+        """Telefon ekranını döndür (True=Yatay, False=Dikey)."""
+        self.send_command({"action": "rotate_screen", "landscape": landscape})
+
     def send_heartbeat(self):
         """Keep-alive ping."""
         if self._ws:
@@ -123,7 +127,6 @@ class WsClient(QObject):
             self.paired.emit(msg.get("url", ""))
 
         elif msg_type == "frame":
-            # Önceki frame henüz işlenmediyse bu frame'i atla (throttle)
             if self._frame_processing:
                 return
             self._frame_processing = True

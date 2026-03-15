@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F4F6FB"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:paddingHorizontal="24dp"
+        android:paddingTop="60dp"
+        android:paddingBottom="40dp">
+
+        <!-- Uygulama İkonu / Logo -->
+        <TextView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:text="🔗"
+            android:textSize="36sp"
+            android:gravity="center"
+            android:background="@drawable/login_icon_bg"
+            android:layout_marginBottom="20dp" />
+
+        <!-- Başlık -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Remote Control"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:textColor="#1E293B"
+            android:letterSpacing="-0.02"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Yönetim paneline giriş yapın"
+            android:textSize="14sp"
+            android:textColor="#94A3B8"
+            android:layout_marginBottom="36dp" />
+
+        <!-- Giriş Kartı -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/login_card_bg"
+            android:orientation="vertical"
+            android:padding="24dp"
+            android:layout_marginBottom="16dp">
+
+            <!-- Kullanıcı Adı -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Kullanıcı Adı"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#475569"
+                android:letterSpacing="0.03"
+                android:layout_marginBottom="6dp" />
+
+            <EditText
+                android:id="@+id/et_username"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:hint="Kullanıcı adınızı girin"
+                android:inputType="text"
+                android:maxLines="1"
+                android:textSize="14sp"
+                android:textColor="#1E293B"
+                android:textColorHint="#CBD5E1"
+                android:background="@drawable/login_input_bg"
+                android:paddingHorizontal="14dp"
+                android:imeOptions="actionNext"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Şifre -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Şifre"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#475569"
+                android:letterSpacing="0.03"
+                android:layout_marginBottom="6dp" />
+
+            <EditText
+                android:id="@+id/et_password"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:hint="Şifrenizi girin"
+                android:inputType="textPassword"
+                android:maxLines="1"
+                android:textSize="14sp"
+                android:textColor="#1E293B"
+                android:textColorHint="#CBD5E1"
+                android:background="@drawable/login_input_bg"
+                android:paddingHorizontal="14dp"
+                android:imeOptions="actionDone"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Hata Mesajı -->
+            <TextView
+                android:id="@+id/tv_login_error"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="#EF4444"
+                android:gravity="center"
+                android:visibility="gone"
+                android:layout_marginBottom="12dp" />
+
+            <!-- Giriş Butonu -->
+            <Button
+                android:id="@+id/btn_login"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:text="Giriş Yap"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#3B5BDB"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+
+        <!-- Alt bilgi -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="© 2025 Remote Phone Control"
+            android:textSize="11sp"
+            android:textColor="#CBD5E1"
+            android:layout_marginTop="16dp" />
+
+    </LinearLayout>
+</ScrollView>

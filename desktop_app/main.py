@@ -4,7 +4,8 @@ import logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QDialog
+from desktop_app.ui.login_window import LoginWindow
 from desktop_app.ui.main_window import MainWindow
 from desktop_app.config import AppMeta
 
@@ -18,6 +19,11 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(AppMeta.NAME)
     app.setApplicationVersion(AppMeta.VERSION)
+
+    # Login ekranını göster — başarısız/iptal edilirse uygulamayı kapat
+    login = LoginWindow()
+    if login.exec() != QDialog.DialogCode.Accepted:
+        sys.exit(0)
 
     window = MainWindow()
     window.show()

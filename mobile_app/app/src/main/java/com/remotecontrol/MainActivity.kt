@@ -90,6 +90,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Oturum kontrolü — giriş yapılmamışsa LoginActivity'ye yönlendir
+        val prefs = getSharedPreferences("LoginPrefs", MODE_PRIVATE)
+        if (!prefs.getBoolean("is_logged_in", false)) {
+            startActivity(Intent(this, LoginActivity::class.java))
+            finish()
+            return
+        }
+
         setContentView(R.layout.activity_main)
 
         initViews()
@@ -181,8 +190,19 @@ class MainActivity : AppCompatActivity() {
                 ControlReceiver.instance?.performSwipe(x1, y1, x2, y2)
             }
             "key_event" -> {
-                val keyCode = (params["key_code"] as? Int) ?: return
+                // JSON numerics parse edilince Double gelir, doğrudan Int cast'i başarısız olur.
+                // Number.toInt() ile güvenli dönüşüm yapılır.
+                val keyCode = (params["key_code"] as? Number)?.toInt() ?: return
                 ControlReceiver.instance?.performKeyEvent(keyCode)
+            }
+            "rotate_screen" -> {
+                val landscape = params["landscape"] as? Boolean ?: false
+                runOnUiThread {
+                    requestedOrientation = if (landscape)
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    else
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
             }
             "camera_on" -> {
                 runOnUiThread { requestCameraAccess(useFront = false) }
