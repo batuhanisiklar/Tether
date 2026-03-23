@@ -101,9 +101,7 @@ async def _pick_preferred_online_partner(
     if preferred_partner_id:
         partner_entry = app["online_devices"].get(preferred_partner_id)
         if partner_entry and partner_entry["role"] != role:
-            partners = await _get_paired_partners(app, device_id)
-            if preferred_partner_id in partners:
-                return preferred_partner_id
+            return preferred_partner_id
     return await _pick_online_partner(app, device_id, role)
 
 
@@ -113,7 +111,7 @@ async def _handle_device_hello(
     meta: dict,
     message: dict,
 ) -> None:
-    device_id = message.get("device_id", "").strip()
+    device_id = str(message.get("device_id") or "").strip()
     role = message.get("role", "")
     if not device_id or role not in {"phone", "pc"}:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id and role required"})
@@ -122,7 +120,7 @@ async def _handle_device_hello(
     meta["device_id"] = device_id
     app["online_devices"][device_id] = {"ws": ws, "role": role}
 
-    preferred_partner_id = message.get("preferred_partner_id", "").strip() or None
+    preferred_partner_id = str(message.get("preferred_partner_id") or "").strip() or None
     partner_id = await _pick_preferred_online_partner(app, device_id, role, preferred_partner_id)
     if partner_id:
         partner_entry = app["online_devices"][partner_id]
