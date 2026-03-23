@@ -4,7 +4,9 @@ Ana Pencere — Remote Phone Control
 Profesyonel koyu arayüz. Tüm renkler constants.Colors'dan alınır.
 """
 
+import json
 import logging
+import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QLabel, QFrame, QStatusBar,
@@ -13,9 +15,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QPixmap
 
-from desktop_app.config import AppMeta, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
+from desktop_app.config import AppMeta, Prefs, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
 from desktop_app.ui.screen_widget import ScreenWidget
-from desktop_app.network.ws_client import WsClient
+from desktop_app.network.ws_client import WsClient, load_paired_phone_id
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
 
 logger = logging.getLogger(__name__)
@@ -76,6 +78,7 @@ class MainWindow(QMainWindow):
         self._mjpeg = MjpegReceiver()
         self._connected = False
         self._rotation_step = 0   # 0=0°, 1=90°, 2=180°, 3=270°
+        self._paired_phone_id: str | None = None   # bilinen eşleşmiş telefon device_id
 
         self._setup_style()
         self._build_ui()
@@ -84,6 +87,9 @@ class MainWindow(QMainWindow):
         self._heartbeat = QTimer(self)
         self._heartbeat.setInterval(Network.HEARTBEAT_INTERVAL_MS)
         self._heartbeat.timeout.connect(self._ws_client.send_heartbeat)
+
+        # Uygulama açılışında kayıtlı telefon varsa auto-connect dene
+        QTimer.singleShot(500, self._try_auto_connect)
 
     # ─── STYLE ────────────────────────────────────────────────────────────────
 
@@ -255,8 +261,11 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(10)
 
-        # ── Bağlantı ─────────────────────────────────────────────────
-        grp_conn = QGroupBox("Bağlantı")
+        # ── Eşleştirilmiş Cihazlar (yeni bölüm) ──────────────────────
+        lay.addWidget(self._build_paired_devices_group())
+
+        # ── Bağlantı (6 haneli kod — ilk eşleşme için) ───────────────
+        grp_conn = QGroupBox("Yeni Eşleşme  (İlk Bağlantı)")
         cl = QVBoxLayout(grp_conn)
         cl.setSpacing(7)
 
@@ -282,7 +291,7 @@ class MainWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
-        self._btn_connect = QPushButton("Bağlan")
+        self._btn_connect = QPushButton("Eşleş ve Bağlan")
         self._btn_connect.setObjectName("btn_connect")
         self._btn_connect.setFixedHeight(32)
         self._btn_connect.setStyleSheet(f"""
@@ -350,25 +359,58 @@ class MainWindow(QMainWindow):
             kl.addWidget(btn, row, col)
         lay.addWidget(grp_keys)
 
-        # ── Nasıl Kullanılır ─────────────────────────────────────────
-        grp_help = QGroupBox("Nasıl Bağlanılır")
-        hl = QVBoxLayout(grp_help)
-        for step in [
-            "1.  Telefon uygulamasını açın",
-            "2.  6 haneli kodu buraya girin",
-            "3.  'Bağlan' butonuna tıklayın",
-            "4.  Telefon ekranı sağda görünür",
-        ]:
-            lbl = QLabel(step)
-            lbl.setStyleSheet(
-                f"color: {Colors.TEXT_MUTED}; font-size: 11px; padding: 1px 0;"
-                f" background: transparent;"
-            )
-            hl.addWidget(lbl)
-        lay.addWidget(grp_help)
-
         lay.addStretch()
         return panel
+
+    def _build_paired_devices_group(self) -> QGroupBox:
+        """Kayıtlı eşleşmiş cihazları gösteren panel."""
+        grp = QGroupBox("Eşleştirilmiş Cihazlar")
+        layout = QVBoxLayout(grp)
+        layout.setSpacing(6)
+
+        # Durum satırı
+        row = QHBoxLayout()
+
+        self._dot_paired = QFrame()
+        self._dot_paired.setFixedSize(8, 8)
+        self._dot_paired.setStyleSheet(
+            f"background-color: {Colors.TEXT_OFF}; border-radius: 4px;"
+        )
+        row.addWidget(self._dot_paired)
+        row.addSpacing(6)
+
+        self._lbl_paired_phone = QLabel("Kayıtlı telefon yok")
+        self._lbl_paired_phone.setStyleSheet(
+            f"color: {Colors.TEXT_MUTED}; font-size: 11px; background: transparent;"
+        )
+        row.addWidget(self._lbl_paired_phone)
+        row.addStretch()
+        layout.addLayout(row)
+
+        # Hızlı bağlan butonu
+        self._btn_quick_connect = QPushButton("Bağlan")
+        self._btn_quick_connect.setFixedHeight(28)
+        self._btn_quick_connect.setEnabled(False)
+        self._btn_quick_connect.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {Colors.ACCENT};
+                color: #FFFFFF; border: none; border-radius: 4px;
+                font-size: 11px; font-weight: 600;
+            }}
+            QPushButton:hover   {{ background-color: {Colors.ACCENT_HOVER}; }}
+            QPushButton:pressed {{ background-color: {Colors.ACCENT_PRESS}; }}
+            QPushButton:disabled {{
+                background-color: {Colors.ACCENT_DIM}; color: {Colors.TEXT_OFF};
+            }}
+        """)
+        self._btn_quick_connect.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_quick_connect.clicked.connect(self._on_quick_connect)
+        layout.addWidget(self._btn_quick_connect)
+
+        # Durumu başlangıçta yükle
+        self._refresh_paired_device_ui()
+
+        return grp
 
     def _build_screen_area(self) -> QWidget:
         container = QWidget()
@@ -414,6 +456,7 @@ class MainWindow(QMainWindow):
         self._ws_client.connected.connect(self._on_ws_connected)
         self._ws_client.disconnected.connect(self._on_ws_disconnected)
         self._ws_client.paired.connect(self._on_paired)
+        self._ws_client.auto_paired.connect(self._on_auto_paired)
         self._ws_client.peer_disconnected.connect(self._on_peer_disconnected)
         self._ws_client.error_occurred.connect(self._on_error)
         self._ws_client.frame_received.connect(self._on_frame_received)
@@ -424,6 +467,27 @@ class MainWindow(QMainWindow):
         self._screen.swipe_event.connect(self._on_swipe)
 
     # ─── SLOTS ────────────────────────────────────────────────────────────────
+
+    @pyqtSlot()
+    def _try_auto_connect(self):
+        """Kayıtlı telefon varsa sunucuya bağlan ve device_hello gönder."""
+        paired_id = load_paired_phone_id()
+        if paired_id:
+            self._paired_phone_id = paired_id
+            self._refresh_paired_device_ui(online=None)  # "bağlanıyor" durumu
+            self._set_status("Kayıtlı telefon aranıyor...")
+            self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
+        else:
+            self._set_status(Ui.MSG_WAITING)
+
+    @pyqtSlot()
+    def _on_quick_connect(self):
+        """Eşleştirilmiş cihazlar panelinden tek tıkla bağlan."""
+        if self._connected:
+            return
+        self._set_status("Eşleşmiş telefona bağlanılıyor...")
+        self._btn_quick_connect.setEnabled(False)
+        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
 
     @pyqtSlot()
     def _on_connect(self):
@@ -444,15 +508,20 @@ class MainWindow(QMainWindow):
         self._ws_client.disconnect()
         self._set_connected(False)
         self._screen.clear_frame()
+        self._refresh_paired_device_ui(online=False)
 
     @pyqtSlot()
     def _on_logout(self):
         self._mjpeg.stop()
         self._ws_client.disconnect()
-        import os, json
         try:
-            with open(os.path.join(os.path.expanduser("~"), ".remote_control_prefs.json"), "w") as f:
-                json.dump({"is_logged_in": False}, f)
+            prefs = {}
+            if os.path.exists(Prefs.PATH):
+                with open(Prefs.PATH, "r") as f:
+                    prefs = json.load(f)
+            prefs[Prefs.KEY_LOGGED_IN] = False
+            with open(Prefs.PATH, "w") as f:
+                json.dump(prefs, f)
         except Exception:
             pass
         from desktop_app.ui.login_window import LoginWindow
@@ -469,16 +538,22 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_ws_disconnected(self, reason: str):
         self._set_connected(False)
+        self._refresh_paired_device_ui(online=False)
         if "10060" in reason or "timed out" in reason.lower():
             self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
         else:
             self._set_status(f"Bağlantı kesildi  —  {reason}", error=True)
         self._btn_connect.setEnabled(True)
+        self._btn_quick_connect.setEnabled(bool(self._paired_phone_id))
         self._screen.clear_frame()
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
+        """6 haneli kod ile ilk eşleşme — partner device_id henüz bilinmiyor.
+        pair_confirm mekanizması telefon tarafından device_id geldiğinde
+        SignalingClient'te handle edilir; burada sadece görsel güncelleme."""
         self._set_connected(True)
+        self._set_status("Eşleşildi! Akış başlatılıyor...")
         if stream_url and stream_url.startswith("http"):
             if "0.0.0.0" not in stream_url and "10.0.2." not in stream_url:
                 try:
@@ -489,11 +564,21 @@ class MainWindow(QMainWindow):
                     pass
         self._set_status(Ui.MSG_PAIRED_WS)
 
+    @pyqtSlot(str)
+    def _on_auto_paired(self, partner_device_id: str):
+        """Kayıtlı telefon otomatik olarak bağlandı."""
+        logger.info(f"Auto-paired with: {partner_device_id}")
+        self._paired_phone_id = partner_device_id
+        self._refresh_paired_device_ui(online=True)
+        self._set_connected(True)
+        self._set_status(f"Telefon bağlandı (otomatik)  —  Ekran akışı bekleniyor")
+
     @pyqtSlot()
     def _on_peer_disconnected(self):
         self._mjpeg.stop()
         self._screen.clear_frame()
         self._set_connected(False)
+        self._refresh_paired_device_ui(online=False)
         self._set_status(Ui.MSG_PEER_DISCONNECTED, error=True)
 
     @pyqtSlot(str)
@@ -548,6 +633,51 @@ class MainWindow(QMainWindow):
         self._lbl_coords.setText(f"({x1:.2f},{y1:.2f}) → ({x2:.2f},{y2:.2f})")
 
     # ─── HELPERS ──────────────────────────────────────────────────────────────
+
+    def _refresh_paired_device_ui(self, online: bool | None = None):
+        """
+        Eşleşmiş cihazlar panelini günceller.
+        online=True → yeşil / Çevrimiçi
+        online=False → gri / Çevrimdışı
+        online=None → sarı / bağlanıyor
+        """
+        paired_id = self._paired_phone_id or load_paired_phone_id()
+        if not paired_id:
+            self._lbl_paired_phone.setText("Kayıtlı telefon yok")
+            self._lbl_paired_phone.setStyleSheet(
+                f"color: {Colors.TEXT_MUTED}; font-size: 11px; background: transparent;"
+            )
+            self._dot_paired.setStyleSheet(
+                f"background-color: {Colors.TEXT_OFF}; border-radius: 4px;"
+            )
+            self._btn_quick_connect.setEnabled(False)
+            return
+
+        short_id = paired_id[-8:] if len(paired_id) > 8 else paired_id
+
+        if online is True:
+            dot_color = Colors.SUCCESS
+            text_color = Colors.SUCCESS
+            status_str = "Çevrimiçi"
+            self._btn_quick_connect.setEnabled(False)  # zaten bağlı
+        elif online is False:
+            dot_color = Colors.TEXT_OFF
+            text_color = Colors.TEXT_MUTED
+            status_str = "Çevrimdışı"
+            self._btn_quick_connect.setEnabled(True)
+        else:  # None = connecting
+            dot_color = Colors.WARNING
+            text_color = Colors.WARNING
+            status_str = "Bağlanıyor..."
+            self._btn_quick_connect.setEnabled(False)
+
+        self._lbl_paired_phone.setText(f"Telefon ...{short_id}  —  {status_str}")
+        self._lbl_paired_phone.setStyleSheet(
+            f"color: {text_color}; font-size: 11px; background: transparent;"
+        )
+        self._dot_paired.setStyleSheet(
+            f"background-color: {dot_color}; border-radius: 4px;"
+        )
 
     @staticmethod
     def _lbl(text: str) -> QLabel:

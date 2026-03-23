@@ -10,13 +10,17 @@ import kotlin.random.Random
 
 /**
  * Signaling sunucusuyla WebSocket üzerinden haberleşir.
- * - 6 haneli rastgele bir oturum kodu üretir
- * - Kodu sunucuya kaydeder
- * - PC eşleştiğinde callback tetikler
- * - Relay üzerinden gelen komutları iletir
+ *
+ * Birincil akış (otomatik bağlantı):
+ *  - device_hello → sunucu bilinen eşleşmeyi kontrol eder
+ *  - auto_paired → PC çevrimiçiyse direkt eşleşir
+ *
+ * İlk eşleşme (6 haneli kod):
+ *  - register → PC join eder → paired → ikisi de pair_confirm gönderir
  */
 class SignalingClient(
     private val serverUrl: String,
+    private val deviceId: String,
     private val onPaired: (streamPort: Int) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
     private val onDisconnected: () -> Unit,
@@ -34,7 +38,7 @@ class SignalingClient(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val client = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)  // WebSocket için timeout kapatılır
+        .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
     private var ws: WebSocket? = null
@@ -45,14 +49,23 @@ class SignalingClient(
         ws = client.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.i(TAG, "Connected to signaling server, code=$sessionCode")
-                // Telefon olarak kayıt
-                val msg = JSONObject().apply {
+                Log.i(TAG, "Connected to signaling server, device_id=$deviceId code=$sessionCode")
+
+                // Önce device_hello gönder (persistent identity)
+                val helloMsg = JSONObject().apply {
+                    put("type", "device_hello")
+                    put("device_id", deviceId)
+                    put("role", "phone")
+                }
+                webSocket.send(helloMsg.toString())
+
+                // Ayrıca 6-haneli kod ile de kayıt ol (ilk eşleşme için fallback)
+                val registerMsg = JSONObject().apply {
                     put("type", "register")
                     put("code", sessionCode)
                     put("role", "phone")
                 }
-                webSocket.send(msg.toString())
+                webSocket.send(registerMsg.toString())
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -62,12 +75,26 @@ class SignalingClient(
                     when (json.getString("type")) {
                         "registered" -> Log.i(TAG, "Registered with code=$sessionCode")
 
-                        "paired" -> {
-                            Log.i(TAG, "Paired with PC!")
-                            // Stream başladıktan sonra stream_info gönder
+                        "device_ack" -> {
+                            val pairedWith = json.optString("paired_with", "")
+                            val partnerOnline = json.optBoolean("partner_online", false)
+                            Log.i(TAG, "Device ack: paired_with=$pairedWith online=$partnerOnline")
+                        }
+
+                        "auto_paired" -> {
+                            val partnerDeviceId = json.optString("partner_device_id", "")
+                            Log.i(TAG, "Auto-paired with PC: $partnerDeviceId")
                             scope.launch {
                                 delay(500)
-                                onPaired(8080) // NanoHTTPD 8080 portunda dinler
+                                onPaired(8080)
+                            }
+                        }
+
+                        "paired" -> {
+                            Log.i(TAG, "Paired with PC via code!")
+                            scope.launch {
+                                delay(500)
+                                onPaired(8080)
                             }
                         }
 
@@ -107,17 +134,21 @@ class SignalingClient(
     }
 
     /**
-     * Stream başladıktan sonra PC'ye HTTP stream URL'sini iletir.
-     * PC, relay signaling sunucusu üzerinden bu URL'yi alır ve MJPEG istemcisini başlatır.
-     * 
-     * NOT: İnternet üzerinden çalışmak için telefon IP'si
-     * ngrok tüneli veya benzeri ile halka açık olmalıdır.
-     * Bu implementasyonda URL doğrudan gönderilir; production'da
-     * bir relay mekanizması gerekir.
+     * İlk kod ile eşleşme gerçekleşince çağrılır.
+     * Sunucuya kalıcı pairing kaydedilir.
      */
+    fun sendPairConfirm(pcDeviceId: String) {
+        val msg = JSONObject().apply {
+            put("type", "pair_confirm")
+            put("my_device_id", deviceId)
+            put("paired_with", pcDeviceId)
+        }
+        ws?.send(msg.toString())
+        Log.i(TAG, "Sent pair_confirm: $deviceId <-> $pcDeviceId")
+    }
+
     /**
      * Kamera/ekran JPEG frame'ini Base64 JSON olarak PC'ye relay eder.
-     * Port forwarding gerektirmez — WebSocket üzerinden gider.
      */
     fun sendFrame(jpeg: ByteArray) {
         val currentWs = ws

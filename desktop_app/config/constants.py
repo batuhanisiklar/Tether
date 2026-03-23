@@ -4,6 +4,7 @@ Tek kaynak: tüm renkler, ölçüler, mesajlar ve Android key kodları burada.
 login_window.py dahil tüm dosyalar buraya referans verir.
 """
 
+import os
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
@@ -20,6 +21,18 @@ class AppMeta:
     MIN_HEIGHT: int    = 700
     DEFAULT_WIDTH: int = 1280
     DEFAULT_HEIGHT: int = 800
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tercihler / Kalıcı depolama
+# ──────────────────────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class Prefs:
+    """Prefs JSON dosyası yolu ve anahtar adları."""
+    PATH: str              = os.path.join(os.path.expanduser("~"), ".remote_control_prefs.json")
+    KEY_LOGGED_IN: str     = "is_logged_in"
+    KEY_DEVICE_ID: str     = "device_id"
+    KEY_PAIRED_PHONE: str  = "paired_phone_id"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

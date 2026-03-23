@@ -16,28 +16,24 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
+import java.util.UUID
 
 /**
  * Ana Aktivite
  * ============
- * - 6 haneli bağlantı kodunu gösterir
- * - Signaling sunucusuna bağlanır
- * - PC eşleşince MediaProjection izni ister ve ekran yayınını başlatır
- * - Kamera aç/kapat komutlarını işler
- * - Erişilebilirlik servisi yönlendirmesi ve touch/swipe komutları
- *
- * Kullanıcı bir kez çalıştırır, kod gösterilir ve bağlantıyı bekler.
+ * - Kalıcı device_id ile sunucuya bağlanır (device_hello)
+ * - PC daha önce eşleşmişse auto_paired tetiklenir — kod gerekmez
+ * - İlk eşleşme: 6 haneli kod PC'den girilir
+ * - Eşleşme sonrası pair_confirm sunucuya gönderilir ve SharedPreferences'e kaydedilir
  */
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val PREFS_NAME = "RemoteControlPrefs"
-        private const val KEY_SERVER_IP = "server_ip"
-        private const val DEFAULT_SERVER_IP = "192.168.1.103"  // Aynı ağdaki PC'nin IP'si
+        private const val PREFS_DEVICE = "RemoteControlDevicePrefs"
+        private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_PAIRED_PC_ID = "paired_pc_id"
         private const val SIGNALING_URL = "wss://connect-your-phone.onrender.com"
-        // Emülatörde host makineye ulaşmak için 10.0.2.2 kullanılır
-        // Gerçek cihazda 192.168.1.103:8765 (signaling sunucusunun IP'si)
 
         private val IS_EMULATOR = (android.os.Build.FINGERPRINT.startsWith("generic")
                 || android.os.Build.FINGERPRINT.startsWith("unknown")
@@ -59,6 +55,10 @@ class MainActivity : AppCompatActivity() {
     // Network
     private var signalingClient: SignalingClient? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // Cihaz kimliği
+    private lateinit var deviceId: String
+    private var pairedPcId: String? = null
 
     // MediaProjection izni
     private var pendingMediaProjectionResult: (() -> Unit)? = null
@@ -91,15 +91,26 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Oturum kontrolü — giriş yapılmamışsa LoginActivity'ye yönlendir
-        val prefs = getSharedPreferences("LoginPrefs", MODE_PRIVATE)
-        if (!prefs.getBoolean("is_logged_in", false)) {
+        // Oturum kontrolü
+        val loginPrefs = getSharedPreferences("LoginPrefs", MODE_PRIVATE)
+        if (!loginPrefs.getBoolean("is_logged_in", false)) {
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
             return
         }
 
         setContentView(R.layout.activity_main)
+
+        // Device ID yükle / oluştur
+        val devicePrefs = getSharedPreferences(PREFS_DEVICE, MODE_PRIVATE)
+        deviceId = devicePrefs.getString(KEY_DEVICE_ID, null)
+            ?: UUID.randomUUID().toString().replace("-", "").take(16).let { newId ->
+                val phoneId = "phone-$newId"
+                devicePrefs.edit().putString(KEY_DEVICE_ID, phoneId).apply()
+                phoneId
+            }
+        pairedPcId = devicePrefs.getString(KEY_PAIRED_PC_ID, null)
+        Log.i(TAG, "Device ID: $deviceId, pairedPcId: $pairedPcId")
 
         initViews()
         requestNotificationPermission()
@@ -108,11 +119,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initViews() {
-        tvCode = findViewById(R.id.tv_code)
-        tvStatus = findViewById(R.id.tv_status)
-        tvIpPort = findViewById(R.id.tv_ip_port)
+        tvCode     = findViewById(R.id.tv_code)
+        tvStatus   = findViewById(R.id.tv_status)
+        tvIpPort   = findViewById(R.id.tv_ip_port)
         etServerIp = findViewById(R.id.et_server_ip)
-        btnConnect = findViewById(R.id.btn_connect)
+        btnConnect    = findViewById(R.id.btn_connect)
         btnStopStream = findViewById(R.id.btn_stop_stream)
         tvAccessibility = findViewById(R.id.tv_accessibility)
 
@@ -122,56 +133,73 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
         btnStopStream.isEnabled = false
-    }
 
-    private fun getSignalingUrl(): String {
-        return SIGNALING_URL
+        // Daha önce eşleşilmiş PC varsa bilgi göster
+        if (pairedPcId != null) {
+            val shortId = pairedPcId!!.takeLast(8)
+            tvIpPort.text = "Kayıtlı PC: ...$shortId"
+        }
     }
 
     private fun autoConnect() {
-        val serverUrl = SIGNALING_URL
-        
         updateStatus("🔄 Signaling sunucusuna bağlanıyor...")
         btnConnect.isEnabled = false
 
         signalingClient?.disconnect()
         signalingClient = SignalingClient(
-            serverUrl = serverUrl,
-            onPaired = { _ ->
+            serverUrl  = SIGNALING_URL,
+            deviceId   = deviceId,
+            onPaired   = { _ ->
                 runOnUiThread {
                     updateStatus("✅ PC bağlandı!")
                     btnStopStream.isEnabled = true
                     if (IS_EMULATOR) {
-                        // Emülatörde MediaProjection çalışmaz → kamera stream kullan
                         updateStatus("✅ PC bağlandı! Kamera yayını başlıyor (emülatör)...")
                         requestCameraAccess(useFront = false)
                     } else {
-                        // Gerçek cihazda ekran yakalama
                         updateStatus("✅ PC bağlandı! Ekran yayını başlıyor...")
                         requestScreenCapture()
                     }
                 }
             },
-            onCommand = { action, params ->
-                handleCommand(action, params)
-            },
+            onCommand  = { action, params -> handleCommand(action, params) },
             onDisconnected = {
                 runOnUiThread {
                     updateStatus("🔴 Bağlantı kesildi — Yeniden bağlanmak için butona basın")
                     btnConnect.isEnabled = true
                     btnStopStream.isEnabled = false
-                    stopAllStreams()  // PC bağlantısı kesilince ekran/kamera yayınını durdur
-                    // tvCode — kodu silmiyoruz, kullanıcı tekrar deneyebilir
+                    stopAllStreams()
                 }
             }
         )
         signalingClient?.connect()
 
-        // Kodu göster
+        // 6-haneli kodu göster (ilk eşleşme için)
         val code = signalingClient!!.sessionCode
         tvCode.text = code
-        updateStatus("⏳ PC bağlantısı bekleniyor...")
+
+        val statusMsg = if (pairedPcId != null)
+            "⏳ Kayıtlı PC bekleniyor... (Kod: $code)"
+        else
+            "⏳ PC bağlantısı bekleniyor... (Kod: $code)"
+        updateStatus(statusMsg)
         Log.i(TAG, "Session code: $code")
+    }
+
+    /**
+     * İlk eşleşme tamamlandığında çağrılır.
+     * PC'nin device_id'si bilinmiyorsa bu metod pas geçilir;
+     * sunucu pair_confirm'i iki taraftan birinin gönderimi yeterlidir.
+     */
+    fun onFirstPairComplete(pcDeviceId: String) {
+        if (pcDeviceId.isBlank()) return
+        // SharedPreferences'e kaydet
+        getSharedPreferences(PREFS_DEVICE, MODE_PRIVATE)
+            .edit().putString(KEY_PAIRED_PC_ID, pcDeviceId).apply()
+        pairedPcId = pcDeviceId
+        // Sunucuya pair_confirm gönder
+        signalingClient?.sendPairConfirm(pcDeviceId)
+        Log.i(TAG, "Pair confirmed with PC: $pcDeviceId")
     }
 
     private fun handleCommand(action: String, params: Map<String, Any>) {
@@ -190,8 +218,6 @@ class MainActivity : AppCompatActivity() {
                 ControlReceiver.instance?.performSwipe(x1, y1, x2, y2)
             }
             "key_event" -> {
-                // JSON numerics parse edilince Double gelir, doğrudan Int cast'i başarısız olur.
-                // Number.toInt() ile güvenli dönüşüm yapılır.
                 val keyCode = (params["key_code"] as? Number)?.toInt() ?: return
                 ControlReceiver.instance?.performKeyEvent(keyCode)
             }
@@ -204,12 +230,8 @@ class MainActivity : AppCompatActivity() {
                         android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 }
             }
-            "camera_on" -> {
-                runOnUiThread { requestCameraAccess(useFront = false) }
-            }
-            "camera_off" -> {
-                runOnUiThread { stopCameraStream() }
-            }
+            "camera_on"  -> { runOnUiThread { requestCameraAccess(useFront = false) } }
+            "camera_off" -> { runOnUiThread { stopCameraStream() } }
             else -> Log.w(TAG, "Unknown command: $action")
         }
     }
@@ -226,18 +248,13 @@ class MainActivity : AppCompatActivity() {
         }
         startForegroundService(intent)
 
-        // Servis başladıktan sonra stream URL'sini PC'ye bildir
         val ip = getDeviceIp()
-        
-        // Geçersiz IP'ler için HTTP stream URL'si gönderme
-        // PC sadece WebSocket frame'lerini kullanacak
         if (ip != "0.0.0.0" && !ip.startsWith("10.0.2.")) {
             val streamUrl = "http://$ip:${ScreenStreamService.PORT}/stream"
             signalingClient?.notifyStreamReady(streamUrl)
             tvIpPort.text = "Stream: $streamUrl"
         } else {
-            // Emülatör veya geçersiz IP - sadece WebSocket kullan
-            signalingClient?.notifyStreamReady("")  // Boş URL = sadece WebSocket
+            signalingClient?.notifyStreamReady("")
             tvIpPort.text = "Ekran WebSocket üzerinden gönderiliyor"
         }
         updateStatus("🟢 Ekran yayını aktif")
@@ -257,15 +274,13 @@ class MainActivity : AppCompatActivity() {
         }
         startForegroundService(intent)
 
-        // Kamera zaten WebSocket üzerinden frame gönderiyor
-        // HTTP stream URL'si sadece geçerli IP'ler için gönder
         val ip = getDeviceIp()
         if (ip != "0.0.0.0" && !ip.startsWith("10.0.2.")) {
             val streamUrl = "http://$ip:${CameraStreamService.PORT}/stream"
             signalingClient?.notifyStreamReady(streamUrl)
             tvIpPort.text = "Kamera: $streamUrl"
         } else {
-            signalingClient?.notifyStreamReady("")  // Boş URL = sadece WebSocket
+            signalingClient?.notifyStreamReady("")
             tvIpPort.text = "Kamera WebSocket üzerinden gönderiliyor"
         }
         updateStatus("📷 Kamera yayını aktif")
@@ -312,27 +327,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun getDeviceIp(): String {
-        // Emülatör için her zamanki ADB port-forward senaryosu
-        if (IS_EMULATOR) {
-            // adb forward tcp:8080 tcp:8080
-            // PC 127.0.0.1:8080 → emülatör 8080
-            return "127.0.0.1"
-        }
-
+        if (IS_EMULATOR) return "127.0.0.1"
         return try {
-            // Önce Wi‑Fi IP'sini dene
             val wm = applicationContext.getSystemService(WIFI_SERVICE) as android.net.wifi.WifiManager
             @Suppress("DEPRECATION")
             val wifiIp = Formatter.formatIpAddress(wm.connectionInfo.ipAddress)
-
             if (wifiIp != "0.0.0.0") {
                 wifiIp
             } else {
-                // Bazı cihazlarda WifiManager 0.0.0.0 döndürebiliyor, bu durumda
-                // aktif IPv4 adresini network interface'lerden bul
-                val interfaces = java.util.Collections.list(
-                    java.net.NetworkInterface.getNetworkInterfaces()
-                )
+                val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
                 for (intf in interfaces) {
                     val addrs = java.util.Collections.list(intf.inetAddresses)
                     for (addr in addrs) {

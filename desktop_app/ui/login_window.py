@@ -12,12 +12,11 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-from desktop_app.config import Colors, AppMeta
+from desktop_app.config import Colors, AppMeta, Prefs
 
 # ─── Kimlik bilgileri (hardcoded — DB entegrasyonuna kadar) ────────────────────
 _VALID_USERNAME = "admin"
 _VALID_PASSWORD = "1234"
-_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".remote_control_prefs.json")
 
 
 class LoginWindow(QDialog):
@@ -239,8 +238,13 @@ class LoginWindow(QDialog):
             self._set_err(self._inp_user, False)
             self._set_err(self._inp_pass, False)
             try:
-                with open(_PREFS_PATH, "w") as f:
-                    json.dump({"is_logged_in": True}, f)
+                prefs = {}
+                if os.path.exists(Prefs.PATH):
+                    with open(Prefs.PATH, "r") as f:
+                        prefs = json.load(f)
+                prefs[Prefs.KEY_LOGGED_IN] = True
+                with open(Prefs.PATH, "w") as f:
+                    json.dump(prefs, f)
             except Exception:
                 pass
             self.accept()

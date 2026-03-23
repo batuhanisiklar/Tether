@@ -4,6 +4,7 @@ Desktop App — Yapılandırma ve sabitler.
 
 from desktop_app.config.constants import (
     AppMeta,
+    Prefs,
     ServerDefaults,
     Network,
     Colors,
@@ -13,6 +14,7 @@ from desktop_app.config.constants import (
 
 __all__ = [
     "AppMeta",
+    "Prefs",
     "ServerDefaults",
     "Network",
     "Colors",

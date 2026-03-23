@@ -1,4 +1,6 @@
 import json
+import os
+import uuid
 import threading
 import base64
 import logging
@@ -6,9 +8,32 @@ import websocket
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap, QImage
 
-from desktop_app.config import Network
+from desktop_app.config import Network, Prefs
 
 logger = logging.getLogger(__name__)
+
+
+def _load_or_create_device_id() -> str:
+    """PC için kalıcı device_id okur; yoksa UUID oluşturup kaydeder."""
+    prefs = {}
+    try:
+        if os.path.exists(Prefs.PATH):
+            with open(Prefs.PATH, "r") as f:
+                prefs = json.load(f)
+    except Exception:
+        pass
+
+    if Prefs.KEY_DEVICE_ID in prefs:
+        return prefs[Prefs.KEY_DEVICE_ID]
+
+    device_id = f"pc-{uuid.uuid4().hex[:12]}"
+    prefs[Prefs.KEY_DEVICE_ID] = device_id
+    try:
+        with open(Prefs.PATH, "w") as f:
+            json.dump(prefs, f)
+    except Exception:
+        pass
+    return device_id
 
 
 class WsClient(QObject):
@@ -17,6 +42,7 @@ class WsClient(QObject):
     connected = pyqtSignal()                    # Sunucuya bağlandı
     disconnected = pyqtSignal(str)              # Bağlantı kesildi (sebep)
     paired = pyqtSignal(str)                    # Telefon ile eşleşildi (stream URL)
+    auto_paired = pyqtSignal(str)               # Kayıtlı telefon otomatik bağlandı (partner device_id)
     peer_disconnected = pyqtSignal()            # Telefon bağlantısı kesildi
     command_received = pyqtSignal(dict)         # Telefondan komut geldi
     error_occurred = pyqtSignal(str)            # Hata mesajı
@@ -28,6 +54,8 @@ class WsClient(QObject):
         self._thread: threading.Thread | None = None
         self._session_code: str = ""
         self._frame_processing: bool = False  # Frame throttle bayrağı
+        self.device_id: str = _load_or_create_device_id()
+        logger.info(f"PC device_id: {self.device_id}")
 
     # ─── PUBLIC API ────────────────────────────────────────────────────────────
 
@@ -57,11 +85,46 @@ class WsClient(QObject):
         )
         self._thread.start()
 
+    def connect_with_device_id(self, url: str):
+        """
+        Sunucuya bağlan ve device_hello gönder (kayıtlı eşleşme varsa auto_paired tetiklenir).
+        Kod girmeden otomatik yeniden bağlanma için kullanılır.
+        """
+        self._session_code = ""
+        self._ws = websocket.WebSocketApp(
+            url,
+            on_open=self._on_open_device_hello,
+            on_message=self._on_message,
+            on_error=self._on_error,
+            on_close=self._on_close,
+        )
+        self._thread = threading.Thread(
+            target=self._ws.run_forever,
+            kwargs={
+                "ping_interval": Network.PING_INTERVAL_SEC,
+                "ping_timeout": Network.PING_TIMEOUT_SEC,
+                "skip_utf8_validation": True,
+            },
+            daemon=True,
+        )
+        self._thread.start()
+
     def disconnect(self):
         """Bağlantıyı kapat."""
         if self._ws:
             self._ws.close()
         self._ws = None
+
+    def send_pair_confirm(self, phone_device_id: str):
+        """İlk eşleşmeden sonra çağrılır; sunucuya kalıcı pairing kaydedilir."""
+        if self._ws:
+            self._ws.send(json.dumps({
+                "type": "pair_confirm",
+                "my_device_id": self.device_id,
+                "paired_with": phone_device_id,
+            }))
+        # Prefs'e kaydet
+        _save_paired_phone(phone_device_id)
 
     def send_command(self, cmd: dict):
         """Telefona komut gönder (relay üzerinden)."""
@@ -102,11 +165,20 @@ class WsClient(QObject):
 
     def _on_open(self, ws):
         self.connected.emit()
-        # PC olarak join isteği gönder
+        # PC olarak join isteği gönder (6-digit code flow)
         ws.send(json.dumps({
             "type": "join",
             "code": self._session_code,
             "role": "pc"
+        }))
+
+    def _on_open_device_hello(self, ws):
+        self.connected.emit()
+        # device_hello ile tanıt — kayıtlı telefon çevrimiçiyse auto_paired gelir
+        ws.send(json.dumps({
+            "type": "device_hello",
+            "device_id": self.device_id,
+            "role": "pc",
         }))
 
     def _on_message(self, ws, raw: str):
@@ -122,6 +194,11 @@ class WsClient(QObject):
 
         if msg_type == "paired":
             self.paired.emit(msg.get("stream_url", ""))
+
+        elif msg_type == "auto_paired":
+            partner_id = msg.get("partner_device_id", "")
+            logger.info(f"Auto-paired with phone: {partner_id}")
+            self.auto_paired.emit(partner_id)
 
         elif msg_type == "stream_info":
             self.paired.emit(msg.get("url", ""))
@@ -163,3 +240,34 @@ class WsClient(QObject):
 
     def _on_close(self, ws, code, msg):
         self.disconnected.emit(f"code={code}, msg={msg}")
+
+
+# ─── PREFS HELPERS ─────────────────────────────────────────────────────────────
+
+def _save_paired_phone(phone_device_id: str):
+    """paired_phone_id'yi prefs dosyasına kaydet."""
+    prefs = {}
+    try:
+        if os.path.exists(Prefs.PATH):
+            with open(Prefs.PATH, "r") as f:
+                prefs = json.load(f)
+    except Exception:
+        pass
+    prefs[Prefs.KEY_PAIRED_PHONE] = phone_device_id
+    try:
+        with open(Prefs.PATH, "w") as f:
+            json.dump(prefs, f)
+    except Exception:
+        pass
+
+
+def load_paired_phone_id() -> str | None:
+    """Prefs dosyasından kayıtlı eşleşmiş telefon device_id'sini okur."""
+    try:
+        if os.path.exists(Prefs.PATH):
+            with open(Prefs.PATH, "r") as f:
+                data = json.load(f)
+            return data.get(Prefs.KEY_PAIRED_PHONE)
+    except Exception:
+        pass
+    return None
