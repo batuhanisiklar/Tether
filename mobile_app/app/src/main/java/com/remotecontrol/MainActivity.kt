@@ -5,16 +5,14 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
-import android.net.wifi.WifiManager
-import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.text.format.Formatter
 import android.util.Log
-import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.remotecontrol.databinding.ActivityMainBinding
 import kotlinx.coroutines.*
 import java.util.UUID
 
@@ -44,13 +42,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // UI
-    private lateinit var tvCode: TextView
-    private lateinit var tvStatus: TextView
-    private lateinit var tvIpPort: TextView
-    private lateinit var etServerIp: EditText
-    private lateinit var btnConnect: Button
-    private lateinit var btnStopStream: Button
-    private lateinit var tvAccessibility: TextView
+    private lateinit var binding: ActivityMainBinding
 
     // Network
     private var signalingClient: SignalingClient? = null
@@ -99,7 +91,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
         // Device ID yükle / oluştur
         val devicePrefs = getSharedPreferences(PREFS_DEVICE, MODE_PRIVATE)
@@ -119,31 +112,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initViews() {
-        tvCode     = findViewById(R.id.tv_code)
-        tvStatus   = findViewById(R.id.tv_status)
-        tvIpPort   = findViewById(R.id.tv_ip_port)
-        etServerIp = findViewById(R.id.et_server_ip)
-        btnConnect    = findViewById(R.id.btn_connect)
-        btnStopStream = findViewById(R.id.btn_stop_stream)
-        tvAccessibility = findViewById(R.id.tv_accessibility)
-
-        btnConnect.setOnClickListener { autoConnect() }
-        btnStopStream.setOnClickListener { stopAllStreams() }
-        tvAccessibility.setOnClickListener {
+        binding.btnConnect.setOnClickListener { autoConnect() }
+        binding.btnStopStream.setOnClickListener { stopAllStreams() }
+        binding.tvAccessibility.setOnClickListener {
             startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-        btnStopStream.isEnabled = false
+        binding.btnStopStream.isEnabled = false
 
         // Daha önce eşleşilmiş PC varsa bilgi göster
         if (pairedPcId != null) {
             val shortId = pairedPcId!!.takeLast(8)
-            tvIpPort.text = "Kayıtlı PC: ...$shortId"
+            binding.tvIpPort.text = "Kayıtlı PC: ...$shortId"
         }
     }
 
     private fun autoConnect() {
         updateStatus("🔄 Signaling sunucusuna bağlanıyor...")
-        btnConnect.isEnabled = false
+        binding.btnConnect.isEnabled = false
 
         signalingClient?.disconnect()
         signalingClient = SignalingClient(
@@ -152,7 +137,7 @@ class MainActivity : AppCompatActivity() {
             onPaired   = { _ ->
                 runOnUiThread {
                     updateStatus("✅ PC bağlandı!")
-                    btnStopStream.isEnabled = true
+                    binding.btnStopStream.isEnabled = true
                     if (IS_EMULATOR) {
                         updateStatus("✅ PC bağlandı! Kamera yayını başlıyor (emülatör)...")
                         requestCameraAccess(useFront = false)
@@ -166,8 +151,8 @@ class MainActivity : AppCompatActivity() {
             onDisconnected = {
                 runOnUiThread {
                     updateStatus("🔴 Bağlantı kesildi — Yeniden bağlanmak için butona basın")
-                    btnConnect.isEnabled = true
-                    btnStopStream.isEnabled = false
+                    binding.btnConnect.isEnabled = true
+                    binding.btnStopStream.isEnabled = false
                     stopAllStreams()
                 }
             }
@@ -176,7 +161,7 @@ class MainActivity : AppCompatActivity() {
 
         // 6-haneli kodu göster (ilk eşleşme için)
         val code = signalingClient!!.sessionCode
-        tvCode.text = code
+        binding.tvCode.text = code
 
         val statusMsg = if (pairedPcId != null)
             "⏳ Kayıtlı PC bekleniyor... (Kod: $code)"
@@ -252,10 +237,10 @@ class MainActivity : AppCompatActivity() {
         if (ip != "0.0.0.0" && !ip.startsWith("10.0.2.")) {
             val streamUrl = "http://$ip:${ScreenStreamService.PORT}/stream"
             signalingClient?.notifyStreamReady(streamUrl)
-            tvIpPort.text = "Stream: $streamUrl"
+            binding.tvIpPort.text = "Stream: $streamUrl"
         } else {
             signalingClient?.notifyStreamReady("")
-            tvIpPort.text = "Ekran WebSocket üzerinden gönderiliyor"
+            binding.tvIpPort.text = "Ekran WebSocket üzerinden gönderiliyor"
         }
         updateStatus("🟢 Ekran yayını aktif")
     }
@@ -278,10 +263,10 @@ class MainActivity : AppCompatActivity() {
         if (ip != "0.0.0.0" && !ip.startsWith("10.0.2.")) {
             val streamUrl = "http://$ip:${CameraStreamService.PORT}/stream"
             signalingClient?.notifyStreamReady(streamUrl)
-            tvIpPort.text = "Kamera: $streamUrl"
+            binding.tvIpPort.text = "Kamera: $streamUrl"
         } else {
             signalingClient?.notifyStreamReady("")
-            tvIpPort.text = "Kamera WebSocket üzerinden gönderiliyor"
+            binding.tvIpPort.text = "Kamera WebSocket üzerinden gönderiliyor"
         }
         updateStatus("📷 Kamera yayını aktif")
     }
@@ -294,14 +279,14 @@ class MainActivity : AppCompatActivity() {
     private fun stopAllStreams() {
         stopService(Intent(this, ScreenStreamService::class.java))
         stopService(Intent(this, CameraStreamService::class.java))
-        btnStopStream.isEnabled = false
-        tvIpPort.text = ""
+        binding.btnStopStream.isEnabled = false
+        binding.tvIpPort.text = ""
         updateStatus("⏹ Tüm yayınlar durduruldu")
     }
 
     private fun checkAccessibilityService() {
         val isEnabled = isAccessibilityServiceEnabled()
-        tvAccessibility.text = if (isEnabled)
+        binding.tvAccessibility.text = if (isEnabled)
             "✅ Erişilebilirlik servisi aktif"
         else
             "⚠ Dokunma kontrolü için buraya tıklayın (Erişilebilirlik aktif et)"
@@ -353,7 +338,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatus(msg: String) {
         Log.i(TAG, msg)
-        tvStatus.text = msg
+        if (binding.tvStatus.text.toString() != msg) {
+            binding.tvStatus.text = msg
+        }
     }
 
     override fun onDestroy() {

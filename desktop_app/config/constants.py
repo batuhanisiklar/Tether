@@ -63,7 +63,7 @@ class Network:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Renk paleti — Professional Dark  (AnyDesk / TeamViewer tarzı)
+# Renk paleti — yumusak pastel yuzeyler
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class Colors:
@@ -72,69 +72,69 @@ class Colors:
     '#' ile başlayan hex string'ler, PyQt stylesheet'te doğrudan kullanılır.
     """
     # ── Arka planlar ─────────────────────────────────────────────────
-    BG_APP:       str = "#13151A"   # En koyu katman — pencere arka planı
-    BG_SURFACE:   str = "#1A1D23"   # Header, sol panel
-    BG_CARD:      str = "#1E2128"   # GroupBox, kart içi
-    BG_INPUT:     str = "#242731"   # Input alanları
+    BG_APP:       str = "#F3F5FB"
+    BG_SURFACE:   str = "#FFFFFF"
+    BG_CARD:      str = "#FAFBFF"
+    BG_INPUT:     str = "#F5F7FD"
 
     # ── Kenarlar ─────────────────────────────────────────────────────
-    BORDER:       str = "#2D3139"   # Genel ince kenar
-    BORDER_INPUT: str = "#353944"   # Input kenarı
-    BORDER_FOCUS: str = "#2B7FFF"   # Odak (mavi)
+    BORDER:       str = "#D9E1EF"
+    BORDER_INPUT: str = "#D4DDEE"
+    BORDER_FOCUS: str = "#8695FF"
 
     # ── Metin ────────────────────────────────────────────────────────
-    TEXT:         str = "#E8EAED"   # Birincil metin
-    TEXT_MUTED:   str = "#8B8FA8"   # Soluk / yardımcı metin
-    TEXT_SUBTLE:  str = "#6B7080"   # Alan başlıkları, footer
-    TEXT_OFF:     str = "#50545F"   # Bağlı değil, devre dışı
+    TEXT:         str = "#24324A"
+    TEXT_MUTED:   str = "#6E7B95"
+    TEXT_SUBTLE:  str = "#8D98AE"
+    TEXT_OFF:     str = "#A2ACC0"
 
     # ── Vurgu ────────────────────────────────────────────────────────────────
-    ACCENT:       str = "#2B7FFF"   # Mavi — primary action
-    ACCENT_HOVER: str = "#1A6FEF"
-    ACCENT_PRESS: str = "#1260D5"
-    ACCENT_DIM:   str = "#1F3A66"   # Disabled primary
+    ACCENT:       str = "#7C8BFF"
+    ACCENT_HOVER: str = "#6F7EF7"
+    ACCENT_PRESS: str = "#6170E8"
+    ACCENT_DIM:   str = "#CDD3FF"
 
     # ── Durum renkleri — Bağlan (yeşil), Bağlantıyı Kes (kırmızı) ───────────────────
-    SUCCESS:            str = "#22C55E"   # Bağlan butonu, bağlı durum indikatörü
-    SUCCESS_HOVER:      str = "#16A34A"
-    SUCCESS_PRESS:      str = "#15803D"
-    SUCCESS_DIM:        str = "#14402A"   # Bağlan disabled
-    ERROR:              str = "#EF4444"   # Bağlantıyı Kes butonu, hata
-    ERROR_HOVER:        str = "#DC2626"
-    WARNING:            str = "#FF9F0A"
+    SUCCESS:            str = "#69B99C"
+    SUCCESS_HOVER:      str = "#56AA8B"
+    SUCCESS_PRESS:      str = "#489A7B"
+    SUCCESS_DIM:        str = "#DDEFE7"
+    ERROR:              str = "#E47D7D"
+    ERROR_HOVER:        str = "#D56D6D"
+    WARNING:            str = "#E5B35B"
 
     # ── Buton yüzeyleri ──────────────────────────────────────────────
-    BTN_CONNECT_BG:    str = "#22C55E"   # Bağlan — yeşil
-    BTN_CONNECT_HOV:   str = "#16A34A"
-    BTN_CONNECT_PRESS: str = "#15803D"
-    BTN_CONNECT_DIM:   str = "#14402A"   # disabled gri-yeşil
-    BTN_SEC_BG:   str = "#242731"   # İkincil buton zemini
-    BTN_SEC_BDR:  str = "#353944"   # İkincil buton kenarı
-    BTN_SEC_FG:   str = "#C0C4D0"   # İkincil buton metni
-    BTN_SEC_HOV:  str = "#2D3139"   # İkincil hover
+    BTN_CONNECT_BG:    str = "#7C8BFF"
+    BTN_CONNECT_HOV:   str = "#6F7EF7"
+    BTN_CONNECT_PRESS: str = "#6170E8"
+    BTN_CONNECT_DIM:   str = "#CDD3FF"
+    BTN_SEC_BG:        str = "#FFFFFF"
+    BTN_SEC_BDR:       str = "#D4DDEE"
+    BTN_SEC_FG:        str = "#55627C"
+    BTN_SEC_HOV:       str = "#F1F4FB"
 
-    BTN_DANGER_BG:  str = "#2D1515"  # Tehlikeli eylem zemini
-    BTN_DANGER_BDR: str = "#5A2020"  # Tehlikeli kenar
-    BTN_DANGER_FG:  str = "#FF453A"  # Tehlikeli metin
-    BTN_DANGER_HOV: str = "#3D1F1F"  # Tehlikeli hover
+    BTN_DANGER_BG:     str = "#FFF2F2"
+    BTN_DANGER_BDR:    str = "#F1C7C7"
+    BTN_DANGER_FG:     str = "#C96868"
+    BTN_DANGER_HOV:    str = "#FFE7E7"
 
-    BTN_DISCONNECT_BG:  str = "#3D1515"   # Bağlantıyı Kes zemini (daha belirgin kırmızı)
-    BTN_DISCONNECT_BDR: str = "#7F1D1D"
-    BTN_DISCONNECT_FG:  str = "#EF4444"   # parlak kırmızı metin
-    BTN_DISCONNECT_HOV: str = "#4D1A1A"
+    BTN_DISCONNECT_BG: str = "#FFF4F4"
+    BTN_DISCONNECT_BDR: str = "#EECACA"
+    BTN_DISCONNECT_FG: str = "#CC6F6F"
+    BTN_DISCONNECT_HOV: str = "#FFEAEA"
 
     # Tuş kontrol buton renkleri (gruba göre renk ayrımı)
-    BTN_NAV_BG:   str = "#1E2740"   # Navigasyon (mavi tonu)
-    BTN_NAV_BDR:  str = "#2B4080"
-    BTN_NAV_FG:   str = "#7AABFF"
+    BTN_NAV_BG:        str = "#EEF2FF"
+    BTN_NAV_BDR:       str = "#CDD6FF"
+    BTN_NAV_FG:        str = "#6271DA"
 
-    BTN_VOL_BG:   str = "#1E2A1E"   # Ses (yeşil tonu)
-    BTN_VOL_BDR:  str = "#2A5A2A"
-    BTN_VOL_FG:   str = "#5EC472"
+    BTN_VOL_BG:        str = "#ECF8F2"
+    BTN_VOL_BDR:       str = "#CBE8D9"
+    BTN_VOL_FG:        str = "#4D9B7A"
 
-    BTN_SCR_BG:   str = "#2A1E2A"   # Ekran (mor tonu)
-    BTN_SCR_BDR:  str = "#4A2A5A"
-    BTN_SCR_FG:   str = "#B87FD4"
+    BTN_SCR_BG:        str = "#F6EEFF"
+    BTN_SCR_BDR:       str = "#E0CCFF"
+    BTN_SCR_FG:        str = "#9A74C8"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ class Ui:
     STATUS_BAR_BG:        str = Colors.BG_APP
     SPLITTER_HANDLE_BG:   str = Colors.BORDER
     SCREEN_BORDER:        str = Colors.BORDER
-    SCREEN_PLACEHOLDER_FG: str = "#3D4050"
+    SCREEN_PLACEHOLDER_FG: str = "#97A2B8"
     SCREEN_PLACEHOLDER_BG: str = Colors.BG_APP
     # Eski kamera sabitleri (geriye dönük uyumluluk)
     BTN_CAM_ON_BG:        str = Colors.BTN_VOL_BG

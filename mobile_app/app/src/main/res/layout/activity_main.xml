@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0F0F1A"
+    android:background="@color/bg_app"
     android:padding="16dp">
 
     <LinearLayout
@@ -13,21 +13,18 @@
 
         <!-- Logo / Başlık -->
         <TextView
+            style="@style/Text.RemoteControl.Title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="📱 Remote Control"
-            android:textSize="26sp"
-            android:textStyle="bold"
-            android:textColor="#9090FF"
+            android:text="@string/main_title"
             android:layout_marginTop="32dp"
             android:layout_marginBottom="8dp" />
 
         <TextView
+            style="@style/Text.RemoteControl.Body"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Telefonunuzu bilgisayardan yönetin"
-            android:textSize="13sp"
-            android:textColor="#6060AA"
+            android:text="@string/main_subtitle"
             android:layout_marginBottom="16dp" />
 
         <!-- PC / Sunucu adresi (aynı ağdaki bilgisayar IP'si) - Gizlendi -->
@@ -39,24 +36,22 @@
             android:layout_marginBottom="16dp">
 
             <TextView
+                style="@style/Text.RemoteControl.SectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="PC (Sunucu) IP adresi"
-                android:textSize="11sp"
-                android:textColor="#6060AA"
-                android:letterSpacing="0.2"
+                android:text="@string/server_ip_label"
                 android:layout_marginBottom="4dp" />
 
             <EditText
                 android:id="@+id/et_server_ip"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:hint="192.168.1.103"
+                android:hint="@string/server_ip_hint"
                 android:inputType="text"
                 android:maxLines="1"
                 android:textSize="14sp"
-                android:textColor="#E0E0FF"
-                android:textColorHint="#5050AA"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_tertiary"
                 android:background="@drawable/card_bg"
                 android:padding="12dp"
                 android:imeOptions="actionDone" />
@@ -70,34 +65,32 @@
             android:orientation="vertical"
             android:gravity="center"
             android:padding="24dp"
+            android:elevation="2dp"
             android:layout_marginBottom="16dp">
 
             <TextView
+                style="@style/Text.RemoteControl.SectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="BAĞLANTI KODU"
-                android:textSize="11sp"
-                android:textColor="#6060AA"
-                android:letterSpacing="0.2"
+                android:text="@string/connection_code_title"
                 android:layout_marginBottom="8dp" />
 
             <TextView
                 android:id="@+id/tv_code"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="——————"
+                android:text="@string/connection_code_placeholder"
                 android:textSize="44sp"
                 android:textStyle="bold"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:letterSpacing="0.3"
                 android:fontFamily="monospace" />
 
             <TextView
+                style="@style/Text.RemoteControl.Body"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Bu kodu desktop uygulamasına girin"
-                android:textSize="12sp"
-                android:textColor="#5050AA"
+                android:text="@string/connection_code_help"
                 android:layout_marginTop="8dp" />
         </LinearLayout>
 
@@ -108,24 +101,23 @@
             android:background="@drawable/card_bg"
             android:orientation="vertical"
             android:padding="16dp"
+            android:elevation="2dp"
             android:layout_marginBottom="16dp">
 
             <TextView
+                style="@style/Text.RemoteControl.SectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="DURUM"
-                android:textSize="11sp"
-                android:textColor="#6060AA"
-                android:letterSpacing="0.2"
+                android:text="@string/status_title"
                 android:layout_marginBottom="6dp" />
 
             <TextView
                 android:id="@+id/tv_status"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="⏳ Başlatılıyor..."
+                android:text="@string/status_initializing"
                 android:textSize="14sp"
-                android:textColor="#C0C0E0" />
+                android:textColor="@color/text_primary" />
 
             <TextView
                 android:id="@+id/tv_ip_port"
@@ -133,7 +125,7 @@
                 android:layout_height="wrap_content"
                 android:text=""
                 android:textSize="11sp"
-                android:textColor="#5050AA"
+                android:textColor="@color/text_secondary"
                 android:fontFamily="monospace"
                 android:layout_marginTop="6dp" />
         </LinearLayout>
@@ -150,32 +142,26 @@
                 android:id="@+id/tv_accessibility"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="⚠ Dokunma kontrolü için buraya tıklayın"
+                android:text="@string/warning_accessibility"
                 android:textSize="13sp"
-                android:textColor="#FFCC66"
+                android:textColor="@color/warning"
                 android:clickable="true"
                 android:focusable="true" />
         </LinearLayout>
 
         <!-- Butonlar -->
         <Button
+            style="@style/Widget.RemoteControl.PrimaryButton"
             android:id="@+id/btn_connect"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="🔄 Yeniden Bağlan"
-            android:textSize="15sp"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#3A3ACC"
+            android:text="@string/retry_connect"
             android:layout_marginBottom="10dp" />
 
         <Button
+            style="@style/Widget.RemoteControl.DangerButton"
             android:id="@+id/btn_stop_stream"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="⏹ Yayını Durdur"
-            android:textSize="15sp"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#7A1A1A"
+            android:text="@string/stop_stream"
             android:layout_marginBottom="32dp" />
 
     </LinearLayout>

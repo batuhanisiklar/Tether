@@ -6,7 +6,6 @@ import okhttp3.*
 import okio.ByteString
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
-import kotlin.random.Random
 
 /**
  * Signaling sunucusuyla WebSocket üzerinden haberleşir.
@@ -163,7 +162,9 @@ class SignalingClient(
                 put("data", b64)
             }
             currentWs.send(msg.toString())
-            Log.d(TAG, "Frame gönderildi: ${jpeg.size} bytes -> ${b64.length} chars base64")
+            if (Log.isLoggable(TAG, Log.DEBUG)) {
+                Log.d(TAG, "Frame gönderildi: ${jpeg.size} bytes -> ${b64.length} chars base64")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Frame gönderme hatası: $e", e)
         }

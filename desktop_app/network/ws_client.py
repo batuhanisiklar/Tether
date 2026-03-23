@@ -9,30 +9,22 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap, QImage
 
 from desktop_app.config import Network, Prefs
+from desktop_app.config.prefs_store import load_paired_phone_id as _load_paired_phone_id
+from desktop_app.config.prefs_store import read_prefs, save_paired_phone_id, write_prefs
 
 logger = logging.getLogger(__name__)
 
 
 def _load_or_create_device_id() -> str:
     """PC için kalıcı device_id okur; yoksa UUID oluşturup kaydeder."""
-    prefs = {}
-    try:
-        if os.path.exists(Prefs.PATH):
-            with open(Prefs.PATH, "r") as f:
-                prefs = json.load(f)
-    except Exception:
-        pass
+    prefs = read_prefs()
 
     if Prefs.KEY_DEVICE_ID in prefs:
         return prefs[Prefs.KEY_DEVICE_ID]
 
     device_id = f"pc-{uuid.uuid4().hex[:12]}"
     prefs[Prefs.KEY_DEVICE_ID] = device_id
-    try:
-        with open(Prefs.PATH, "w") as f:
-            json.dump(prefs, f)
-    except Exception:
-        pass
+    write_prefs(prefs)
     return device_id
 
 
@@ -124,7 +116,7 @@ class WsClient(QObject):
                 "paired_with": phone_device_id,
             }))
         # Prefs'e kaydet
-        _save_paired_phone(phone_device_id)
+        save_paired_phone_id(phone_device_id)
 
     def send_command(self, cmd: dict):
         """Telefona komut gönder (relay üzerinden)."""
@@ -242,32 +234,6 @@ class WsClient(QObject):
         self.disconnected.emit(f"code={code}, msg={msg}")
 
 
-# ─── PREFS HELPERS ─────────────────────────────────────────────────────────────
-
-def _save_paired_phone(phone_device_id: str):
-    """paired_phone_id'yi prefs dosyasına kaydet."""
-    prefs = {}
-    try:
-        if os.path.exists(Prefs.PATH):
-            with open(Prefs.PATH, "r") as f:
-                prefs = json.load(f)
-    except Exception:
-        pass
-    prefs[Prefs.KEY_PAIRED_PHONE] = phone_device_id
-    try:
-        with open(Prefs.PATH, "w") as f:
-            json.dump(prefs, f)
-    except Exception:
-        pass
-
-
 def load_paired_phone_id() -> str | None:
     """Prefs dosyasından kayıtlı eşleşmiş telefon device_id'sini okur."""
-    try:
-        if os.path.exists(Prefs.PATH):
-            with open(Prefs.PATH, "r") as f:
-                data = json.load(f)
-            return data.get(Prefs.KEY_PAIRED_PHONE)
-    except Exception:
-        pass
-    return None
+    return _load_paired_phone_id()

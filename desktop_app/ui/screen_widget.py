@@ -46,6 +46,10 @@ class ScreenWidget(QLabel):
         self._current_pixmap: QPixmap | None = None
         self._drag_start: QPoint | None = None
         self._rotation_deg: int = 0   # 0 | 90 | 180 | 270
+        self._last_source_key: int | None = None
+        self._last_transform_key: tuple[int, int] | None = None
+        self._transformed_pixmap: QPixmap | None = None
+        self._last_render_key: tuple[int, int, int, int] | None = None
 
         self._show_placeholder()
 
@@ -56,11 +60,16 @@ class ScreenWidget(QLabel):
         if pixmap is None or pixmap.isNull():
             return
         self._current_pixmap = pixmap
+        self._last_source_key = pixmap.cacheKey()
         self._render()
 
     def clear_frame(self):
         """Stream durduğunda placeholder göster."""
         self._current_pixmap = None
+        self._last_source_key = None
+        self._last_transform_key = None
+        self._transformed_pixmap = None
+        self._last_render_key = None
         self._show_placeholder()
 
     def set_rotation(self, degrees: int):
@@ -69,6 +78,7 @@ class ScreenWidget(QLabel):
         Koordinat normalizasyonu otomatik güncellenir.
         """
         self._rotation_deg = degrees % 360
+        self._last_render_key = None
         if self._current_pixmap:
             self._render()
         else:
@@ -152,15 +162,29 @@ class ScreenWidget(QLabel):
         """Mevcut pixmap'i döndürerek ve widget boyutuna uyarlayarak göster."""
         if not self._current_pixmap:
             return
-        source = self._current_pixmap
-        if self._rotation_deg != 0:
-            transform = QTransform().rotate(self._rotation_deg)
-            source = source.transformed(transform, Qt.TransformationMode.SmoothTransformation)
-        scaled = source.scaled(
+        source_key = self._last_source_key or self._current_pixmap.cacheKey()
+        render_key = (source_key, self._rotation_deg, self.width(), self.height())
+        if self._last_render_key == render_key:
+            return
+
+        transform_key = (source_key, self._rotation_deg)
+        if self._last_transform_key != transform_key:
+            source = self._current_pixmap
+            if self._rotation_deg != 0:
+                transform = QTransform().rotate(self._rotation_deg)
+                source = source.transformed(transform, Qt.TransformationMode.SmoothTransformation)
+            self._transformed_pixmap = source
+            self._last_transform_key = transform_key
+
+        if self._transformed_pixmap is None:
+            return
+
+        scaled = self._transformed_pixmap.scaled(
             self.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
+        self._last_render_key = render_key
         self.setPixmap(scaled)
 
     def resizeEvent(self, event):
@@ -181,4 +205,5 @@ class ScreenWidget(QLabel):
             "Telefon bağlantısı bekleniyor"
         )
         painter.end()
+        self._last_render_key = None
         self.setPixmap(ph)

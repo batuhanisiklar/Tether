@@ -5,9 +5,7 @@ Profesyonel koyu arayüz. DB'den eşleşmiş cihazlar yüklenir,
 gerçek zamanlı online durumu signaling sunucusu üzerinden alınır.
 """
 
-import json
 import logging
-import os
 from datetime import datetime, timezone
 
 from PyQt6.QtWidgets import (
@@ -18,11 +16,13 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QPixmap
 
-from desktop_app.config import AppMeta, Prefs, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
+from desktop_app.config import AppMeta, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
+from desktop_app.config.prefs_store import clear_logged_in, load_paired_phone_id, read_prefs
 from desktop_app.ui.screen_widget import ScreenWidget
-from desktop_app.network.ws_client import WsClient, load_paired_phone_id
+from desktop_app.network.ws_client import WsClient
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
 from desktop_app.database.db_client import DbClient
+from desktop_app.ui.theme import card_style, line_edit_style, outline_button_style, text_style
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +33,10 @@ def _btn_nav() -> str:
         QPushButton {{
             background-color: {Colors.BTN_NAV_BG}; color: {Colors.BTN_NAV_FG};
             border: 1px solid {Colors.BTN_NAV_BDR};
-            border-radius: 4px; padding: 8px 4px; font-size: 11px; font-weight: 500;
+            border-radius: 10px; padding: 8px 4px; font-size: 11px; font-weight: 600;
         }}
-        QPushButton:hover  {{ background-color: #253060; border-color: {Colors.ACCENT}; color: {Colors.TEXT}; }}
-        QPushButton:pressed {{ background-color: {Colors.ACCENT_DIM}; }}
+        QPushButton:hover  {{ background-color: {Colors.BG_SURFACE}; border-color: {Colors.ACCENT}; color: {Colors.TEXT}; }}
+        QPushButton:pressed {{ background-color: {Colors.BG_CARD}; }}
         QPushButton:disabled {{ background-color: {Colors.BG_INPUT}; color: {Colors.TEXT_OFF}; border-color: {Colors.BORDER}; }}
     """
 
@@ -45,10 +45,10 @@ def _btn_vol() -> str:
         QPushButton {{
             background-color: {Colors.BTN_VOL_BG}; color: {Colors.BTN_VOL_FG};
             border: 1px solid {Colors.BTN_VOL_BDR};
-            border-radius: 4px; padding: 8px 4px; font-size: 11px; font-weight: 500;
+            border-radius: 10px; padding: 8px 4px; font-size: 11px; font-weight: 600;
         }}
-        QPushButton:hover  {{ background-color: #253A25; border-color: {Colors.SUCCESS}; color: {Colors.TEXT}; }}
-        QPushButton:pressed {{ background-color: #1A2A1A; }}
+        QPushButton:hover  {{ background-color: {Colors.BG_SURFACE}; border-color: {Colors.SUCCESS}; color: {Colors.TEXT}; }}
+        QPushButton:pressed {{ background-color: {Colors.BG_CARD}; }}
         QPushButton:disabled {{ background-color: {Colors.BG_INPUT}; color: {Colors.TEXT_OFF}; border-color: {Colors.BORDER}; }}
     """
 
@@ -57,10 +57,10 @@ def _btn_screen() -> str:
         QPushButton {{
             background-color: {Colors.BTN_SCR_BG}; color: {Colors.BTN_SCR_FG};
             border: 1px solid {Colors.BTN_SCR_BDR};
-            border-radius: 4px; padding: 8px 4px; font-size: 11px; font-weight: 500;
+            border-radius: 10px; padding: 8px 4px; font-size: 11px; font-weight: 600;
         }}
-        QPushButton:hover  {{ background-color: #351E3D; border-color: #9B59B6; color: {Colors.TEXT}; }}
-        QPushButton:pressed {{ background-color: #1E1028; }}
+        QPushButton:hover  {{ background-color: {Colors.BG_SURFACE}; border-color: {Colors.BTN_SCR_FG}; color: {Colors.TEXT}; }}
+        QPushButton:pressed {{ background-color: {Colors.BG_CARD}; }}
         QPushButton:disabled {{ background-color: {Colors.BG_INPUT}; color: {Colors.TEXT_OFF}; border-color: {Colors.BORDER}; }}
     """
 
@@ -98,16 +98,10 @@ class DeviceCard(QFrame):
 
     def _build(self, device_id: str, last_seen: datetime | None):
         c = Colors
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {c.BG_INPUT};
-                border: 1px solid {c.BORDER};
-                border-radius: 6px;
-            }}
-        """)
+        self.setStyleSheet(f"QFrame {{ {card_style(background=c.BG_SURFACE, border_color=c.BORDER, radius=12)} }}")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(4)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
 
         # Üst satır: ikon + isim + durum noktası
         top = QHBoxLayout()
@@ -120,10 +114,7 @@ class DeviceCard(QFrame):
 
         short_id = device_id[-10:] if len(device_id) > 10 else device_id
         name_lbl = QLabel(f"...{short_id}")
-        name_lbl.setStyleSheet(
-            f"color: {c.TEXT}; font-size: 12px; font-weight: 600;"
-            f" background: transparent; font-family: 'Segoe UI', Arial, sans-serif;"
-        )
+        name_lbl.setStyleSheet(text_style(c.TEXT, size=12, weight=600))
         top.addWidget(name_lbl)
         top.addStretch()
 
@@ -139,10 +130,7 @@ class DeviceCard(QFrame):
         bot.setSpacing(6)
 
         self._lbl_time = QLabel(_relative_time(last_seen))
-        self._lbl_time.setStyleSheet(
-            f"color: {c.TEXT_MUTED}; font-size: 10px; background: transparent;"
-            f" font-family: 'Segoe UI', Arial, sans-serif;"
-        )
+        self._lbl_time.setStyleSheet(text_style(c.TEXT_MUTED, size=10))
         bot.addWidget(self._lbl_time)
         bot.addStretch()
 
@@ -159,24 +147,33 @@ class DeviceCard(QFrame):
     def _apply_btn_style(self, enabled: bool):
         c = Colors
         if enabled:
-            self._btn_conn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {c.ACCENT}; color: #FFF;
-                    border: none; border-radius: 4px;
-                    font-size: 10px; font-weight: 600;
-                    font-family: 'Segoe UI', Arial, sans-serif;
-                }}
-                QPushButton:hover {{ background-color: {c.ACCENT_HOVER}; }}
-            """)
+            self._btn_conn.setStyleSheet(
+                outline_button_style(
+                    background=c.ACCENT,
+                    foreground="#FFFFFF",
+                    border_color=c.ACCENT,
+                    hover_background=c.ACCENT_HOVER,
+                    hover_foreground="#FFFFFF",
+                    hover_border=c.ACCENT_HOVER,
+                    radius=8,
+                    font_size=10,
+                    font_weight=600,
+                )
+            )
         else:
-            self._btn_conn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {c.BG_SURFACE}; color: {c.TEXT_OFF};
-                    border: 1px solid {c.BORDER}; border-radius: 4px;
-                    font-size: 10px; font-weight: 600;
-                    font-family: 'Segoe UI', Arial, sans-serif;
-                }}
-            """)
+            self._btn_conn.setStyleSheet(
+                outline_button_style(
+                    background=c.BG_CARD,
+                    foreground=c.TEXT_OFF,
+                    border_color=c.BORDER,
+                    hover_background=c.BG_CARD,
+                    hover_foreground=c.TEXT_OFF,
+                    hover_border=c.BORDER,
+                    radius=8,
+                    font_size=10,
+                    font_weight=600,
+                )
+            )
 
     def set_online(self, online: bool):
         self._online = online
@@ -184,10 +181,7 @@ class DeviceCard(QFrame):
         if online:
             self._dot.setStyleSheet(f"background-color: {c.SUCCESS}; border-radius: 4px;")
             self._lbl_time.setText("🟢 Çevrimiçi")
-            self._lbl_time.setStyleSheet(
-                f"color: {c.SUCCESS}; font-size: 10px; background: transparent;"
-                f" font-family: 'Segoe UI', Arial, sans-serif;"
-            )
+            self._lbl_time.setStyleSheet(text_style(c.SUCCESS, size=10, weight=600))
         else:
             self._dot.setStyleSheet(f"background-color: {c.TEXT_OFF}; border-radius: 4px;")
         self._btn_conn.setEnabled(online)
@@ -196,10 +190,7 @@ class DeviceCard(QFrame):
     def set_last_seen(self, dt: datetime | None):
         if not self._online:
             self._lbl_time.setText(_relative_time(dt))
-            self._lbl_time.setStyleSheet(
-                f"color: {Colors.TEXT_MUTED}; font-size: 10px; background: transparent;"
-                f" font-family: 'Segoe UI', Arial, sans-serif;"
-            )
+            self._lbl_time.setStyleSheet(text_style(Colors.TEXT_MUTED, size=10))
 
     def set_connect_callback(self, cb):
         self._connect_cb = cb
@@ -251,14 +242,9 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(300, self._load_devices_from_db)
 
     def _load_user_prefs(self):
-        try:
-            if os.path.exists(Prefs.PATH):
-                with open(Prefs.PATH) as f:
-                    data = json.load(f)
-                self._user_id = data.get(Prefs.KEY_USER_ID)
-                self._username = data.get(Prefs.KEY_USERNAME, "Kullanıcı")
-        except Exception:
-            pass
+        data = read_prefs()
+        self._user_id = data.get("user_id")
+        self._username = data.get("username", "Kullanıcı")
 
     # ─── STYLE ────────────────────────────────────────────────────────────────
 
@@ -270,23 +256,17 @@ class MainWindow(QMainWindow):
                            font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; }}
             QGroupBox {{
                 background-color: {c.BG_CARD};
-                border: 1px solid {c.BORDER}; border-radius: 5px;
-                margin-top: 12px; padding: 14px 10px 10px 10px;
+                border: 1px solid {c.BORDER}; border-radius: 14px;
+                margin-top: 14px; padding: 16px 12px 12px 12px;
                 font-size: 10px; font-weight: 700; letter-spacing: 1px;
                 color: {c.TEXT_SUBTLE}; text-transform: uppercase;
             }}
             QGroupBox::title {{
-                subcontrol-origin: margin; left: 10px; padding: 2px 6px;
+                subcontrol-origin: margin; left: 12px; padding: 2px 6px;
                 background-color: {c.BG_CARD};
             }}
-            QLineEdit {{
-                background-color: {c.BG_INPUT}; border: 1px solid {c.BORDER_INPUT};
-                border-radius: 4px; padding: 8px 12px;
-                color: {c.TEXT}; font-size: 13px;
-                selection-background-color: {c.ACCENT};
-            }}
-            QLineEdit:focus {{ border-color: {c.BORDER_FOCUS}; }}
-            QPushButton {{ border: none; border-radius: 4px;
+            {line_edit_style(font_size=13, radius=10, padding="8px 12px")}
+            QPushButton {{ border: none; border-radius: 10px;
                           padding: 7px 12px; font-size: 12px; font-weight: 500; }}
             QPushButton#btn_connect {{
                 background-color: {c.BTN_CONNECT_BG}; color: #FFFFFF;
@@ -294,7 +274,7 @@ class MainWindow(QMainWindow):
             QPushButton#btn_connect:hover   {{ background-color: {c.BTN_CONNECT_HOV}; }}
             QPushButton#btn_connect:pressed {{ background-color: {c.BTN_CONNECT_PRESS}; }}
             QPushButton#btn_connect:disabled {{
-                background-color: #1E3A2A; color: #3A6A4A; border: 1px solid #1E3A2A;
+                background-color: {c.BTN_CONNECT_DIM}; color: #FFFFFF; border: 1px solid {c.BTN_CONNECT_DIM};
             }}
             QPushButton#btn_disconnect {{
                 background-color: {c.BTN_DISCONNECT_BG};
@@ -309,7 +289,7 @@ class MainWindow(QMainWindow):
                 background-color: {c.BTN_NAV_BG}; color: {c.BTN_NAV_FG};
                 border: 1px solid {c.BTN_NAV_BDR};
             }}
-            QPushButton#btn_rotate:hover   {{ background-color: #253060; color: {c.TEXT}; }}
+            QPushButton#btn_rotate:hover   {{ background-color: {c.BG_SURFACE}; color: {c.TEXT}; }}
             QPushButton#btn_rotate:disabled {{
                 background-color: {c.BG_INPUT}; color: {c.TEXT_OFF}; border-color: {c.BORDER};
             }}
@@ -366,20 +346,17 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(16, 0, 16, 0)
 
         title = QLabel("Remote Phone Control")
-        title.setStyleSheet(
-            f"color: {c.TEXT}; font-size: 14px; font-weight: 600;"
-            f" letter-spacing: -0.2px; background: transparent;"
-        )
+        title.setStyleSheet(text_style(c.TEXT, size=14, weight=600, letter_spacing=-0.2))
         lay.addWidget(title)
 
         ver = QLabel(f"  v{AppMeta.VERSION}")
-        ver.setStyleSheet(f"color: {c.TEXT_OFF}; font-size: 11px; background: transparent;")
+        ver.setStyleSheet(text_style(c.TEXT_OFF, size=11))
         lay.addWidget(ver)
         lay.addStretch()
 
         # Kullanıcı adı
         user_lbl = QLabel(f"👤 {self._username}")
-        user_lbl.setStyleSheet(f"color: {c.TEXT_MUTED}; font-size: 11px; background: transparent;")
+        user_lbl.setStyleSheet(text_style(c.TEXT_MUTED, size=11))
         lay.addWidget(user_lbl)
         lay.addSpacing(12)
 
@@ -393,9 +370,7 @@ class MainWindow(QMainWindow):
         lay.addSpacing(6)
 
         self._lbl_status_text = QLabel("Bağlı Değil")
-        self._lbl_status_text.setStyleSheet(
-            f"color: {c.TEXT_OFF}; font-size: 12px; background: transparent;"
-        )
+        self._lbl_status_text.setStyleSheet(text_style(c.TEXT_OFF, size=12))
         lay.addWidget(self._lbl_status_text)
         lay.addSpacing(16)
 
@@ -407,17 +382,18 @@ class MainWindow(QMainWindow):
         lay.addSpacing(12)
 
         self._btn_logout = QPushButton("Çıkış")
-        self._btn_logout.setStyleSheet(f"""
-            QPushButton {{
-                background-color: transparent; color: {c.TEXT_MUTED};
-                border: 1px solid {c.BORDER}; border-radius: 4px;
-                padding: 4px 12px; font-size: 11px;
-            }}
-            QPushButton:hover {{
-                color: {c.BTN_DANGER_FG}; border-color: {c.BTN_DANGER_BDR};
-                background-color: {c.BTN_DANGER_BG};
-            }}
-        """)
+        self._btn_logout.setStyleSheet(
+            outline_button_style(
+                background=c.BG_SURFACE,
+                foreground=c.TEXT_MUTED,
+                border_color=c.BORDER,
+                hover_background=c.BTN_DANGER_BG,
+                hover_foreground=c.BTN_DANGER_FG,
+                hover_border=c.BTN_DANGER_BDR,
+                radius=10,
+                font_size=11,
+            )
+        )
         self._btn_logout.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_logout.clicked.connect(self._on_logout)
         lay.addWidget(self._btn_logout)
@@ -428,7 +404,8 @@ class MainWindow(QMainWindow):
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setFixedWidth(Ui.LEFT_PANEL_WIDTH)
+        panel.setMinimumWidth(Ui.LEFT_PANEL_WIDTH)
+        panel.setMaximumWidth(Ui.LEFT_PANEL_WIDTH + 80)
         panel.setStyleSheet(
             f"background-color: {Colors.BG_SURFACE};"
             f" border-right: 1px solid {Colors.BORDER};"
@@ -451,18 +428,9 @@ class MainWindow(QMainWindow):
         self._inp_code.setMaxLength(ServerDefaults.CODE_LENGTH)
         self._inp_code.setFixedHeight(36)
         self._inp_code.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._inp_code.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {Colors.BG_INPUT};
-                border: 1px solid {Colors.BORDER_INPUT};
-                border-radius: 4px; padding: 0 12px;
-                color: {Colors.TEXT}; font-size: 15px;
-                font-family: 'Segoe UI', Arial, sans-serif;
-                letter-spacing: 2px;
-                selection-background-color: {Colors.ACCENT};
-            }}
-            QLineEdit:focus {{ border-color: {Colors.BORDER_FOCUS}; }}
-        """)
+        self._inp_code.setStyleSheet(
+            line_edit_style(font_size=15, radius=10, padding="0 12px", centered=True, letter_spacing=2.0)
+        )
         cl.addWidget(self._inp_code)
 
         btn_row = QHBoxLayout()
@@ -534,10 +502,7 @@ class MainWindow(QMainWindow):
         self._lbl_no_devices = QLabel("Kayıtlı cihaz yok.\nYeni eşleşme için aşağıya bakın.")
         self._lbl_no_devices.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lbl_no_devices.setWordWrap(True)
-        self._lbl_no_devices.setStyleSheet(
-            f"color: {Colors.TEXT_MUTED}; font-size: 11px; background: transparent;"
-            f" padding: 8px 0;"
-        )
+        self._lbl_no_devices.setStyleSheet(text_style(Colors.TEXT_MUTED, size=11, extra="padding: 8px 0"))
         outer.addWidget(self._lbl_no_devices)
         self._lbl_no_devices.hide()
 
@@ -560,18 +525,12 @@ class MainWindow(QMainWindow):
         bar_lay.setContentsMargins(16, 0, 16, 0)
 
         screen_lbl = QLabel("EKRAN GÖRÜNTÜSÜ")
-        screen_lbl.setStyleSheet(
-            f"color: {c.TEXT_SUBTLE}; font-size: 10px; font-weight: 700;"
-            f" letter-spacing: 1px; background: transparent;"
-        )
+        screen_lbl.setStyleSheet(text_style(c.TEXT_SUBTLE, size=10, weight=700, letter_spacing=1))
         bar_lay.addWidget(screen_lbl)
         bar_lay.addStretch()
 
         self._lbl_coords = QLabel("")
-        self._lbl_coords.setStyleSheet(
-            f"color: {c.TEXT_OFF}; font-size: 10px;"
-            f" font-family: 'Consolas', monospace; background: transparent;"
-        )
+        self._lbl_coords.setStyleSheet(text_style(c.TEXT_OFF, size=10, font_family="'Consolas', monospace"))
         bar_lay.addWidget(self._lbl_coords)
         lay.addWidget(top_bar)
 
@@ -685,16 +644,7 @@ class MainWindow(QMainWindow):
         self._mjpeg.stop()
         self._ws_client.disconnect()
         self.db.close()
-        try:
-            prefs = {}
-            if os.path.exists(Prefs.PATH):
-                with open(Prefs.PATH) as f:
-                    prefs = json.load(f)
-            prefs[Prefs.KEY_LOGGED_IN] = False
-            with open(Prefs.PATH, "w") as f:
-                json.dump(prefs, f)
-        except Exception:
-            pass
+        clear_logged_in()
         from desktop_app.ui.login_window import LoginWindow
         new_db = DbClient()
         if LoginWindow(new_db).exec() == QDialog.DialogCode.Accepted:
@@ -820,10 +770,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _lbl(text: str) -> QLabel:
         l = QLabel(text)
-        l.setStyleSheet(
-            f"color: {Colors.TEXT_MUTED}; font-size: 11px; font-weight: 600;"
-            f" background: transparent;"
-        )
+        l.setStyleSheet(text_style(Colors.TEXT_MUTED, size=11, weight=600))
         return l
 
     def _set_connected(self, connected: bool):

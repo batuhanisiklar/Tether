@@ -4,11 +4,8 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.remotecontrol.databinding.ActivityLoginBinding
 
 /**
  * Login Aktivitesi
@@ -33,11 +30,7 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private lateinit var prefs: SharedPreferences
-
-    private lateinit var etUsername  : EditText
-    private lateinit var etPassword  : EditText
-    private lateinit var btnLogin    : Button
-    private lateinit var tvError     : TextView
+    private lateinit var binding: ActivityLoginBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,28 +43,24 @@ class LoginActivity : AppCompatActivity() {
             return
         }
 
-        setContentView(R.layout.activity_login)
+        binding = ActivityLoginBinding.inflate(layoutInflater)
+        setContentView(binding.root)
         bindViews()
     }
 
     private fun bindViews() {
-        etUsername = findViewById(R.id.et_username)
-        etPassword = findViewById(R.id.et_password)
-        btnLogin   = findViewById(R.id.btn_login)
-        tvError    = findViewById(R.id.tv_login_error)
-
-        btnLogin.setOnClickListener { attemptLogin() }
+        binding.btnLogin.setOnClickListener { attemptLogin() }
 
         // Klavye "Done" tuşuyla da giriş yapılabilsin
-        etPassword.setOnEditorActionListener { _, _, _ ->
+        binding.etPassword.setOnEditorActionListener { _, _, _ ->
             attemptLogin()
             true
         }
     }
 
     private fun attemptLogin() {
-        val username = etUsername.text.toString().trim()
-        val password = etPassword.text.toString()
+        val username = binding.etUsername.text.toString().trim()
+        val password = binding.etPassword.text.toString()
 
         if (username.isEmpty() || password.isEmpty()) {
             showError("Lütfen tüm alanları doldurun.")
@@ -85,8 +74,8 @@ class LoginActivity : AppCompatActivity() {
             goToMain()
         } else {
             showError("Kullanıcı adı veya şifre hatalı.")
-            etPassword.text.clear()
-            etPassword.requestFocus()
+            binding.etPassword.text.clear()
+            binding.etPassword.requestFocus()
         }
     }
 
@@ -96,11 +85,11 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun showError(msg: String) {
-        tvError.text = "⚠  $msg"
-        tvError.visibility = View.VISIBLE
+        binding.tvLoginError.text = "⚠  $msg"
+        binding.tvLoginError.visibility = View.VISIBLE
     }
 
     private fun hideError() {
-        tvError.visibility = View.GONE
+        binding.tvLoginError.visibility = View.GONE
     }
 }
