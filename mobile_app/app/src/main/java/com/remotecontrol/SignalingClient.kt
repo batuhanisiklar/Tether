@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 class SignalingClient(
     private val serverUrl: String,
     private val deviceId: String,
+    private val preferredPartnerId: String? = null,
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
     private val onDisconnected: () -> Unit,
@@ -55,6 +56,9 @@ class SignalingClient(
                     put("type", "device_hello")
                     put("device_id", deviceId)
                     put("role", "phone")
+                    if (!preferredPartnerId.isNullOrBlank()) {
+                        put("preferred_partner_id", preferredPartnerId)
+                    }
                 }
                 webSocket.send(helloMsg.toString())
 

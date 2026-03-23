@@ -9,7 +9,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap, QImage
 
 from desktop_app.config import Network, Prefs
-from desktop_app.config.prefs_store import load_paired_phone_id as _load_paired_phone_id
+from desktop_app.config.prefs_store import clear_paired_phone_id, load_paired_phone_id as _load_paired_phone_id
 from desktop_app.config.prefs_store import read_prefs, save_paired_phone_id, write_prefs
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ class WsClient(QObject):
         self._session_code: str = ""
         self._frame_processing: bool = False  # Frame throttle bayrağı
         self._preferred_partner_id: str | None = None
+        self._disconnect_emitted = False
         self.device_id: str = _load_or_create_device_id()
         logger.info(f"PC device_id: {self.device_id}")
 
@@ -61,6 +62,7 @@ class WsClient(QObject):
         :param code: Telefon uygulamasının gösterdiği 6 haneli kod
         """
         self._session_code = code
+        self._disconnect_emitted = False
         self._ws = websocket.WebSocketApp(
             url,
             on_open=self._on_open,
@@ -86,6 +88,7 @@ class WsClient(QObject):
         """
         self._session_code = ""
         self._preferred_partner_id = preferred_partner_id
+        self._disconnect_emitted = False
         self._ws = websocket.WebSocketApp(
             url,
             on_open=self._on_open_device_hello,
@@ -107,25 +110,29 @@ class WsClient(QObject):
     def disconnect(self):
         """Bağlantıyı kapat."""
         if self._ws:
-            self._ws.close()
+            try:
+                self._ws.close()
+            except Exception:
+                pass
         self._ws = None
 
     def send_pair_confirm(self, phone_device_id: str):
         """İlk eşleşmeden sonra çağrılır; sunucuya kalıcı pairing kaydedilir."""
-        if self._ws:
-            self._ws.send(json.dumps({
+        self._send_json(
+            {
                 "type": "pair_confirm",
                 "my_device_id": self.device_id,
                 "paired_with": phone_device_id,
-            }))
+            },
+            silent=True,
+        )
         # Prefs'e kaydet
         save_paired_phone_id(phone_device_id)
 
     def send_command(self, cmd: dict):
         """Telefona komut gönder (relay üzerinden)."""
-        if self._ws:
-            payload = {"type": "command", **cmd}
-            self._ws.send(json.dumps(payload))
+        payload = {"type": "command", **cmd}
+        self._send_json(payload)
 
     def send_touch(self, x: float, y: float):
         """Dokunma koordinatını gönder (0.0–1.0 arası normalize)."""
@@ -153,8 +160,31 @@ class WsClient(QObject):
 
     def send_heartbeat(self):
         """Keep-alive ping."""
-        if self._ws:
-            self._ws.send(json.dumps({"type": "heartbeat"}))
+        self._send_json({"type": "heartbeat"}, silent=True)
+
+    def forget_paired_phone(self):
+        clear_paired_phone_id()
+
+    def _send_json(self, payload: dict, silent: bool = False) -> bool:
+        current_ws = self._ws
+        if current_ws is None:
+            if not silent:
+                self.error_occurred.emit("Baglanti acik degil.")
+            return False
+        try:
+            current_ws.send(json.dumps(payload))
+            return True
+        except websocket.WebSocketConnectionClosedException:
+            logger.warning("Kapali WebSocket'a mesaj gonderilmeye calisildi: %s", payload.get("type"))
+            if not self._disconnect_emitted:
+                self._disconnect_emitted = True
+                self.disconnected.emit("socket is already closed")
+            return False
+        except Exception as exc:
+            logger.error("WebSocket gonderim hatasi: %s", exc)
+            if not silent:
+                self.error_occurred.emit(str(exc))
+            return False
 
     # ─── WEBSOCKET CALLBACKS ───────────────────────────────────────────────────
 
@@ -241,10 +271,15 @@ class WsClient(QObject):
             self.error_occurred.emit(msg.get("message", "Bilinmeyen hata"))
 
     def _on_error(self, ws, error):
+        if isinstance(error, websocket.WebSocketConnectionClosedException) and not self._disconnect_emitted:
+            self._disconnect_emitted = True
+            self.disconnected.emit("socket is already closed")
         self.error_occurred.emit(str(error))
 
     def _on_close(self, ws, code, msg):
-        self.disconnected.emit(f"code={code}, msg={msg}")
+        if not self._disconnect_emitted:
+            self._disconnect_emitted = True
+            self.disconnected.emit(f"code={code}, msg={msg}")
 
 
 def load_paired_phone_id() -> str | None:

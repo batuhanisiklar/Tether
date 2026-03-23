@@ -19,6 +19,7 @@ SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
     id          SERIAL PRIMARY KEY,
     username    TEXT UNIQUE NOT NULL,
+    address     TEXT UNIQUE,
     password_h  TEXT NOT NULL,
     created_at  TIMESTAMPTZ DEFAULT now()
 );
@@ -63,6 +64,26 @@ class ServerDbClient:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(SCHEMA_SQL)
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT")
+                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_address_unique_idx ON users(address)")
+                    cur.execute("UPDATE users SET address = (111111111110 + id)::text WHERE address IS NULL")
+                    cur.execute("""
+                        CREATE OR REPLACE FUNCTION set_user_address()
+                        RETURNS TRIGGER AS $$
+                        BEGIN
+                            IF NEW.address IS NULL THEN
+                                NEW.address := (111111111110 + NEW.id)::text;
+                            END IF;
+                            RETURN NEW;
+                        END;
+                        $$ LANGUAGE plpgsql;
+                    """)
+                    cur.execute("""
+                        DROP TRIGGER IF EXISTS trg_set_user_address ON users;
+                        CREATE TRIGGER trg_set_user_address
+                        BEFORE INSERT ON users
+                        FOR EACH ROW EXECUTE FUNCTION set_user_address();
+                    """)
                     cur.execute("ALTER TABLE pairings ALTER COLUMN user_id DROP NOT NULL")
                 conn.commit()
             return True
@@ -83,7 +104,18 @@ class ServerDbClient:
                 try:
                     with conn.cursor() as cur:
                         cur.execute(
-                            "INSERT INTO users (username, password_h) VALUES (%s, %s)",
+                            """
+                            WITH new_row AS (
+                                INSERT INTO users (username, password_h)
+                                VALUES (%s, %s)
+                                RETURNING id
+                            )
+                            UPDATE users
+                            SET address = (111111111110 + new_row.id)::text
+                            FROM new_row
+                            WHERE users.id = new_row.id
+                            RETURNING users.id
+                            """,
                             (normalized, password_hash),
                         )
                     conn.commit()
@@ -95,24 +127,56 @@ class ServerDbClient:
             logger.error("Register hatasi: %s", exc)
             return False, "Kayit sirasinda bir hata olustu."
 
-    def authenticate_user(self, username: str, password: str) -> tuple[int, str] | None:
+    def authenticate_user(self, username: str, password: str) -> tuple[int, str, str] | None:
         normalized = username.strip().lower()
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT id, username, password_h FROM users WHERE username = %s",
+                        "SELECT id, username, address, password_h FROM users WHERE username = %s",
                         (normalized,),
                     )
                     row = cur.fetchone()
-            if row is None:
-                return None
-            user_id, stored_username, password_hash = row
-            if bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8")):
-                return user_id, stored_username
-            return None
+                    if row is None:
+                        return None
+                    user_id, stored_username, address, password_hash = row
+                    if not bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8")):
+                        return None
+                    if address is None:
+                        address = str(111111111110 + user_id)
+                        cur.execute(
+                            "UPDATE users SET address = %s WHERE id = %s AND address IS NULL",
+                            (address, user_id),
+                        )
+                        conn.commit()
+                    return user_id, stored_username, address or ""
         except Exception as exc:
             logger.error("Auth hatasi: %s", exc)
+            return None
+
+    def get_user_profile(self, user_id: int) -> dict | None:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT id, username, address FROM users WHERE id = %s",
+                        (user_id,),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        return None
+                    result = dict(row)
+                    if result.get("address") is None:
+                        new_address = str(111111111110 + user_id)
+                        cur.execute(
+                            "UPDATE users SET address = %s WHERE id = %s AND address IS NULL",
+                            (new_address, user_id),
+                        )
+                        conn.commit()
+                        result["address"] = new_address
+            return result
+        except Exception as exc:
+            logger.error("Profil alma hatasi: %s", exc)
             return None
 
     def upsert_device(self, user_id: int, device_id: str, device_type: str) -> bool:
@@ -210,13 +274,14 @@ class ServerDbClient:
 
     def get_device_pairings(self, device_id: str) -> list[dict]:
         query = """
-            SELECT counterpart.device_id, counterpart.device_type, counterpart.last_seen
+            SELECT counterpart.device_id, counterpart.device_type, counterpart.last_seen, owner.address
             FROM pairings p
             JOIN devices counterpart
               ON counterpart.device_id = CASE
                     WHEN p.phone_device_id = %(device_id)s THEN p.pc_device_id
                     ELSE p.phone_device_id
                  END
+            LEFT JOIN users owner ON owner.id = counterpart.user_id
             WHERE p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s
             ORDER BY counterpart.last_seen DESC NULLS LAST
         """
@@ -228,6 +293,56 @@ class ServerDbClient:
         except Exception as exc:
             logger.error("Pairings listeleme hatasi: %s", exc)
             return []
+
+    def find_phone_device_by_address(self, address: str) -> str | None:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT d.device_id
+                        FROM devices d
+                        JOIN users u ON u.id = d.user_id
+                        WHERE u.address = %s AND d.device_type = 'phone'
+                        ORDER BY d.last_seen DESC NULLS LAST, d.id DESC
+                        LIMIT 1
+                        """,
+                        (address,),
+                    )
+                    row = cur.fetchone()
+            return row[0] if row else None
+        except Exception as exc:
+            logger.error("Address ile phone cihaz bulma hatasi: %s", exc)
+            return None
+
+    def delete_pairing_by_device_ids(self, first_device_id: str, second_device_id: str) -> bool:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT device_id, device_type
+                        FROM devices
+                        WHERE device_id IN (%s, %s)
+                        """,
+                        (first_device_id, second_device_id),
+                    )
+                    rows = {row["device_id"]: row for row in cur.fetchall()}
+                    first = rows.get(first_device_id)
+                    second = rows.get(second_device_id)
+                    phone_device_id, pc_device_id = self._resolve_pair_ids(first_device_id, second_device_id, first, second)
+                    cur.execute(
+                        """
+                        DELETE FROM pairings
+                        WHERE phone_device_id = %s AND pc_device_id = %s
+                        """,
+                        (phone_device_id, pc_device_id),
+                    )
+                conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("Pairing silme hatasi: %s", exc)
+            return False
 
     @staticmethod
     def _resolve_pair_ids(

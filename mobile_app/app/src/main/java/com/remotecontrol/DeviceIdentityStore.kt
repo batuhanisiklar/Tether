@@ -21,6 +21,10 @@ class DeviceIdentityStore(context: Context) {
         prefs.edit().putString(KEY_PAIRED_PC_ID, deviceId).apply()
     }
 
+    fun clearPairedPcId() {
+        prefs.edit().remove(KEY_PAIRED_PC_ID).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "RemoteControlDevicePrefs"
         private const val KEY_DEVICE_ID = "device_id"

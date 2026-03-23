@@ -11,28 +11,25 @@
         android:orientation="vertical"
         android:gravity="center_horizontal"
         android:paddingHorizontal="24dp"
-        android:paddingTop="48dp"
+        android:paddingTop="56dp"
         android:paddingBottom="40dp">
 
-        <!-- Uygulama İkonu / Logo -->
         <TextView
-            android:layout_width="84dp"
-            android:layout_height="84dp"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
             android:text="🔗"
-            android:textSize="40sp"
+            android:textSize="32sp"
             android:gravity="center"
             android:contentDescription="@string/login_icon"
             android:background="@drawable/login_icon_bg"
-            android:layout_marginBottom="24dp" />
+            android:layout_marginBottom="20dp" />
 
-        <!-- Başlık -->
         <TextView
             style="@style/TextRemoteControlTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/login_title"
-            android:letterSpacing="-0.02"
-            android:layout_marginBottom="8dp" />
+            android:layout_marginBottom="6dp" />
 
         <TextView
             style="@style/TextRemoteControlBody"
@@ -41,29 +38,26 @@
             android:text="@string/login_subtitle"
             android:gravity="center"
             android:textAlignment="center"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="8dp" />
 
         <TextView
-            style="@style/TextRemoteControlBody"
+            style="@style/TextRemoteControlCaption"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/login_helper"
             android:gravity="center"
             android:textAlignment="center"
-            android:textSize="12sp"
             android:layout_marginBottom="28dp" />
 
-        <!-- Giriş Kartı -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/login_card_bg"
             android:orientation="vertical"
-            android:elevation="2dp"
-            android:padding="24dp"
+            android:elevation="0dp"
+            android:padding="20dp"
             android:layout_marginBottom="16dp">
 
-            <!-- Kullanıcı Adı -->
             <TextView
                 style="@style/TextRemoteControlFieldLabel"
                 android:layout_width="wrap_content"
@@ -74,7 +68,7 @@
             <EditText
                 android:id="@+id/et_username"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="48dp"
                 android:hint="@string/login_username_hint"
                 android:inputType="text"
                 android:maxLines="1"
@@ -84,9 +78,8 @@
                 android:background="@drawable/login_input_bg"
                 android:paddingHorizontal="14dp"
                 android:imeOptions="actionNext"
-                android:layout_marginBottom="16dp" />
+                android:layout_marginBottom="14dp" />
 
-            <!-- Şifre -->
             <TextView
                 style="@style/TextRemoteControlFieldLabel"
                 android:layout_width="wrap_content"
@@ -97,7 +90,7 @@
             <EditText
                 android:id="@+id/et_password"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="48dp"
                 android:hint="@string/login_password_hint"
                 android:inputType="textPassword"
                 android:maxLines="1"
@@ -109,7 +102,6 @@
                 android:imeOptions="actionDone"
                 android:layout_marginBottom="8dp" />
 
-            <!-- Hata Mesajı -->
             <TextView
                 android:id="@+id/tv_login_error"
                 android:layout_width="match_parent"
@@ -119,32 +111,30 @@
                 android:textColor="@color/danger"
                 android:gravity="center"
                 android:visibility="gone"
-                android:layout_marginBottom="12dp" />
+                android:layout_marginBottom="10dp" />
 
-            <!-- Giriş Butonu -->
             <Button
                 style="@style/WidgetRemoteControlPrimaryButton"
                 android:id="@+id/btn_login"
                 android:layout_width="match_parent"
                 android:text="@string/login_button"
-                android:layout_marginTop="8dp" />
+                android:layout_marginTop="6dp" />
 
             <Button
                 style="@style/WidgetRemoteControlSecondaryButton"
                 android:id="@+id/btn_register"
                 android:layout_width="match_parent"
                 android:text="@string/register_button"
-                android:layout_marginTop="12dp" />
+                android:layout_marginTop="10dp" />
 
         </LinearLayout>
 
-        <!-- Alt bilgi -->
         <TextView
             style="@style/TextRemoteControlCaption"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/login_footer"
-            android:layout_marginTop="16dp" />
+            android:layout_marginTop="12dp" />
 
     </LinearLayout>
 </ScrollView>

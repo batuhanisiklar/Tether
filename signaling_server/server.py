@@ -25,6 +25,7 @@ def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
     return {
         "device_id": device["device_id"],
         "device_type": device["device_type"],
+        "address": device.get("address"),
         "last_seen": _serialize_datetime(device.get("last_seen")),
         "online": device["device_id"] in online_devices,
     }
@@ -295,7 +296,7 @@ async def auth_register(request: web.Request) -> web.Response:
     auth_result = await asyncio.to_thread(request.app["db"].authenticate_user, username, password)
     if auth_result is None:
         return web.json_response({"ok": False, "message": "Kayit sonrasi giris yapilamadi."}, status=500)
-    user_id, normalized_username = auth_result
+    user_id, normalized_username, address = auth_result
 
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
@@ -308,7 +309,7 @@ async def auth_register(request: web.Request) -> web.Response:
             "ok": True,
             "message": message,
             "token": token,
-            "user": {"id": user_id, "username": normalized_username},
+            "user": {"id": user_id, "username": normalized_username, "address": address},
         }
     )
 
@@ -323,7 +324,7 @@ async def auth_login(request: web.Request) -> web.Response:
     if auth_result is None:
         return web.json_response({"ok": False, "message": "Kullanici adi veya sifre hatali."}, status=401)
 
-    user_id, username = auth_result
+    user_id, username, address = auth_result
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     if device_id and device_type in {"phone", "pc"}:
@@ -334,7 +335,7 @@ async def auth_login(request: web.Request) -> web.Response:
         {
             "ok": True,
             "token": token,
-            "user": {"id": user_id, "username": username},
+            "user": {"id": user_id, "username": username, "address": address},
         }
     )
 
@@ -344,7 +345,10 @@ async def auth_me(request: web.Request) -> web.Response:
     if not user:
         return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
     user_id, username = user
-    return web.json_response({"ok": True, "user": {"id": user_id, "username": username}})
+    profile = await asyncio.to_thread(request.app["db"].get_user_profile, user_id)
+    if not profile:
+        return web.json_response({"ok": False, "message": "Kullanici bulunamadi."}, status=404)
+    return web.json_response({"ok": True, "user": profile})
 
 
 async def upsert_device(request: web.Request) -> web.Response:
@@ -385,6 +389,27 @@ async def list_pairings(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "pairings": payload})
 
 
+async def delete_pairing(request: web.Request) -> web.Response:
+    user = await _require_user(request)
+    if not user:
+        return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
+
+    data = await _json(request)
+    device_id = data.get("device_id", "").strip()
+    partner_device_id = data.get("partner_device_id", "").strip()
+    if not device_id or not partner_device_id:
+        return web.json_response({"ok": False, "message": "device_id ve partner_device_id gerekli."}, status=400)
+
+    success = await asyncio.to_thread(
+        request.app["db"].delete_pairing_by_device_ids,
+        device_id,
+        partner_device_id,
+    )
+    if not success:
+        return web.json_response({"ok": False, "message": "Eslesme silinemedi."}, status=500)
+    return web.json_response({"ok": True})
+
+
 async def on_cleanup(app: web.Application) -> None:
     app["db"].close()
 
@@ -408,6 +433,7 @@ def create_app() -> web.Application:
             web.post("/devices/upsert", upsert_device),
             web.get("/devices", list_devices),
             web.get("/pairings", list_pairings),
+            web.post("/pairings/delete", delete_pairing),
         ]
     )
     app.on_cleanup.append(on_cleanup)

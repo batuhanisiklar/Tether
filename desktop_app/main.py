@@ -32,7 +32,7 @@ def main():
         db.close()
         sys.exit(0)
 
-    from desktop_app.ui.main_window import MainWindow
+    from desktop_app.ui.app_window import MainWindow
     window = MainWindow(db)
     window.show()
     sys.exit(app.exec())

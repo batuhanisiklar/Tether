@@ -11,13 +11,13 @@ from datetime import datetime, timezone
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QLabel, QFrame, QStatusBar,
-    QSplitter, QGroupBox, QGridLayout, QDialog, QScrollArea,
+    QSplitter, QGroupBox, QGridLayout, QDialog, QScrollArea, QMessageBox, QApplication,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QPixmap
 
 from desktop_app.config import AppMeta, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
-from desktop_app.config.prefs_store import clear_logged_in, load_paired_phone_id, read_prefs
+from desktop_app.config.prefs_store import clear_logged_in, clear_paired_phone_id, load_paired_phone_id, read_prefs
 from desktop_app.ui.screen_widget import ScreenWidget
 from desktop_app.network.ws_client import WsClient
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
@@ -94,6 +94,7 @@ class DeviceCard(QFrame):
         self.device_id = device_id
         self._online = False
         self._connect_cb = None
+        self._forget_cb = None
         self._build(device_id, last_seen)
 
     def _build(self, device_id: str, last_seen: datetime | None):
@@ -125,7 +126,7 @@ class DeviceCard(QFrame):
 
         lay.addLayout(top)
 
-        # Alt satır: son görülme + bağlan butonu
+        # Alt satır: son görülme + aksiyonlar
         bot = QHBoxLayout()
         bot.setSpacing(6)
 
@@ -141,6 +142,25 @@ class DeviceCard(QFrame):
         self._apply_btn_style(False)
         self._btn_conn.clicked.connect(self._on_connect_clicked)
         bot.addWidget(self._btn_conn)
+
+        self._btn_forget = QPushButton("Unut")
+        self._btn_forget.setFixedSize(54, 24)
+        self._btn_forget.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_forget.setStyleSheet(
+            outline_button_style(
+                background=c.BG_CARD,
+                foreground=c.BTN_DANGER_FG,
+                border_color=c.BTN_DANGER_BDR,
+                hover_background=c.BTN_DANGER_BG,
+                hover_foreground=c.BTN_DANGER_FG,
+                hover_border=c.BTN_DANGER_BDR,
+                radius=8,
+                font_size=10,
+                font_weight=600,
+            )
+        )
+        self._btn_forget.clicked.connect(self._on_forget_clicked)
+        bot.addWidget(self._btn_forget)
 
         lay.addLayout(bot)
 
@@ -195,9 +215,16 @@ class DeviceCard(QFrame):
     def set_connect_callback(self, cb):
         self._connect_cb = cb
 
+    def set_forget_callback(self, cb):
+        self._forget_cb = cb
+
     def _on_connect_clicked(self):
         if self._connect_cb:
             self._connect_cb(self.device_id)
+
+    def _on_forget_clicked(self):
+        if self._forget_cb:
+            self._forget_cb(self.device_id)
 
     def set_connecting(self):
         self._btn_conn.setEnabled(False)
@@ -224,6 +251,7 @@ class MainWindow(QMainWindow):
         self._rotation_step = 0
         self._paired_phone_id: str | None = None
         self._device_cards: dict[str, DeviceCard] = {}  # device_id → card
+        self._logging_out = False
 
         # Prefs'ten user bilgilerini yükle
         self._user_id: int | None   = None
@@ -594,6 +622,7 @@ class MainWindow(QMainWindow):
         for dev in devices:
             card = DeviceCard(dev["device_id"], dev.get("last_seen"))
             card.set_connect_callback(self._on_card_connect)
+            card.set_forget_callback(self._on_card_forget)
             self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
             self._device_cards[dev["device_id"]] = card
 
@@ -605,6 +634,37 @@ class MainWindow(QMainWindow):
             card.set_connecting()
         self._set_status(f"Eşleşmiş telefona bağlanılıyor...")
         self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, preferred_partner_id=device_id)
+
+    def _on_card_forget(self, device_id: str):
+        short_id = device_id[-8:] if len(device_id) > 8 else device_id
+        answer = QMessageBox.question(
+            self,
+            "Eşleşmeyi Unut",
+            f"...{short_id} cihaziyla olan eslesme silinsin mi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        if not self.db.delete_pairing(device_id, self._ws_client.device_id):
+            self._set_status("Eşleşme silinemedi.", error=True)
+            return
+
+        card = self._device_cards.pop(device_id, None)
+        if card:
+            self._cards_layout.removeWidget(card)
+            card.deleteLater()
+        if not self._device_cards:
+            self._lbl_no_devices.show()
+
+        if self._paired_phone_id == device_id:
+            self._paired_phone_id = None
+            clear_paired_phone_id()
+            self._ws_client.forget_paired_phone()
+            self._on_disconnect()
+
+        self._set_status("Eşleşme kaldırıldı.")
 
     @pyqtSlot()
     def _try_auto_connect(self):
@@ -642,18 +702,31 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_logout(self):
+        if self._logging_out:
+            return
+        self._logging_out = True
+
         self._mjpeg.stop()
         self._ws_client.disconnect()
-        self.db.close()
+        self._heartbeat.stop()
+        self._set_connected(False)
+        self._screen.clear_frame()
         clear_logged_in()
+
         from desktop_app.ui.login_window import LoginWindow
         new_db = DbClient()
-        if LoginWindow(new_db).exec() == QDialog.DialogCode.Accepted:
-            self._load_user_prefs()
-            self._set_status(Ui.MSG_WAITING)
-            QTimer.singleShot(300, self._load_devices_from_db)
+        login = LoginWindow(new_db, self)
+        if login.exec() == QDialog.DialogCode.Accepted:
+            replacement = MainWindow(new_db)
+            app = QApplication.instance()
+            if app is not None:
+                setattr(app, "_rpc_main_window", replacement)
+            replacement.show()
+            self.close()
         else:
+            new_db.close()
             import sys; sys.exit(0)
+        self._logging_out = False
 
     @pyqtSlot()
     def _on_ws_connected(self):
@@ -721,6 +794,7 @@ class MainWindow(QMainWindow):
             if device_id not in self._device_cards:
                 self._device_cards[device_id] = DeviceCard(device_id, None)
                 self._device_cards[device_id].set_connect_callback(self._on_card_connect)
+                self._device_cards[device_id].set_forget_callback(self._on_card_forget)
                 self._cards_layout.insertWidget(self._cards_layout.count() - 1, self._device_cards[device_id])
                 self._lbl_no_devices.hide()
         for device_id, card in self._device_cards.items():
@@ -769,11 +843,15 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(float, float)
     def _on_touch(self, x: float, y: float):
+        if not self._connected:
+            return
         self._ws_client.send_touch(x, y)
         self._lbl_coords.setText(f"x={x:.3f}  y={y:.3f}")
 
     @pyqtSlot(float, float, float, float)
     def _on_swipe(self, x1, y1, x2, y2):
+        if not self._connected:
+            return
         self._ws_client.send_swipe(x1, y1, x2, y2)
         self._lbl_coords.setText(f"({x1:.2f},{y1:.2f}) → ({x2:.2f},{y2:.2f})")
 
@@ -810,6 +888,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._mjpeg.stop()
+        self._heartbeat.stop()
         self._ws_client.disconnect()
         self.db.close()
         super().closeEvent(event)

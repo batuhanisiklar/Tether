@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="TextRemoteControlTitle">
-        <item name="android:textSize">26sp</item>
+        <item name="android:textSize">22sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_primary</item>
     </style>
@@ -37,25 +37,25 @@
     </style>
 
     <style name="WidgetRemoteControlPrimaryButton">
-        <item name="android:layout_height">52dp</item>
+        <item name="android:layout_height">48dp</item>
         <item name="android:textColor">@color/text_inverse</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">14sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:backgroundTint">@color/primary</item>
     </style>
 
     <style name="WidgetRemoteControlDangerButton">
-        <item name="android:layout_height">52dp</item>
+        <item name="android:layout_height">48dp</item>
         <item name="android:textColor">@color/text_inverse</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">14sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:backgroundTint">@color/danger</item>
     </style>
 
     <style name="WidgetRemoteControlSecondaryButton">
-        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_height">44dp</item>
         <item name="android:textColor">@color/text_primary</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">13sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:backgroundTint">@color/surface_tint</item>
     </style>

@@ -41,6 +41,13 @@ def save_paired_phone_id(phone_device_id: str) -> None:
     update_prefs(**{Prefs.KEY_PAIRED_PHONE: phone_device_id})
 
 
+def clear_paired_phone_id() -> None:
+    prefs = read_prefs()
+    if Prefs.KEY_PAIRED_PHONE in prefs:
+        prefs.pop(Prefs.KEY_PAIRED_PHONE, None)
+        write_prefs(prefs)
+
+
 def save_session(user_id: int, username: str) -> None:
     update_prefs(
         **{

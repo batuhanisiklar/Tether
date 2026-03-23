@@ -19,11 +19,13 @@ data class AuthSession(
     val token: String,
     val userId: Int,
     val username: String,
+    val address: String,
 )
 
 data class DeviceSummary(
     val deviceId: String,
     val deviceType: String,
+    val address: String?,
     val lastSeen: String?,
     val online: Boolean,
 )
@@ -101,6 +103,58 @@ class BackendApi(
         }
     }
 
+    suspend fun deletePairing(token: String, deviceId: String, partnerDeviceId: String): ApiResult<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("device_id", deviceId)
+                put("partner_device_id", partnerDeviceId)
+            }
+            val request = Request.Builder()
+                .url("$baseHttpUrl/pairings/delete")
+                .addHeader("Authorization", "Bearer $token")
+                .post(payload.toString().toRequestBody(jsonType))
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val message = runCatching { JSONObject(body).optString("message") }.getOrDefault("")
+                    return@withContext ApiResult(error = message.ifBlank { "Eslesme silinemedi." })
+                }
+                ApiResult(data = Unit)
+            }
+        } catch (_: IOException) {
+            ApiResult(error = "Eslesme silinirken sunucuya ulasilamadi.")
+        }
+    }
+
+    suspend fun getMe(token: String): ApiResult<AuthSession> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$baseHttpUrl/auth/me")
+                .addHeader("Authorization", "Bearer $token")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext ApiResult(error = "Kullanici bilgisi alinamadi.")
+                }
+                val json = JSONObject(body)
+                val user = json.getJSONObject("user")
+                ApiResult(
+                    data = AuthSession(
+                        token = token,
+                        userId = user.getInt("id"),
+                        username = user.getString("username"),
+                        address = user.optString("address"),
+                    )
+                )
+            }
+        } catch (_: IOException) {
+            ApiResult(error = "Kullanici bilgisi alinirken sunucuya ulasilamadi.")
+        }
+    }
+
     private suspend fun authRequest(path: String, payload: JSONObject): ApiResult<AuthSession> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
@@ -128,6 +182,7 @@ class BackendApi(
                         token = json.getString("token"),
                         userId = user.getInt("id"),
                         username = user.getString("username"),
+                        address = user.optString("address"),
                     )
                 )
             }
@@ -145,6 +200,7 @@ class BackendApi(
                     DeviceSummary(
                         deviceId = item.optString("device_id"),
                         deviceType = item.optString("device_type"),
+                        address = item.optString("address").takeIf { it.isNotBlank() },
                         lastSeen = item.optString("last_seen").takeIf { it.isNotBlank() },
                         online = item.optBoolean("online", false),
                     )

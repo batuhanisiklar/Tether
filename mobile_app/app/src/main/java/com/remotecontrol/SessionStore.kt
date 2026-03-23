@@ -11,6 +11,8 @@ class SessionStore(context: Context) {
 
     fun username(): String = prefs.getString(KEY_USERNAME, "").orEmpty()
 
+    fun address(): String = prefs.getString(KEY_ADDRESS, "").orEmpty()
+
     fun userId(): Int = prefs.getInt(KEY_USER_ID, -1)
 
     fun save(session: AuthSession) {
@@ -18,6 +20,7 @@ class SessionStore(context: Context) {
             .putString(KEY_TOKEN, session.token)
             .putInt(KEY_USER_ID, session.userId)
             .putString(KEY_USERNAME, session.username)
+            .putString(KEY_ADDRESS, session.address)
             .apply()
     }
 
@@ -30,5 +33,6 @@ class SessionStore(context: Context) {
         private const val KEY_TOKEN = "auth_token"
         private const val KEY_USER_ID = "user_id"
         private const val KEY_USERNAME = "username"
+        private const val KEY_ADDRESS = "address"
     }
 }

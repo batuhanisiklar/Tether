@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QWidget, QStackedWidget,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
 
 from desktop_app.config import Colors, AppMeta
 from desktop_app.config.prefs_store import remembered_username, save_remembered_username, save_session
@@ -28,9 +28,8 @@ from desktop_app.ui.theme import (
 logger = logging.getLogger(__name__)
 
 
-# ─── Worker: DB işlemlerini arka planda yapar ──────────────────────────────────
-class _AuthWorker(QObject):
-    finished = pyqtSignal(object, str)
+class _AuthThread(QThread):
+    finished_with_result = pyqtSignal(object, str)
 
     def __init__(self, fn, *args):
         super().__init__()
@@ -40,9 +39,9 @@ class _AuthWorker(QObject):
     def run(self):
         try:
             result = self._fn(*self._args)
-            self.finished.emit(result, "")
+            self.finished_with_result.emit(result, "")
         except Exception as e:
-            self.finished.emit(None, str(e))
+            self.finished_with_result.emit(None, str(e))
 
 
 class LoginWindow(QDialog):
@@ -59,11 +58,10 @@ class LoginWindow(QDialog):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._drag_pos = None
-        self._login_worker = None
         self._login_thread = None
-        self._reg_worker = None
         self._reg_thread = None
         self._remembered_username = remembered_username()
+        self._pending_close = False
         self._build_ui()
 
     # ──────── UI ──────────────────────────────────────────────────────────────
@@ -338,12 +336,11 @@ class LoginWindow(QDialog):
 
     def closeEvent(self, event):
         """Pencere kapanırken çalışan asenkron DB thread'lerini güvenlice sonlandırır."""
-        if self._login_thread and self._login_thread.isRunning():
-            self._login_thread.quit()
-            self._login_thread.wait(2000)
-        if self._reg_thread and self._reg_thread.isRunning():
-            self._reg_thread.quit()
-            self._reg_thread.wait(2000)
+        if not self._wait_for_auth_threads():
+            self._pending_close = True
+            self._show_busy_message("Kimlik doğrulama işlemi tamamlanana kadar pencere kapatılamaz.")
+            event.ignore()
+            return
         super().closeEvent(event)
 
     # ──────── İşlem mantığı ───────────────────────────────────────────────────
@@ -353,17 +350,33 @@ class LoginWindow(QDialog):
         default_text = btn.property("original_text") or btn.text()
         btn.setText("Lütfen bekleyin..." if loading else default_text)
 
-    def _start_auth_task(self, thread_attr: str, worker_attr: str, fn, done_handler, *args):
-        thread = QThread(self)
-        worker = _AuthWorker(fn, *args)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.finished.connect(done_handler)
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
+    def _show_busy_message(self, message: str):
+        if self._stack.currentIndex() == 0:
+            self._lbl_login_err.setText(message)
+        else:
+            self._lbl_reg_err.setText(message)
+
+    def _wait_for_auth_threads(self) -> bool:
+        for thread in (self._login_thread, self._reg_thread):
+            if thread and thread.isRunning():
+                thread.wait(5000)
+                if thread.isRunning():
+                    return False
+        return True
+
+    def _cleanup_auth_task(self, thread_attr: str):
+        thread = getattr(self, thread_attr)
+        if thread is not None:
+            thread.deleteLater()
+        setattr(self, thread_attr, None)
+        if self._pending_close and self._wait_for_auth_threads():
+            self.reject()
+
+    def _start_auth_task(self, thread_attr: str, fn, done_handler, *args):
+        thread = _AuthThread(fn, *args)
+        thread.finished_with_result.connect(done_handler)
+        thread.finished.connect(lambda: self._cleanup_auth_task(thread_attr))
         setattr(self, thread_attr, thread)
-        setattr(self, worker_attr, worker)
         thread.start()
 
     def _on_login(self):
@@ -376,7 +389,7 @@ class LoginWindow(QDialog):
         self._lbl_login_err.setText("")
         self._set_loading(True, self._btn_login)
         self._btn_login.setText("Giriş yapılıyor...")
-        self._start_auth_task("_login_thread", "_login_worker", self.db.authenticate_user, self._on_login_done, uname, pwd)
+        self._start_auth_task("_login_thread", self.db.authenticate_user_with_error, self._on_login_done, uname, pwd)
 
     def _on_login_done(self, result, err: str):
         self._set_loading(False, self._btn_login)
@@ -384,11 +397,16 @@ class LoginWindow(QDialog):
         if err:
             self._lbl_login_err.setText(f"Bağlantı hatası: {err}")
             return
-        if result is None:
+
+        auth_result, auth_error = result
+        if auth_error:
+            self._lbl_login_err.setText(auth_error)
+            return
+        if auth_result is None:
             self._lbl_login_err.setText("Kullanıcı adı veya şifre hatalı.")
             return
 
-        user_id, username = result
+        user_id, username = auth_result
         save_remembered_username(uname := self._inp_user.text().strip() or username)
         self._save_session(user_id, username)
         self.accept()
@@ -410,7 +428,7 @@ class LoginWindow(QDialog):
 
         self._set_loading(True, self._btn_register)
         self._btn_register.setText("Kaydediliyor...")
-        self._start_auth_task("_reg_thread", "_reg_worker", self.db.register_user, self._on_register_done, uname, pwd)
+        self._start_auth_task("_reg_thread", self.db.register_user, self._on_register_done, uname, pwd)
 
     def _on_register_done(self, result, err: str):
         self._set_loading(False, self._btn_register)

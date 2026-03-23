@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/bg_app"
+    android:paddingHorizontal="16dp"
+    android:paddingTop="16dp"
+    android:paddingBottom="20dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Kullanici Bilgisi -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <View
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:background="@color/success" />
+
+            <TextView
+                android:id="@+id/tv_user"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:layout_marginStart="10dp" />
+        </LinearLayout>
+
+        <!-- Sabit Adres -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="24dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                style="@style/TextRemoteControlSectionLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_code_title"
+                android:layout_marginBottom="10dp" />
+
+            <TextView
+                android:id="@+id/tv_code"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_code_placeholder"
+                android:textSize="32sp"
+                android:textStyle="bold"
+                android:textColor="@color/primary"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.15" />
+
+            <TextView
+                style="@style/TextRemoteControlCaption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/connection_code_help"
+                android:layout_marginTop="10dp"
+                android:gravity="center" />
+        </LinearLayout>
+
+        <!-- Durum -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                style="@style/TextRemoteControlSectionLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/status_title"
+                android:layout_marginBottom="6dp" />
+
+            <TextView
+                android:id="@+id/tv_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/status_initializing"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_status_detail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+
+        <!-- Butonlar -->
+        <Button
+            android:id="@+id/btn_connect"
+            style="@style/WidgetRemoteControlPrimaryButton"
+            android:layout_width="match_parent"
+            android:text="@string/retry_connect"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_stop_stream"
+            style="@style/WidgetRemoteControlDangerButton"
+            android:layout_width="match_parent"
+            android:text="@string/stop_stream"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_accessibility"
+            style="@style/WidgetRemoteControlSecondaryButton"
+            android:layout_width="match_parent"
+            android:text="@string/open_accessibility_settings"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_logout"
+            style="@style/WidgetRemoteControlSecondaryButton"
+            android:layout_width="match_parent"
+            android:text="@string/logout" />
+
+    </LinearLayout>
+</ScrollView>

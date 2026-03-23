@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg_app">#0F1220</color>
-    <color name="surface">#171B2E</color>
-    <color name="surface_soft">#1E243B</color>
-    <color name="surface_tint">#252D4A</color>
-    <color name="stroke">#2E395D</color>
+    <color name="bg_app">#1A1A1A</color>
+    <color name="surface">#222222</color>
+    <color name="surface_soft">#2C2C2C</color>
+    <color name="surface_tint">#3A3A3A</color>
+    <color name="stroke">#444444</color>
 
-    <color name="text_primary">#F2F5FF</color>
-    <color name="text_secondary">#A8B2D1</color>
-    <color name="text_tertiary">#7682A6</color>
+    <color name="text_primary">#EEEEEE</color>
+    <color name="text_secondary">#999999</color>
+    <color name="text_tertiary">#666666</color>
     <color name="text_inverse">#FFFFFF</color>
 
-    <color name="primary">#8A95FF</color>
-    <color name="primary_variant">#707CF0</color>
-    <color name="secondary">#B39BFF</color>
-    <color name="success">#5FD1A4</color>
-    <color name="danger">#FF8B8B</color>
+    <color name="primary">#E06040</color>
+    <color name="primary_variant">#D05535</color>
+    <color name="secondary">#E88060</color>
+    <color name="success">#55CC66</color>
+    <color name="danger">#FF4444</color>
     <color name="warning">#FFCB70</color>
 
     <color name="warning_surface">#2A2415</color>
