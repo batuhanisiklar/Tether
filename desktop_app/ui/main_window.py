@@ -1,33 +1,37 @@
 """
 Ana Pencere — Remote Phone Control
 =====================================
-Profesyonel koyu arayüz. Tüm renkler constants.Colors'dan alınır.
+Profesyonel koyu arayüz. DB'den eşleşmiş cihazlar yüklenir,
+gerçek zamanlı online durumu signaling sunucusu üzerinden alınır.
 """
 
 import json
 import logging
 import os
+from datetime import datetime, timezone
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QLabel, QFrame, QStatusBar,
-    QSplitter, QGroupBox, QGridLayout, QDialog,
+    QSplitter, QGroupBox, QGridLayout, QDialog, QScrollArea,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QPixmap
 
 from desktop_app.config import AppMeta, Prefs, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
 from desktop_app.ui.screen_widget import ScreenWidget
 from desktop_app.network.ws_client import WsClient, load_paired_phone_id
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
+from desktop_app.database.db_client import DbClient
 
 logger = logging.getLogger(__name__)
 
-# ── Buton renk stilleri (Colors'tan türetilir) ────────────────────────────────
+
+# ── Buton renk stilleri ───────────────────────────────────────────────────────
 def _btn_nav() -> str:
     return f"""
         QPushButton {{
-            background-color: {Colors.BTN_NAV_BG};
-            color: {Colors.BTN_NAV_FG};
+            background-color: {Colors.BTN_NAV_BG}; color: {Colors.BTN_NAV_FG};
             border: 1px solid {Colors.BTN_NAV_BDR};
             border-radius: 4px; padding: 8px 4px; font-size: 11px; font-weight: 500;
         }}
@@ -39,8 +43,7 @@ def _btn_nav() -> str:
 def _btn_vol() -> str:
     return f"""
         QPushButton {{
-            background-color: {Colors.BTN_VOL_BG};
-            color: {Colors.BTN_VOL_FG};
+            background-color: {Colors.BTN_VOL_BG}; color: {Colors.BTN_VOL_FG};
             border: 1px solid {Colors.BTN_VOL_BDR};
             border-radius: 4px; padding: 8px 4px; font-size: 11px; font-weight: 500;
         }}
@@ -52,8 +55,7 @@ def _btn_vol() -> str:
 def _btn_screen() -> str:
     return f"""
         QPushButton {{
-            background-color: {Colors.BTN_SCR_BG};
-            color: {Colors.BTN_SCR_FG};
+            background-color: {Colors.BTN_SCR_BG}; color: {Colors.BTN_SCR_FG};
             border: 1px solid {Colors.BTN_SCR_BDR};
             border-radius: 4px; padding: 8px 4px; font-size: 11px; font-weight: 500;
         }}
@@ -65,20 +67,177 @@ def _btn_screen() -> str:
 _GROUP_STYLES = {"nav": _btn_nav, "vol": _btn_vol, "screen": _btn_screen}
 
 
-class MainWindow(QMainWindow):
-    """Ana uygulama penceresi — Professional Dark."""
+def _relative_time(dt: datetime | None) -> str:
+    """Datetime → '3 dk önce' formatında string."""
+    if dt is None:
+        return "Hiç bağlanmadı"
+    # timezone-aware yap
+    now = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    diff = int((now - dt).total_seconds())
+    if diff < 60:
+        return "Az önce"
+    if diff < 3600:
+        return f"{diff // 60} dk önce"
+    if diff < 86400:
+        return f"{diff // 3600} sa önce"
+    return f"{diff // 86400} gün önce"
 
-    def __init__(self):
+
+# ─── Cihaz kartı widget'ı ─────────────────────────────────────────────────────
+class DeviceCard(QFrame):
+    """Tek bir eşleşmiş telefon için kart."""
+
+    def __init__(self, device_id: str, last_seen: datetime | None, parent=None):
+        super().__init__(parent)
+        self.device_id = device_id
+        self._online = False
+        self._connect_cb = None
+        self._build(device_id, last_seen)
+
+    def _build(self, device_id: str, last_seen: datetime | None):
+        c = Colors
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {c.BG_INPUT};
+                border: 1px solid {c.BORDER};
+                border-radius: 6px;
+            }}
+        """)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(4)
+
+        # Üst satır: ikon + isim + durum noktası
+        top = QHBoxLayout()
+        top.setSpacing(7)
+
+        icon = QLabel("📱")
+        icon.setStyleSheet("font-size: 16px; background: transparent;")
+        icon.setFixedWidth(22)
+        top.addWidget(icon)
+
+        short_id = device_id[-10:] if len(device_id) > 10 else device_id
+        name_lbl = QLabel(f"...{short_id}")
+        name_lbl.setStyleSheet(
+            f"color: {c.TEXT}; font-size: 12px; font-weight: 600;"
+            f" background: transparent; font-family: 'Segoe UI', Arial, sans-serif;"
+        )
+        top.addWidget(name_lbl)
+        top.addStretch()
+
+        self._dot = QFrame()
+        self._dot.setFixedSize(8, 8)
+        self._dot.setStyleSheet(f"background-color: {c.TEXT_OFF}; border-radius: 4px;")
+        top.addWidget(self._dot)
+
+        lay.addLayout(top)
+
+        # Alt satır: son görülme + bağlan butonu
+        bot = QHBoxLayout()
+        bot.setSpacing(6)
+
+        self._lbl_time = QLabel(_relative_time(last_seen))
+        self._lbl_time.setStyleSheet(
+            f"color: {c.TEXT_MUTED}; font-size: 10px; background: transparent;"
+            f" font-family: 'Segoe UI', Arial, sans-serif;"
+        )
+        bot.addWidget(self._lbl_time)
+        bot.addStretch()
+
+        self._btn_conn = QPushButton("Bağlan")
+        self._btn_conn.setFixedSize(62, 24)
+        self._btn_conn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_conn.setEnabled(False)
+        self._apply_btn_style(False)
+        self._btn_conn.clicked.connect(self._on_connect_clicked)
+        bot.addWidget(self._btn_conn)
+
+        lay.addLayout(bot)
+
+    def _apply_btn_style(self, enabled: bool):
+        c = Colors
+        if enabled:
+            self._btn_conn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {c.ACCENT}; color: #FFF;
+                    border: none; border-radius: 4px;
+                    font-size: 10px; font-weight: 600;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                }}
+                QPushButton:hover {{ background-color: {c.ACCENT_HOVER}; }}
+            """)
+        else:
+            self._btn_conn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {c.BG_SURFACE}; color: {c.TEXT_OFF};
+                    border: 1px solid {c.BORDER}; border-radius: 4px;
+                    font-size: 10px; font-weight: 600;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                }}
+            """)
+
+    def set_online(self, online: bool):
+        self._online = online
+        c = Colors
+        if online:
+            self._dot.setStyleSheet(f"background-color: {c.SUCCESS}; border-radius: 4px;")
+            self._lbl_time.setText("🟢 Çevrimiçi")
+            self._lbl_time.setStyleSheet(
+                f"color: {c.SUCCESS}; font-size: 10px; background: transparent;"
+                f" font-family: 'Segoe UI', Arial, sans-serif;"
+            )
+        else:
+            self._dot.setStyleSheet(f"background-color: {c.TEXT_OFF}; border-radius: 4px;")
+        self._btn_conn.setEnabled(online)
+        self._apply_btn_style(online)
+
+    def set_last_seen(self, dt: datetime | None):
+        if not self._online:
+            self._lbl_time.setText(_relative_time(dt))
+            self._lbl_time.setStyleSheet(
+                f"color: {Colors.TEXT_MUTED}; font-size: 10px; background: transparent;"
+                f" font-family: 'Segoe UI', Arial, sans-serif;"
+            )
+
+    def set_connect_callback(self, cb):
+        self._connect_cb = cb
+
+    def _on_connect_clicked(self):
+        if self._connect_cb:
+            self._connect_cb(self.device_id)
+
+    def set_connecting(self):
+        self._btn_conn.setEnabled(False)
+        self._btn_conn.setText("...")
+        self._dot.setStyleSheet(
+            f"background-color: {Colors.WARNING}; border-radius: 4px;"
+        )
+
+
+# ─── Ana Pencere ──────────────────────────────────────────────────────────────
+class MainWindow(QMainWindow):
+    """Ana uygulama penceresi."""
+
+    def __init__(self, db: DbClient):
         super().__init__()
+        self.db = db
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
         self.setMinimumSize(AppMeta.MIN_WIDTH, AppMeta.MIN_HEIGHT)
         self.resize(AppMeta.DEFAULT_WIDTH, AppMeta.DEFAULT_HEIGHT)
 
-        self._ws_client = WsClient()
-        self._mjpeg = MjpegReceiver()
-        self._connected = False
-        self._rotation_step = 0   # 0=0°, 1=90°, 2=180°, 3=270°
-        self._paired_phone_id: str | None = None   # bilinen eşleşmiş telefon device_id
+        self._ws_client     = WsClient()
+        self._mjpeg         = MjpegReceiver()
+        self._connected     = False
+        self._rotation_step = 0
+        self._paired_phone_id: str | None = None
+        self._device_cards: dict[str, DeviceCard] = {}  # device_id → card
+
+        # Prefs'ten user bilgilerini yükle
+        self._user_id: int | None   = None
+        self._username: str         = "Kullanıcı"
+        self._load_user_prefs()
 
         self._setup_style()
         self._build_ui()
@@ -88,8 +247,18 @@ class MainWindow(QMainWindow):
         self._heartbeat.setInterval(Network.HEARTBEAT_INTERVAL_MS)
         self._heartbeat.timeout.connect(self._ws_client.send_heartbeat)
 
-        # Uygulama açılışında kayıtlı telefon varsa auto-connect dene
-        QTimer.singleShot(500, self._try_auto_connect)
+        # DB'den eşleşmiş cihazları yükle + auto-connect
+        QTimer.singleShot(300, self._load_devices_from_db)
+
+    def _load_user_prefs(self):
+        try:
+            if os.path.exists(Prefs.PATH):
+                with open(Prefs.PATH) as f:
+                    data = json.load(f)
+                self._user_id = data.get(Prefs.KEY_USER_ID)
+                self._username = data.get(Prefs.KEY_USERNAME, "Kullanıcı")
+        except Exception:
+            pass
 
     # ─── STYLE ────────────────────────────────────────────────────────────────
 
@@ -101,20 +270,17 @@ class MainWindow(QMainWindow):
                            font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; }}
             QGroupBox {{
                 background-color: {c.BG_CARD};
-                border: 1px solid {c.BORDER};
-                border-radius: 5px;
-                margin-top: 12px;
-                padding: 14px 10px 10px 10px;
-                font-size: 10px; font-weight: 700; letter-spacing: 1px; color: {c.TEXT_SUBTLE};
-                text-transform: uppercase;
+                border: 1px solid {c.BORDER}; border-radius: 5px;
+                margin-top: 12px; padding: 14px 10px 10px 10px;
+                font-size: 10px; font-weight: 700; letter-spacing: 1px;
+                color: {c.TEXT_SUBTLE}; text-transform: uppercase;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin; left: 10px; padding: 2px 6px;
                 background-color: {c.BG_CARD};
             }}
             QLineEdit {{
-                background-color: {c.BG_INPUT};
-                border: 1px solid {c.BORDER_INPUT};
+                background-color: {c.BG_INPUT}; border: 1px solid {c.BORDER_INPUT};
                 border-radius: 4px; padding: 8px 12px;
                 color: {c.TEXT}; font-size: 13px;
                 selection-background-color: {c.ACCENT};
@@ -128,8 +294,7 @@ class MainWindow(QMainWindow):
             QPushButton#btn_connect:hover   {{ background-color: {c.BTN_CONNECT_HOV}; }}
             QPushButton#btn_connect:pressed {{ background-color: {c.BTN_CONNECT_PRESS}; }}
             QPushButton#btn_connect:disabled {{
-                background-color: #1E3A2A; color: #3A6A4A;
-                border: 1px solid #1E3A2A;
+                background-color: #1E3A2A; color: #3A6A4A; border: 1px solid #1E3A2A;
             }}
             QPushButton#btn_disconnect {{
                 background-color: {c.BTN_DISCONNECT_BG};
@@ -138,12 +303,10 @@ class MainWindow(QMainWindow):
             }}
             QPushButton#btn_disconnect:hover   {{ background-color: {c.BTN_DISCONNECT_HOV}; }}
             QPushButton#btn_disconnect:disabled {{
-                background-color: {c.BG_INPUT}; color: {c.TEXT_OFF};
-                border: 1px solid {c.BORDER};
+                background-color: {c.BG_INPUT}; color: {c.TEXT_OFF}; border: 1px solid {c.BORDER};
             }}
             QPushButton#btn_rotate {{
-                background-color: {c.BTN_NAV_BG};
-                color: {c.BTN_NAV_FG};
+                background-color: {c.BTN_NAV_BG}; color: {c.BTN_NAV_FG};
                 border: 1px solid {c.BTN_NAV_BDR};
             }}
             QPushButton#btn_rotate:hover   {{ background-color: #253060; color: {c.TEXT}; }}
@@ -155,6 +318,14 @@ class MainWindow(QMainWindow):
                 border-top: 1px solid {c.BORDER}; font-size: 11px; padding: 0 8px;
             }}
             QSplitter::handle {{ background-color: {c.BORDER}; width: 1px; }}
+            QScrollArea {{ border: none; background: transparent; }}
+            QScrollBar:vertical {{
+                background: {c.BG_APP}; width: 6px; border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {c.BORDER}; border-radius: 3px; min-height: 20px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """)
 
     # ─── UI BUILD ─────────────────────────────────────────────────────────────
@@ -182,12 +353,13 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self._status_bar)
 
     def _build_header(self) -> QWidget:
+        c = Colors
         header = QFrame()
         header.setFixedHeight(Ui.HEADER_HEIGHT)
         header.setStyleSheet(f"""
             QFrame {{
-                background-color: {Colors.BG_SURFACE};
-                border-bottom: 1px solid {Colors.BORDER};
+                background-color: {c.BG_SURFACE};
+                border-bottom: 1px solid {c.BORDER};
             }}
         """)
         lay = QHBoxLayout(header)
@@ -195,58 +367,62 @@ class MainWindow(QMainWindow):
 
         title = QLabel("Remote Phone Control")
         title.setStyleSheet(
-            f"color: {Colors.TEXT}; font-size: 14px; font-weight: 600;"
+            f"color: {c.TEXT}; font-size: 14px; font-weight: 600;"
             f" letter-spacing: -0.2px; background: transparent;"
         )
         lay.addWidget(title)
 
         ver = QLabel(f"  v{AppMeta.VERSION}")
-        ver.setStyleSheet(f"color: {Colors.TEXT_OFF}; font-size: 11px; background: transparent;")
+        ver.setStyleSheet(f"color: {c.TEXT_OFF}; font-size: 11px; background: transparent;")
         lay.addWidget(ver)
         lay.addStretch()
+
+        # Kullanıcı adı
+        user_lbl = QLabel(f"👤 {self._username}")
+        user_lbl.setStyleSheet(f"color: {c.TEXT_MUTED}; font-size: 11px; background: transparent;")
+        lay.addWidget(user_lbl)
+        lay.addSpacing(12)
 
         # Bağlantı durumu
         self._status_indicator = QFrame()
         self._status_indicator.setFixedSize(8, 8)
         self._status_indicator.setStyleSheet(
-            f"background-color: {Colors.TEXT_OFF}; border-radius: 4px;"
+            f"background-color: {c.TEXT_OFF}; border-radius: 4px;"
         )
         lay.addWidget(self._status_indicator)
         lay.addSpacing(6)
 
         self._lbl_status_text = QLabel("Bağlı Değil")
         self._lbl_status_text.setStyleSheet(
-            f"color: {Colors.TEXT_OFF}; font-size: 12px; background: transparent;"
+            f"color: {c.TEXT_OFF}; font-size: 12px; background: transparent;"
         )
         lay.addWidget(self._lbl_status_text)
-        lay.addSpacing(20)
+        lay.addSpacing(16)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
         sep.setFixedHeight(20)
-        sep.setStyleSheet(f"background-color: {Colors.BORDER}; max-width: 1px;")
+        sep.setStyleSheet(f"background-color: {c.BORDER}; max-width: 1px;")
         lay.addWidget(sep)
-        lay.addSpacing(20)
+        lay.addSpacing(12)
 
-        self._btn_logout = QPushButton("Oturumu Kapat")
+        self._btn_logout = QPushButton("Çıkış")
         self._btn_logout.setStyleSheet(f"""
             QPushButton {{
-                background-color: transparent;
-                color: {Colors.TEXT_MUTED};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 4px; padding: 4px 12px; font-size: 11px;
+                background-color: transparent; color: {c.TEXT_MUTED};
+                border: 1px solid {c.BORDER}; border-radius: 4px;
+                padding: 4px 12px; font-size: 11px;
             }}
             QPushButton:hover {{
-                color: {Colors.BTN_DANGER_FG};
-                border-color: {Colors.BTN_DANGER_BDR};
-                background-color: {Colors.BTN_DANGER_BG};
+                color: {c.BTN_DANGER_FG}; border-color: {c.BTN_DANGER_BDR};
+                background-color: {c.BTN_DANGER_BG};
             }}
         """)
         self._btn_logout.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_logout.clicked.connect(self._on_logout)
         lay.addWidget(self._btn_logout)
 
-        self._lbl_status_dot = QLabel()   # legacy compat
+        self._lbl_status_dot = QLabel()
         self._lbl_status_dot.hide()
         return header
 
@@ -261,15 +437,15 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(10)
 
-        # ── Eşleştirilmiş Cihazlar (yeni bölüm) ──────────────────────
-        lay.addWidget(self._build_paired_devices_group())
+        # ── Eşleştirilmiş Cihazlar ────────────────────────────────────
+        lay.addWidget(self._build_devices_group())
 
-        # ── Bağlantı (6 haneli kod — ilk eşleşme için) ───────────────
-        grp_conn = QGroupBox("Yeni Eşleşme  (İlk Bağlantı)")
+        # ── Yeni Eşleşme ─────────────────────────────────────────────
+        grp_conn = QGroupBox("Yeni Eşleşme")
         cl = QVBoxLayout(grp_conn)
         cl.setSpacing(7)
 
-        cl.addWidget(self._lbl(f"Oturum Kodu  ({ServerDefaults.CODE_LENGTH} hane)"))
+        cl.addWidget(self._lbl(f"6 Haneli Kod"))
         self._inp_code = QLineEdit()
         self._inp_code.setPlaceholderText(Ui.PLACEHOLDER_CODE)
         self._inp_code.setMaxLength(ServerDefaults.CODE_LENGTH)
@@ -294,36 +470,10 @@ class MainWindow(QMainWindow):
         self._btn_connect = QPushButton("Eşleş ve Bağlan")
         self._btn_connect.setObjectName("btn_connect")
         self._btn_connect.setFixedHeight(32)
-        self._btn_connect.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Colors.BTN_CONNECT_BG};
-                color: #FFFFFF; border: none; border-radius: 4px;
-                font-size: 12px; font-weight: 600;
-            }}
-            QPushButton:hover   {{ background-color: {Colors.BTN_CONNECT_HOV}; }}
-            QPushButton:pressed {{ background-color: {Colors.BTN_CONNECT_PRESS}; }}
-            QPushButton:disabled {{
-                background-color: #243A2A; color: #3D6045; border: none;
-            }}
-        """)
         self._btn_disconnect = QPushButton("Bağlantıyı Kes")
         self._btn_disconnect.setObjectName("btn_disconnect")
         self._btn_disconnect.setFixedHeight(32)
         self._btn_disconnect.setEnabled(False)
-        self._btn_disconnect.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Colors.BTN_DISCONNECT_BG};
-                color: {Colors.BTN_DISCONNECT_FG};
-                border: 1px solid {Colors.BTN_DISCONNECT_BDR};
-                border-radius: 4px; font-size: 12px; font-weight: 600;
-            }}
-            QPushButton:hover   {{ background-color: {Colors.BTN_DISCONNECT_HOV}; }}
-            QPushButton:disabled {{
-                background-color: {Colors.BG_INPUT};
-                color: {Colors.TEXT_OFF};
-                border: 1px solid {Colors.BORDER};
-            }}
-        """)
         btn_row.addWidget(self._btn_connect)
         btn_row.addWidget(self._btn_disconnect)
         cl.addLayout(btn_row)
@@ -332,8 +482,6 @@ class MainWindow(QMainWindow):
         # ── Ekran Kontrolü ───────────────────────────────────────────
         grp_screen = QGroupBox("Ekran")
         sl = QVBoxLayout(grp_screen)
-        sl.setSpacing(6)
-
         self._btn_rotate = QPushButton("Yatay Moda Geç  ↻")
         self._btn_rotate.setObjectName("btn_rotate")
         self._btn_rotate.setFixedHeight(32)
@@ -349,7 +497,6 @@ class MainWindow(QMainWindow):
         kl.setSpacing(5)
         key_codes = AndroidKeyCodes.as_mapping()
         self._key_buttons = []
-
         for label, group, row, col, key_id in AndroidKeyCodes.button_specs():
             btn = QPushButton(label)
             btn.setStyleSheet(_GROUP_STYLES[group]())
@@ -362,59 +509,44 @@ class MainWindow(QMainWindow):
         lay.addStretch()
         return panel
 
-    def _build_paired_devices_group(self) -> QGroupBox:
-        """Kayıtlı eşleşmiş cihazları gösteren panel."""
+    def _build_devices_group(self) -> QGroupBox:
+        """DB'den yüklenen eşleşmiş cihaz kartlarının bulunduğu grup."""
         grp = QGroupBox("Eşleştirilmiş Cihazlar")
-        layout = QVBoxLayout(grp)
-        layout.setSpacing(6)
+        outer = QVBoxLayout(grp)
+        outer.setSpacing(6)
+        outer.setContentsMargins(6, 8, 6, 8)
 
-        # Durum satırı
-        row = QHBoxLayout()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(140)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        self._dot_paired = QFrame()
-        self._dot_paired.setFixedSize(8, 8)
-        self._dot_paired.setStyleSheet(
-            f"background-color: {Colors.TEXT_OFF}; border-radius: 4px;"
-        )
-        row.addWidget(self._dot_paired)
-        row.addSpacing(6)
+        self._cards_container = QWidget()
+        self._cards_container.setStyleSheet("background: transparent;")
+        self._cards_layout = QVBoxLayout(self._cards_container)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(6)
+        self._cards_layout.addStretch()
 
-        self._lbl_paired_phone = QLabel("Kayıtlı telefon yok")
-        self._lbl_paired_phone.setStyleSheet(
+        scroll.setWidget(self._cards_container)
+        outer.addWidget(scroll)
+
+        self._lbl_no_devices = QLabel("Kayıtlı cihaz yok.\nYeni eşleşme için aşağıya bakın.")
+        self._lbl_no_devices.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl_no_devices.setWordWrap(True)
+        self._lbl_no_devices.setStyleSheet(
             f"color: {Colors.TEXT_MUTED}; font-size: 11px; background: transparent;"
+            f" padding: 8px 0;"
         )
-        row.addWidget(self._lbl_paired_phone)
-        row.addStretch()
-        layout.addLayout(row)
-
-        # Hızlı bağlan butonu
-        self._btn_quick_connect = QPushButton("Bağlan")
-        self._btn_quick_connect.setFixedHeight(28)
-        self._btn_quick_connect.setEnabled(False)
-        self._btn_quick_connect.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Colors.ACCENT};
-                color: #FFFFFF; border: none; border-radius: 4px;
-                font-size: 11px; font-weight: 600;
-            }}
-            QPushButton:hover   {{ background-color: {Colors.ACCENT_HOVER}; }}
-            QPushButton:pressed {{ background-color: {Colors.ACCENT_PRESS}; }}
-            QPushButton:disabled {{
-                background-color: {Colors.ACCENT_DIM}; color: {Colors.TEXT_OFF};
-            }}
-        """)
-        self._btn_quick_connect.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_quick_connect.clicked.connect(self._on_quick_connect)
-        layout.addWidget(self._btn_quick_connect)
-
-        # Durumu başlangıçta yükle
-        self._refresh_paired_device_ui()
+        outer.addWidget(self._lbl_no_devices)
+        self._lbl_no_devices.hide()
 
         return grp
 
     def _build_screen_area(self) -> QWidget:
+        c = Colors
         container = QWidget()
-        container.setStyleSheet(f"background-color: {Colors.BG_APP};")
+        container.setStyleSheet(f"background-color: {c.BG_APP};")
         lay = QVBoxLayout(container)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
@@ -422,15 +554,14 @@ class MainWindow(QMainWindow):
         top_bar = QWidget()
         top_bar.setFixedHeight(32)
         top_bar.setStyleSheet(
-            f"background-color: {Colors.BG_SURFACE};"
-            f" border-bottom: 1px solid {Colors.BORDER};"
+            f"background-color: {c.BG_SURFACE}; border-bottom: 1px solid {c.BORDER};"
         )
         bar_lay = QHBoxLayout(top_bar)
         bar_lay.setContentsMargins(16, 0, 16, 0)
 
         screen_lbl = QLabel("EKRAN GÖRÜNTÜSÜ")
         screen_lbl.setStyleSheet(
-            f"color: {Colors.TEXT_SUBTLE}; font-size: 10px; font-weight: 700;"
+            f"color: {c.TEXT_SUBTLE}; font-size: 10px; font-weight: 700;"
             f" letter-spacing: 1px; background: transparent;"
         )
         bar_lay.addWidget(screen_lbl)
@@ -438,7 +569,7 @@ class MainWindow(QMainWindow):
 
         self._lbl_coords = QLabel("")
         self._lbl_coords.setStyleSheet(
-            f"color: {Colors.TEXT_OFF}; font-size: 10px;"
+            f"color: {c.TEXT_OFF}; font-size: 10px;"
             f" font-family: 'Consolas', monospace; background: transparent;"
         )
         bar_lay.addWidget(self._lbl_coords)
@@ -448,7 +579,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._screen, stretch=1)
         return container
 
-    # ─── SIGNAL CONNECTIONS ───────────────────────────────────────────────────
+    # ─── SIGNALS ──────────────────────────────────────────────────────────────
 
     def _connect_signals(self):
         self._btn_connect.clicked.connect(self._on_connect)
@@ -469,25 +600,62 @@ class MainWindow(QMainWindow):
     # ─── SLOTS ────────────────────────────────────────────────────────────────
 
     @pyqtSlot()
+    def _load_devices_from_db(self):
+        """DB'den eşleşmiş cihazları arka planda yükler."""
+        if not self._user_id:
+            self._try_auto_connect()
+            return
+
+        # DB'ye önce kendi cihazımızı kaydet
+        self.db.upsert_device(self._user_id, self._ws_client.device_id, "pc")
+
+        # Paired cihazları yükle
+        devices = self.db.get_paired_devices(self._user_id, self._ws_client.device_id)
+        self._populate_device_cards(devices)
+
+        # Kayıtlı telefon varsa auto-connect dene
+        self._try_auto_connect()
+
+    def _populate_device_cards(self, devices: list[dict]):
+        """Kart listesini DB sonuçlarıyla doldurur."""
+        # Eski kartları temizle
+        for card in self._device_cards.values():
+            self._cards_layout.removeWidget(card)
+            card.deleteLater()
+        self._device_cards.clear()
+
+        if not devices:
+            self._lbl_no_devices.show()
+            return
+
+        self._lbl_no_devices.hide()
+        # Stretch'ten önce ekle
+        stretch_item = self._cards_layout.itemAt(self._cards_layout.count() - 1)
+        for dev in devices:
+            card = DeviceCard(dev["device_id"], dev.get("last_seen"))
+            card.set_connect_callback(self._on_card_connect)
+            self._cards_layout.insertWidget(self._cards_layout.count() - 1, card)
+            self._device_cards[dev["device_id"]] = card
+
+    def _on_card_connect(self, device_id: str):
+        """Kullanıcı kart üzerindeki 'Bağlan' butonuna bastı."""
+        self._paired_phone_id = device_id
+        card = self._device_cards.get(device_id)
+        if card:
+            card.set_connecting()
+        self._set_status(f"Eşleşmiş telefona bağlanılıyor...")
+        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
+
+    @pyqtSlot()
     def _try_auto_connect(self):
         """Kayıtlı telefon varsa sunucuya bağlan ve device_hello gönder."""
         paired_id = load_paired_phone_id()
         if paired_id:
             self._paired_phone_id = paired_id
-            self._refresh_paired_device_ui(online=None)  # "bağlanıyor" durumu
             self._set_status("Kayıtlı telefon aranıyor...")
             self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
         else:
             self._set_status(Ui.MSG_WAITING)
-
-    @pyqtSlot()
-    def _on_quick_connect(self):
-        """Eşleştirilmiş cihazlar panelinden tek tıkla bağlan."""
-        if self._connected:
-            return
-        self._set_status("Eşleşmiş telefona bağlanılıyor...")
-        self._btn_quick_connect.setEnabled(False)
-        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
 
     @pyqtSlot()
     def _on_connect(self):
@@ -508,16 +676,19 @@ class MainWindow(QMainWindow):
         self._ws_client.disconnect()
         self._set_connected(False)
         self._screen.clear_frame()
-        self._refresh_paired_device_ui(online=False)
+        # Kart durumlarını güncelle
+        for card in self._device_cards.values():
+            card.set_online(False)
 
     @pyqtSlot()
     def _on_logout(self):
         self._mjpeg.stop()
         self._ws_client.disconnect()
+        self.db.close()
         try:
             prefs = {}
             if os.path.exists(Prefs.PATH):
-                with open(Prefs.PATH, "r") as f:
+                with open(Prefs.PATH) as f:
                     prefs = json.load(f)
             prefs[Prefs.KEY_LOGGED_IN] = False
             with open(Prefs.PATH, "w") as f:
@@ -525,8 +696,11 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         from desktop_app.ui.login_window import LoginWindow
-        if LoginWindow().exec() == QDialog.DialogCode.Accepted:
+        new_db = DbClient()
+        if LoginWindow(new_db).exec() == QDialog.DialogCode.Accepted:
+            self._load_user_prefs()
             self._set_status(Ui.MSG_WAITING)
+            QTimer.singleShot(300, self._load_devices_from_db)
         else:
             import sys; sys.exit(0)
 
@@ -538,22 +712,22 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def _on_ws_disconnected(self, reason: str):
         self._set_connected(False)
-        self._refresh_paired_device_ui(online=False)
+        for card in self._device_cards.values():
+            card.set_online(False)
         if "10060" in reason or "timed out" in reason.lower():
             self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
         else:
             self._set_status(f"Bağlantı kesildi  —  {reason}", error=True)
         self._btn_connect.setEnabled(True)
-        self._btn_quick_connect.setEnabled(bool(self._paired_phone_id))
         self._screen.clear_frame()
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
-        """6 haneli kod ile ilk eşleşme — partner device_id henüz bilinmiyor.
-        pair_confirm mekanizması telefon tarafından device_id geldiğinde
-        SignalingClient'te handle edilir; burada sadece görsel güncelleme."""
+        """İlk eşleşme (6 haneli kod)."""
         self._set_connected(True)
-        self._set_status("Eşleşildi! Akış başlatılıyor...")
+        # pair_confirm gönder ve DB'ye kaydet
+        # Phone device_id henüz bilinmiyor; server auto_paired'dan alınacak
+        self._set_status("Eşleşildi! Akış bekleniyor...")
         if stream_url and stream_url.startswith("http"):
             if "0.0.0.0" not in stream_url and "10.0.2." not in stream_url:
                 try:
@@ -566,19 +740,37 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_auto_paired(self, partner_device_id: str):
-        """Kayıtlı telefon otomatik olarak bağlandı."""
-        logger.info(f"Auto-paired with: {partner_device_id}")
+        """Kayıtlı eşleşme — telefon çevrimiçiydi, otomatik bağlandı."""
         self._paired_phone_id = partner_device_id
-        self._refresh_paired_device_ui(online=True)
         self._set_connected(True)
-        self._set_status(f"Telefon bağlandı (otomatik)  —  Ekran akışı bekleniyor")
+        self._set_status(f"Otomatik bağlandı  —  Ekran akışı bekleniyor")
+
+        # Kart güncelle
+        card = self._device_cards.get(partner_device_id)
+        if card:
+            card.set_online(True)
+
+        # DB'ye pair kaydet ve last_seen güncelle
+        if self._user_id:
+            self.db.save_pairing(self._user_id, partner_device_id, self._ws_client.device_id)
+            self.db.upsert_device(self._user_id, partner_device_id, "phone")
+
+        # Prefs'e partner kaydet
+        self._ws_client.send_pair_confirm(partner_device_id)
+
+        # Kart yoksa listeye ekle
+        if partner_device_id not in self._device_cards:
+            if self._user_id:
+                devices = self.db.get_paired_devices(self._user_id, self._ws_client.device_id)
+                self._populate_device_cards(devices)
 
     @pyqtSlot()
     def _on_peer_disconnected(self):
         self._mjpeg.stop()
         self._screen.clear_frame()
         self._set_connected(False)
-        self._refresh_paired_device_ui(online=False)
+        if self._paired_phone_id and self._paired_phone_id in self._device_cards:
+            self._device_cards[self._paired_phone_id].set_online(False)
         self._set_status(Ui.MSG_PEER_DISCONNECTED, error=True)
 
     @pyqtSlot(str)
@@ -587,7 +779,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(QPixmap)
     def _on_frame_received(self, pixmap: QPixmap):
-        logger.debug(f"Frame: {pixmap.width()}x{pixmap.height()}")
         self._screen.set_frame(pixmap)
 
     @pyqtSlot(str)
@@ -605,21 +796,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_rotate_toggle(self):
-        """
-        Desktop tarafında görüntüyü döndür (90° adımlarla).
-        Aynı zamanda telefona bilgi gönderilir; orientation lock kapalıysa
-        telefon da döner.
-        """
         self._rotation_step = (self._rotation_step + 1) % 4
         deg = self._rotation_step * 90
         self._screen.set_rotation(deg)
-
         labels = {0: "Yatay Moda Geç  ↻", 90: "180° Döndür  ↻",
                   180: "270° Döndür  ↻", 270: "Dikey Moda Geç  ↻"}
         self._btn_rotate.setText(labels[deg])
-
-        # Telefona da bildir (orientation lock kapalıysa fiziksel ekran döner)
-        self._ws_client.send_rotate_screen(deg == 90 or deg == 270)
+        self._ws_client.send_rotate_screen(deg in (90, 270))
         self._set_status(f"Görüntü {deg}° döndürüldü")
 
     @pyqtSlot(float, float)
@@ -634,51 +817,6 @@ class MainWindow(QMainWindow):
 
     # ─── HELPERS ──────────────────────────────────────────────────────────────
 
-    def _refresh_paired_device_ui(self, online: bool | None = None):
-        """
-        Eşleşmiş cihazlar panelini günceller.
-        online=True → yeşil / Çevrimiçi
-        online=False → gri / Çevrimdışı
-        online=None → sarı / bağlanıyor
-        """
-        paired_id = self._paired_phone_id or load_paired_phone_id()
-        if not paired_id:
-            self._lbl_paired_phone.setText("Kayıtlı telefon yok")
-            self._lbl_paired_phone.setStyleSheet(
-                f"color: {Colors.TEXT_MUTED}; font-size: 11px; background: transparent;"
-            )
-            self._dot_paired.setStyleSheet(
-                f"background-color: {Colors.TEXT_OFF}; border-radius: 4px;"
-            )
-            self._btn_quick_connect.setEnabled(False)
-            return
-
-        short_id = paired_id[-8:] if len(paired_id) > 8 else paired_id
-
-        if online is True:
-            dot_color = Colors.SUCCESS
-            text_color = Colors.SUCCESS
-            status_str = "Çevrimiçi"
-            self._btn_quick_connect.setEnabled(False)  # zaten bağlı
-        elif online is False:
-            dot_color = Colors.TEXT_OFF
-            text_color = Colors.TEXT_MUTED
-            status_str = "Çevrimdışı"
-            self._btn_quick_connect.setEnabled(True)
-        else:  # None = connecting
-            dot_color = Colors.WARNING
-            text_color = Colors.WARNING
-            status_str = "Bağlanıyor..."
-            self._btn_quick_connect.setEnabled(False)
-
-        self._lbl_paired_phone.setText(f"Telefon ...{short_id}  —  {status_str}")
-        self._lbl_paired_phone.setStyleSheet(
-            f"color: {text_color}; font-size: 11px; background: transparent;"
-        )
-        self._dot_paired.setStyleSheet(
-            f"background-color: {dot_color}; border-radius: 4px;"
-        )
-
     @staticmethod
     def _lbl(text: str) -> QLabel:
         l = QLabel(text)
@@ -691,20 +829,16 @@ class MainWindow(QMainWindow):
     def _set_connected(self, connected: bool):
         self._connected = connected
         color = Colors.SUCCESS if connected else Colors.TEXT_OFF
-        self._status_indicator.setStyleSheet(
-            f"background-color: {color}; border-radius: 4px;"
-        )
+        self._status_indicator.setStyleSheet(f"background-color: {color}; border-radius: 4px;")
         self._lbl_status_text.setStyleSheet(
             f"color: {color}; font-size: 12px; background: transparent;"
         )
         self._lbl_status_text.setText("Bağlandı" if connected else "Bağlı Değil")
-
         for btn in self._key_buttons:
             btn.setEnabled(connected)
         self._btn_rotate.setEnabled(connected)
         self._btn_connect.setEnabled(not connected)
         self._btn_disconnect.setEnabled(connected)
-
         if connected:
             self._heartbeat.start()
         else:
@@ -718,4 +852,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._mjpeg.stop()
         self._ws_client.disconnect()
+        self.db.close()
         super().closeEvent(event)

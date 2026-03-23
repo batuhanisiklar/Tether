@@ -28,11 +28,17 @@ class AppMeta:
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class Prefs:
-    """Prefs JSON dosyası yolu ve anahtar adları."""
+    """Prefs JSON dosyası yolu, anahtar adları ve DB bağlantısı."""
     PATH: str              = os.path.join(os.path.expanduser("~"), ".remote_control_prefs.json")
     KEY_LOGGED_IN: str     = "is_logged_in"
+    KEY_USER_ID: str       = "user_id"
+    KEY_USERNAME: str      = "username"
     KEY_DEVICE_ID: str     = "device_id"
     KEY_PAIRED_PHONE: str  = "paired_phone_id"
+    DB_URL: str            = os.environ.get(
+        "NEON_DB_URL",
+        "postgresql://neondb_owner:npg_Y3JevV2SsERI@ep-crimson-sun-anqdvhsy-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
