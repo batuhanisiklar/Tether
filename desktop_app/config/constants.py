@@ -69,73 +69,73 @@ class Network:
 @dataclass(frozen=True)
 class Colors:
     """
-    Tek renk kaynağı. Ui ve LoginWindow burayı referans alır.
-    '#' ile başlayan hex string'ler, PyQt stylesheet'te doğrudan kullanılır.
+    Tek renk kaynağı — neutral koyu gri + turuncu aksan.
+    app_window.py ve mobil tarafla birebir uyumlu.
     """
     # ── Arka planlar ─────────────────────────────────────────────────
-    BG_APP:       str = "#0F1220"
-    BG_SURFACE:   str = "#161B2D"
-    BG_CARD:      str = "#1C2238"
-    BG_INPUT:     str = "#242C46"
+    BG_APP:       str = "#1A1A1A"
+    BG_SURFACE:   str = "#222222"
+    BG_CARD:      str = "#2C2C2C"
+    BG_INPUT:     str = "#2E2E2E"
 
     # ── Kenarlar ─────────────────────────────────────────────────────
-    BORDER:       str = "#303A5C"
-    BORDER_INPUT: str = "#3B486E"
-    BORDER_FOCUS: str = "#8C96FF"
+    BORDER:       str = "#3A3A3A"
+    BORDER_INPUT: str = "#444444"
+    BORDER_FOCUS: str = "#E06040"
 
     # ── Metin ────────────────────────────────────────────────────────
-    TEXT:         str = "#F2F5FF"
-    TEXT_MUTED:   str = "#A8B2D1"
-    TEXT_SUBTLE:  str = "#7984A8"
-    TEXT_OFF:     str = "#5F6C93"
+    TEXT:         str = "#EEEEEE"
+    TEXT_MUTED:   str = "#999999"
+    TEXT_SUBTLE:  str = "#666666"
+    TEXT_OFF:     str = "#555555"
 
-    # ── Vurgu ────────────────────────────────────────────────────────────────
-    ACCENT:       str = "#8A95FF"
-    ACCENT_HOVER: str = "#7B87F7"
-    ACCENT_PRESS: str = "#6D78E8"
-    ACCENT_DIM:   str = "#44508B"
+    # ── Vurgu (turuncu) ──────────────────────────────────────────────
+    ACCENT:       str = "#E06040"
+    ACCENT_HOVER: str = "#D05535"
+    ACCENT_PRESS: str = "#C04A2A"
+    ACCENT_DIM:   str = "#5A3028"
 
-    # ── Durum renkleri — Bağlan (yeşil), Bağlantıyı Kes (kırmızı) ───────────────────
-    SUCCESS:            str = "#5FD1A4"
-    SUCCESS_HOVER:      str = "#51C295"
-    SUCCESS_PRESS:      str = "#43B286"
-    SUCCESS_DIM:        str = "#224D41"
-    ERROR:              str = "#FF8B8B"
-    ERROR_HOVER:        str = "#F37F7F"
+    # ── Durum renkleri ───────────────────────────────────────────────
+    SUCCESS:            str = "#55CC66"
+    SUCCESS_HOVER:      str = "#4ABB5B"
+    SUCCESS_PRESS:      str = "#3FAA50"
+    SUCCESS_DIM:        str = "#2A4D30"
+    ERROR:              str = "#FF4444"
+    ERROR_HOVER:        str = "#EE3333"
     WARNING:            str = "#FFCB70"
 
     # ── Buton yüzeyleri ──────────────────────────────────────────────
-    BTN_CONNECT_BG:    str = "#8A95FF"
-    BTN_CONNECT_HOV:   str = "#7B87F7"
-    BTN_CONNECT_PRESS: str = "#6D78E8"
-    BTN_CONNECT_DIM:   str = "#44508B"
-    BTN_SEC_BG:        str = "#202845"
-    BTN_SEC_BDR:       str = "#334066"
-    BTN_SEC_FG:        str = "#D2D9F5"
-    BTN_SEC_HOV:       str = "#273153"
+    BTN_CONNECT_BG:    str = "#E06040"
+    BTN_CONNECT_HOV:   str = "#D05535"
+    BTN_CONNECT_PRESS: str = "#C04A2A"
+    BTN_CONNECT_DIM:   str = "#5A3028"
+    BTN_SEC_BG:        str = "#333333"
+    BTN_SEC_BDR:       str = "#444444"
+    BTN_SEC_FG:        str = "#CCCCCC"
+    BTN_SEC_HOV:       str = "#3A3A3A"
 
-    BTN_DANGER_BG:     str = "#312028"
-    BTN_DANGER_BDR:    str = "#6A3D48"
-    BTN_DANGER_FG:     str = "#FF9AA0"
-    BTN_DANGER_HOV:    str = "#3B2630"
+    BTN_DANGER_BG:     str = "#3A2020"
+    BTN_DANGER_BDR:    str = "#662828"
+    BTN_DANGER_FG:     str = "#FF6666"
+    BTN_DANGER_HOV:    str = "#442828"
 
-    BTN_DISCONNECT_BG: str = "#312028"
-    BTN_DISCONNECT_BDR: str = "#6A3D48"
-    BTN_DISCONNECT_FG: str = "#FF9AA0"
-    BTN_DISCONNECT_HOV: str = "#3B2630"
+    BTN_DISCONNECT_BG: str = "#3A2020"
+    BTN_DISCONNECT_BDR: str = "#662828"
+    BTN_DISCONNECT_FG: str = "#FF6666"
+    BTN_DISCONNECT_HOV: str = "#442828"
 
-    # Tuş kontrol buton renkleri (gruba göre renk ayrımı)
-    BTN_NAV_BG:        str = "#20294A"
-    BTN_NAV_BDR:       str = "#32447D"
-    BTN_NAV_FG:        str = "#A7B4FF"
+    # Tuş kontrol buton renkleri
+    BTN_NAV_BG:        str = "#2A3040"
+    BTN_NAV_BDR:       str = "#3A4A60"
+    BTN_NAV_FG:        str = "#88AADD"
 
-    BTN_VOL_BG:        str = "#1D302B"
-    BTN_VOL_BDR:       str = "#2E5A4D"
-    BTN_VOL_FG:        str = "#79D6B3"
+    BTN_VOL_BG:        str = "#203028"
+    BTN_VOL_BDR:       str = "#305040"
+    BTN_VOL_FG:        str = "#66CC88"
 
-    BTN_SCR_BG:        str = "#2A2140"
-    BTN_SCR_BDR:       str = "#55427C"
-    BTN_SCR_FG:        str = "#C4A5FF"
+    BTN_SCR_BG:        str = "#302838"
+    BTN_SCR_BDR:       str = "#4A3860"
+    BTN_SCR_FG:        str = "#AA88CC"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -215,8 +215,8 @@ class Ui:
     MSG_DISCONNECT_TIMEOUT:    str = "Bağlantı kesildi  —  Sunucu yanıt vermiyor."
     MSG_PEER_DISCONNECTED:     str = "Telefon bağlantısı kesildi."
     MSG_STREAM_STOPPED:        str = "Akış durdu."
-    MSG_CODE_MUST_BE_6_DIGITS: str = "Kod 6 haneli sayı olmalı."
-    PLACEHOLDER_CODE:          str = "6 haneli bağlantı kodunu girin"
+    MSG_CODE_MUST_BE_12_DIGITS: str = "12 haneli sabit adresi girin."
+    PLACEHOLDER_CODE:           str = "12 haneli sabit adresi girin"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

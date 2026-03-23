@@ -29,7 +29,7 @@ def text_style(
     return "; ".join(parts) + ";"
 
 
-def card_style(*, background: str | None = None, border_color: str | None = None, radius: int = 12) -> str:
+def card_style(*, background: str | None = None, border_color: str | None = None, radius: int = 6) -> str:
     bg = background or Colors.BG_CARD
     border = border_color or Colors.BORDER
     return (
@@ -42,7 +42,7 @@ def card_style(*, background: str | None = None, border_color: str | None = None
 def line_edit_style(
     *,
     font_size: int = 13,
-    radius: int = 10,
+    radius: int = 6,
     padding: str = "0 14px",
     centered: bool = False,
     letter_spacing: float | None = None,
@@ -79,7 +79,7 @@ def filled_button_style(
     pressed: str | None = None,
     disabled_background: str | None = None,
     disabled_foreground: str | None = None,
-    radius: int = 10,
+    radius: int = 6,
     font_size: int = 13,
     font_weight: int = 600,
 ) -> str:
@@ -119,7 +119,7 @@ def outline_button_style(
     hover_background: str | None = None,
     hover_foreground: str | None = None,
     hover_border: str | None = None,
-    radius: int = 10,
+    radius: int = 6,
     font_size: int = 12,
     font_weight: int = 500,
 ) -> str:

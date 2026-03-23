@@ -201,12 +201,14 @@ class WsClient(QObject):
     def _on_open_device_hello(self, ws):
         self.connected.emit()
         # device_hello ile tanıt — kayıtlı telefon çevrimiçiyse auto_paired gelir
-        ws.send(json.dumps({
+        payload = {
             "type": "device_hello",
             "device_id": self.device_id,
             "role": "pc",
-            "preferred_partner_id": self._preferred_partner_id,
-        }))
+        }
+        if self._preferred_partner_id:
+            payload["preferred_partner_id"] = self._preferred_partner_id
+        ws.send(json.dumps(payload))
 
     def _on_message(self, ws, raw: str):
         try:

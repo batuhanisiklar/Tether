@@ -684,7 +684,7 @@ class MainWindow(QMainWindow):
             self._set_status("Oturum kodu girilmedi.", error=True)
             return
         if len(code) != ServerDefaults.CODE_LENGTH or not code.isdigit():
-            self._set_status(Ui.MSG_CODE_MUST_BE_6_DIGITS, error=True)
+            self._set_status(Ui.MSG_CODE_MUST_BE_12_DIGITS, error=True)
             return
         self._btn_connect.setEnabled(False)
         self._set_status(Ui.MSG_CONNECTING)

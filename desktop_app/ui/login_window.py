@@ -105,8 +105,8 @@ class LoginWindow(QDialog):
             QFrame {{
                 background-color: {c.BG_CARD};
                 border-bottom: 1px solid {c.BORDER};
-                border-top-left-radius: 10px;
-                border-top-right-radius: 10px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
             }}
         """)
         row = QHBoxLayout(bar)

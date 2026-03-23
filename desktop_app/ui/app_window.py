@@ -396,7 +396,7 @@ class MainWindow(QMainWindow):
         input_row.addWidget(dot)
 
         self._inp_code = QLineEdit()
-        self._inp_code.setPlaceholderText("Uzak cihazin adresini girin")
+        self._inp_code.setPlaceholderText("12 haneli sabit adresi girin")
         self._inp_code.setFixedHeight(50)
         self._inp_code.setMinimumWidth(420)
         self._inp_code.setMaximumWidth(560)
@@ -491,7 +491,7 @@ class MainWindow(QMainWindow):
         self._recent_devices_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         inner.addWidget(self._recent_cards_container)
 
-        self._lbl_no_devices = QLabel("Henuz eslesmis cihaz yok.\nTelefondaki adresi yukari girerek ilk baglantiyi baslatin.")
+        self._lbl_no_devices = QLabel("Henuz eslesmis cihaz yok.\nTelefondaki 12 haneli sabit adresi girerek baglanti kurun.")
         self._lbl_no_devices.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lbl_no_devices.setWordWrap(True)
         self._lbl_no_devices.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 12px; padding: 40px 0;")
@@ -774,26 +774,19 @@ class MainWindow(QMainWindow):
         if not raw_value.isdigit():
             self._set_status("Adres sadece rakam olmali.", error=True)
             return
-
-        if len(raw_value) == 12:
-            partner_device_id = self.db.find_phone_device_by_address(raw_value)
-            if not partner_device_id:
-                self._set_status("Bu adrese ait telefon bulunamadi.", error=True)
-                return
-            self._btn_connect.setEnabled(False)
-            self._set_status("Adres cozuldu, baglaniliyor...")
-            self._paired_phone_id = partner_device_id
-            self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, preferred_partner_id=partner_device_id)
-            self._refresh_home_summary()
+        if len(raw_value) != 12:
+            self._set_status("12 haneli sabit adresi girin.", error=True)
             return
 
-        if len(raw_value) == ServerDefaults.CODE_LENGTH:
-            self._btn_connect.setEnabled(False)
-            self._set_status(Ui.MSG_CONNECTING)
-            self._ws_client.connect_to_server(ServerDefaults.DEFAULT_URL, raw_value)
+        partner_device_id = self.db.find_phone_device_by_address(raw_value)
+        if not partner_device_id:
+            self._set_status("Bu adrese ait telefon bulunamadi.", error=True)
             return
-
-        self._set_status("12 haneli adres veya 6 haneli kod girin.", error=True)
+        self._btn_connect.setEnabled(False)
+        self._set_status("Adres cozuldu, baglaniliyor...")
+        self._paired_phone_id = partner_device_id
+        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, preferred_partner_id=partner_device_id)
+        self._refresh_home_summary()
 
     @pyqtSlot()
     def _on_disconnect(self):
