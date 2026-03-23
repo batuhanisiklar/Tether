@@ -8,6 +8,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 
 data class ApiResult<T>(
     val data: T? = null,
@@ -58,64 +59,80 @@ class BackendApi(
     }
 
     suspend fun upsertDevice(token: String, deviceId: String, deviceType: String): ApiResult<Unit> = withContext(Dispatchers.IO) {
-        val payload = JSONObject().apply {
-            put("device_id", deviceId)
-            put("device_type", deviceType)
-        }
-        val request = Request.Builder()
-            .url("$baseHttpUrl/devices/upsert")
-            .addHeader("Authorization", "Bearer $token")
-            .post(payload.toString().toRequestBody(jsonType))
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                return@withContext ApiResult(error = "Cihaz kaydi guncellenemedi.")
+        try {
+            val payload = JSONObject().apply {
+                put("device_id", deviceId)
+                put("device_type", deviceType)
             }
-            ApiResult(data = Unit)
+            val request = Request.Builder()
+                .url("$baseHttpUrl/devices/upsert")
+                .addHeader("Authorization", "Bearer $token")
+                .post(payload.toString().toRequestBody(jsonType))
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext ApiResult(error = "Cihaz kaydi guncellenemedi.")
+                }
+                ApiResult(data = Unit)
+            }
+        } catch (_: IOException) {
+            ApiResult(error = "Sunucuya ulasilamadi. Baglanti adresini kontrol edin.")
         }
     }
 
     suspend fun getPairings(token: String, deviceId: String): ApiResult<List<DeviceSummary>> = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("$baseHttpUrl/pairings?device_id=$deviceId")
-            .addHeader("Authorization", "Bearer $token")
-            .get()
-            .build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                return@withContext ApiResult(error = "Cihaz listesi alinmadi.")
+        try {
+            val request = Request.Builder()
+                .url("$baseHttpUrl/pairings?device_id=$deviceId")
+                .addHeader("Authorization", "Bearer $token")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext ApiResult(error = "Cihaz listesi alinmadi.")
+                }
+                val json = JSONObject(body)
+                val pairings = parseDevices(json.optJSONArray("pairings"))
+                ApiResult(data = pairings)
             }
-            val json = JSONObject(body)
-            val pairings = parseDevices(json.optJSONArray("pairings"))
-            ApiResult(data = pairings)
+        } catch (_: IOException) {
+            ApiResult(error = "Cihaz listesi alinirken sunucuya ulasilamadi.")
         }
     }
 
     private suspend fun authRequest(path: String, payload: JSONObject): ApiResult<AuthSession> = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url("$baseHttpUrl$path")
-            .post(payload.toString().toRequestBody(jsonType))
-            .build()
+        try {
+            val request = Request.Builder()
+                .url("$baseHttpUrl$path")
+                .post(payload.toString().toRequestBody(jsonType))
+                .build()
 
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                val message = runCatching { JSONObject(body).optString("message") }.getOrDefault("").ifBlank {
-                    "Kimlik dogrulama basarisiz."
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val message = when (response.code) {
+                        404, 405 -> "Sunucuda kimlik dogrulama API'si aktif degil. Guncel sunucuyu calistirin."
+                        401 -> runCatching { JSONObject(body).optString("message") }.getOrDefault("Kullanici adi veya sifre hatali.")
+                        else -> runCatching { JSONObject(body).optString("message") }.getOrDefault("").ifBlank {
+                            "Kimlik dogrulama basarisiz."
+                        }
+                    }
+                    return@withContext ApiResult(error = message)
                 }
-                return@withContext ApiResult(error = message)
-            }
 
-            val json = JSONObject(body)
-            val user = json.getJSONObject("user")
-            ApiResult(
-                data = AuthSession(
-                    token = json.getString("token"),
-                    userId = user.getInt("id"),
-                    username = user.getString("username"),
+                val json = JSONObject(body)
+                val user = json.getJSONObject("user")
+                ApiResult(
+                    data = AuthSession(
+                        token = json.getString("token"),
+                        userId = user.getInt("id"),
+                        username = user.getString("username"),
+                    )
                 )
-            )
+            }
+        } catch (_: IOException) {
+            ApiResult(error = "Sunucuya ulasilamadi. URL ve internet baglantisini kontrol edin.")
         }
     }
 

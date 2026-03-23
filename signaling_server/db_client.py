@@ -63,6 +63,7 @@ class ServerDbClient:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(SCHEMA_SQL)
+                    cur.execute("ALTER TABLE pairings ALTER COLUMN user_id DROP NOT NULL")
                 conn.commit()
             return True
         except Exception as exc:
@@ -173,14 +174,6 @@ class ServerDbClient:
 
                     first = rows.get(first_device_id)
                     second = rows.get(second_device_id)
-                    user_id = None
-                    for item in (first, second):
-                        if item and item["user_id"]:
-                            user_id = item["user_id"]
-                            break
-                    if user_id is None:
-                        conn.rollback()
-                        return False
 
                     phone_device_id, pc_device_id = self._resolve_pair_ids(first_device_id, second_device_id, first, second)
                     cur.execute(
@@ -189,7 +182,7 @@ class ServerDbClient:
                         VALUES (%s, %s, %s)
                         ON CONFLICT (phone_device_id, pc_device_id) DO NOTHING
                         """,
-                        (user_id, phone_device_id, pc_device_id),
+                        (None, phone_device_id, pc_device_id),
                     )
                 conn.commit()
             return True
@@ -215,8 +208,8 @@ class ServerDbClient:
             logger.error("Cihaz listeleme hatasi: %s", exc)
             return []
 
-    def get_user_pairings(self, user_id: int, device_id: str | None = None) -> list[dict]:
-        base_query = """
+    def get_device_pairings(self, device_id: str) -> list[dict]:
+        query = """
             SELECT counterpart.device_id, counterpart.device_type, counterpart.last_seen
             FROM pairings p
             JOIN devices counterpart
@@ -224,14 +217,13 @@ class ServerDbClient:
                     WHEN p.phone_device_id = %(device_id)s THEN p.pc_device_id
                     ELSE p.phone_device_id
                  END
-            WHERE p.user_id = %(user_id)s
-              AND (%(device_id)s IS NULL OR p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s)
+            WHERE p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s
             ORDER BY counterpart.last_seen DESC NULLS LAST
         """
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute(base_query, {"user_id": user_id, "device_id": device_id})
+                    cur.execute(query, {"device_id": device_id})
                     return [dict(row) for row in cur.fetchall()]
         except Exception as exc:
             logger.error("Pairings listeleme hatasi: %s", exc)

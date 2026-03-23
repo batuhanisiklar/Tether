@@ -91,6 +91,21 @@ async def _pick_online_partner(app: web.Application, device_id: str, role: str) 
     return None
 
 
+async def _pick_preferred_online_partner(
+    app: web.Application,
+    device_id: str,
+    role: str,
+    preferred_partner_id: str | None,
+) -> str | None:
+    if preferred_partner_id:
+        partner_entry = app["online_devices"].get(preferred_partner_id)
+        if partner_entry and partner_entry["role"] != role:
+            partners = await _get_paired_partners(app, device_id)
+            if preferred_partner_id in partners:
+                return preferred_partner_id
+    return await _pick_online_partner(app, device_id, role)
+
+
 async def _handle_device_hello(
     app: web.Application,
     ws: web.WebSocketResponse,
@@ -106,7 +121,8 @@ async def _handle_device_hello(
     meta["device_id"] = device_id
     app["online_devices"][device_id] = {"ws": ws, "role": role}
 
-    partner_id = await _pick_online_partner(app, device_id, role)
+    preferred_partner_id = message.get("preferred_partner_id", "").strip() or None
+    partner_id = await _pick_preferred_online_partner(app, device_id, role, preferred_partner_id)
     if partner_id:
         partner_entry = app["online_devices"][partner_id]
         partner_ws = partner_entry["ws"]
@@ -147,6 +163,10 @@ async def _handle_device_hello(
             "device_id": device_id,
             "paired_with": paired_devices[0] if paired_devices else "",
             "paired_devices": paired_devices,
+            "online_paired_devices": [
+                partner_id for partner_id in paired_devices
+                if partner_id in app["online_devices"] and app["online_devices"][partner_id]["role"] != role
+            ],
             "partner_online": False,
         },
     )
@@ -358,7 +378,9 @@ async def list_pairings(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
 
     device_id = request.query.get("device_id")
-    pairings = await asyncio.to_thread(request.app["db"].get_user_pairings, user[0], device_id)
+    if not device_id:
+        return web.json_response({"ok": False, "message": "device_id gerekli."}, status=400)
+    pairings = await asyncio.to_thread(request.app["db"].get_device_pairings, device_id)
     payload = [_device_payload(item, request.app["online_devices"]) for item in pairings]
     return web.json_response({"ok": True, "pairings": payload})
 
