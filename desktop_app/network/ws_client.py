@@ -39,6 +39,7 @@ class WsClient(QObject):
     command_received = pyqtSignal(dict)         # Telefondan komut geldi
     error_occurred = pyqtSignal(str)            # Hata mesajı
     frame_received = pyqtSignal(QPixmap)        # WebSocket üzerinden JPEG frame
+    paired_devices_status = pyqtSignal(list, list)  # tum paired ids, online olanlar
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -46,6 +47,7 @@ class WsClient(QObject):
         self._thread: threading.Thread | None = None
         self._session_code: str = ""
         self._frame_processing: bool = False  # Frame throttle bayrağı
+        self._preferred_partner_id: str | None = None
         self.device_id: str = _load_or_create_device_id()
         logger.info(f"PC device_id: {self.device_id}")
 
@@ -77,12 +79,13 @@ class WsClient(QObject):
         )
         self._thread.start()
 
-    def connect_with_device_id(self, url: str):
+    def connect_with_device_id(self, url: str, preferred_partner_id: str | None = None):
         """
         Sunucuya bağlan ve device_hello gönder (kayıtlı eşleşme varsa auto_paired tetiklenir).
         Kod girmeden otomatik yeniden bağlanma için kullanılır.
         """
         self._session_code = ""
+        self._preferred_partner_id = preferred_partner_id
         self._ws = websocket.WebSocketApp(
             url,
             on_open=self._on_open_device_hello,
@@ -172,6 +175,7 @@ class WsClient(QObject):
             "type": "device_hello",
             "device_id": self.device_id,
             "role": "pc",
+            "preferred_partner_id": self._preferred_partner_id,
         }))
 
     def _on_message(self, ws, raw: str):
@@ -195,6 +199,11 @@ class WsClient(QObject):
             partner_id = msg.get("partner_device_id", "")
             logger.info(f"Auto-paired with phone: {partner_id}")
             self.auto_paired.emit(partner_id)
+
+        elif msg_type == "device_ack":
+            paired_devices = msg.get("paired_devices", []) or []
+            online_paired_devices = msg.get("online_paired_devices", []) or []
+            self.paired_devices_status.emit(paired_devices, online_paired_devices)
 
         elif msg_type == "stream_info":
             self.paired.emit(msg.get("url", ""))

@@ -549,6 +549,7 @@ class MainWindow(QMainWindow):
         self._ws_client.auto_paired.connect(self._on_auto_paired)
         self._ws_client.peer_disconnected.connect(self._on_peer_disconnected)
         self._ws_client.error_occurred.connect(self._on_error)
+        self._ws_client.paired_devices_status.connect(self._on_paired_devices_status)
         self._ws_client.frame_received.connect(self._on_frame_received)
         self._mjpeg.frame_ready.connect(self._screen.set_frame)
         self._mjpeg.error_occurred.connect(self._on_mjpeg_error)
@@ -569,7 +570,7 @@ class MainWindow(QMainWindow):
         self.db.upsert_device(self._user_id, self._ws_client.device_id, "pc")
 
         # Paired cihazları yükle
-        devices = self.db.get_paired_devices(self._user_id, self._ws_client.device_id)
+        devices = self.db.get_paired_devices(self._ws_client.device_id)
         self._populate_device_cards(devices)
 
         # Kayıtlı telefon varsa auto-connect dene
@@ -603,7 +604,7 @@ class MainWindow(QMainWindow):
         if card:
             card.set_connecting()
         self._set_status(f"Eşleşmiş telefona bağlanılıyor...")
-        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
+        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, preferred_partner_id=device_id)
 
     @pyqtSlot()
     def _try_auto_connect(self):
@@ -702,17 +703,28 @@ class MainWindow(QMainWindow):
 
         # DB'ye pair kaydet ve last_seen güncelle
         if self._user_id:
-            self.db.save_pairing(self._user_id, partner_device_id, self._ws_client.device_id)
             self.db.upsert_device(self._user_id, partner_device_id, "phone")
+        self.db.save_pairing(partner_device_id, self._ws_client.device_id)
 
         # Prefs'e partner kaydet
         self._ws_client.send_pair_confirm(partner_device_id)
 
         # Kart yoksa listeye ekle
         if partner_device_id not in self._device_cards:
-            if self._user_id:
-                devices = self.db.get_paired_devices(self._user_id, self._ws_client.device_id)
-                self._populate_device_cards(devices)
+            devices = self.db.get_paired_devices(self._ws_client.device_id)
+            self._populate_device_cards(devices)
+
+    @pyqtSlot(list, list)
+    def _on_paired_devices_status(self, paired_devices: list, online_devices: list):
+        online_set = set(online_devices)
+        for device_id in paired_devices:
+            if device_id not in self._device_cards:
+                self._device_cards[device_id] = DeviceCard(device_id, None)
+                self._device_cards[device_id].set_connect_callback(self._on_card_connect)
+                self._cards_layout.insertWidget(self._cards_layout.count() - 1, self._device_cards[device_id])
+                self._lbl_no_devices.hide()
+        for device_id, card in self._device_cards.items():
+            card.set_online(device_id in online_set)
 
     @pyqtSlot()
     def _on_peer_disconnected(self):

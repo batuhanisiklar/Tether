@@ -79,6 +79,7 @@ class DbClient:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(_SCHEMA_SQL)
+                    cur.execute("ALTER TABLE pairings ALTER COLUMN user_id DROP NOT NULL")
                 conn.commit()
             logger.info("DB schema geçerli")
             return True
@@ -164,9 +165,9 @@ class DbClient:
             logger.error(f"Upsert device hatası: {e}")
             return False
 
-    def get_paired_devices(self, user_id: int, pc_device_id: str) -> list[dict]:
+    def get_paired_devices(self, pc_device_id: str) -> list[dict]:
         """
-        Bu kullanıcının PC'siyle eşleşmiş tüm telefonları döner.
+        Bu PC ile daha once eşleşmiş tüm telefonları döner.
         Dönüş: [{"device_id": str, "last_seen": datetime | None}]
         """
         try:
@@ -177,9 +178,9 @@ class DbClient:
                                d.last_seen
                         FROM pairings p
                         LEFT JOIN devices d ON d.device_id = p.phone_device_id
-                        WHERE p.user_id = %s AND p.pc_device_id = %s
+                        WHERE p.pc_device_id = %s
                         ORDER BY d.last_seen DESC NULLS LAST
-                    """, (user_id, pc_device_id))
+                    """, (pc_device_id,))
                     rows = cur.fetchall()
             return [dict(r) for r in rows]
         except Exception as e:
@@ -188,7 +189,7 @@ class DbClient:
 
     # ─── Pairing ──────────────────────────────────────────────────────────────
 
-    def save_pairing(self, user_id: int, phone_device_id: str, pc_device_id: str) -> bool:
+    def save_pairing(self, phone_device_id: str, pc_device_id: str) -> bool:
         """Eşleşmeyi DB'ye kaydeder (idempotent)."""
         try:
             with self._get_conn() as conn:
@@ -198,7 +199,7 @@ class DbClient:
                             INSERT INTO pairings (user_id, phone_device_id, pc_device_id)
                             VALUES (%s, %s, %s)
                             ON CONFLICT (phone_device_id, pc_device_id) DO NOTHING
-                        """, (user_id, phone_device_id, pc_device_id))
+                        """, (None, phone_device_id, pc_device_id))
                     conn.commit()
                     logger.info(f"Pairing kaydedildi: {phone_device_id} <-> {pc_device_id}")
                     return True
