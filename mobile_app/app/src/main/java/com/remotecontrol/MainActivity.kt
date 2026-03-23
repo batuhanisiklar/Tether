@@ -14,7 +14,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.remotecontrol.databinding.ActivityMainBinding
 import kotlinx.coroutines.*
-import java.util.UUID
 
 /**
  * Ana Aktivite
@@ -28,10 +27,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val PREFS_DEVICE = "RemoteControlDevicePrefs"
-        private const val KEY_DEVICE_ID = "device_id"
-        private const val KEY_PAIRED_PC_ID = "paired_pc_id"
-        private const val SIGNALING_URL = "wss://connect-your-phone.onrender.com"
+        const val SIGNALING_URL = "wss://connect-your-phone.onrender.com"
 
         private val IS_EMULATOR = (android.os.Build.FINGERPRINT.startsWith("generic")
                 || android.os.Build.FINGERPRINT.startsWith("unknown")
@@ -43,6 +39,9 @@ class MainActivity : AppCompatActivity() {
 
     // UI
     private lateinit var binding: ActivityMainBinding
+    private lateinit var sessionStore: SessionStore
+    private lateinit var deviceIdentityStore: DeviceIdentityStore
+    private lateinit var backendApi: BackendApi
 
     // Network
     private var signalingClient: SignalingClient? = null
@@ -52,8 +51,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var deviceId: String
     private var pairedPcId: String? = null
 
-    // MediaProjection izni
-    private var pendingMediaProjectionResult: (() -> Unit)? = null
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -83,9 +80,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Oturum kontrolü
-        val loginPrefs = getSharedPreferences("LoginPrefs", MODE_PRIVATE)
-        if (!loginPrefs.getBoolean("is_logged_in", false)) {
+        sessionStore = SessionStore(this)
+        deviceIdentityStore = DeviceIdentityStore(this)
+        backendApi = BackendApi(SIGNALING_URL)
+
+        if (!sessionStore.isLoggedIn()) {
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
             return
@@ -94,32 +93,30 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Device ID yükle / oluştur
-        val devicePrefs = getSharedPreferences(PREFS_DEVICE, MODE_PRIVATE)
-        deviceId = devicePrefs.getString(KEY_DEVICE_ID, null)
-            ?: UUID.randomUUID().toString().replace("-", "").take(16).let { newId ->
-                val phoneId = "phone-$newId"
-                devicePrefs.edit().putString(KEY_DEVICE_ID, phoneId).apply()
-                phoneId
-            }
-        pairedPcId = devicePrefs.getString(KEY_PAIRED_PC_ID, null)
+        deviceId = deviceIdentityStore.deviceId()
+        pairedPcId = deviceIdentityStore.pairedPcId()
         Log.i(TAG, "Device ID: $deviceId, pairedPcId: $pairedPcId")
 
         initViews()
         requestNotificationPermission()
         checkAccessibilityService()
+        scope.launch {
+            syncDeviceState()
+            refreshPairings()
+        }
         autoConnect()
     }
 
     private fun initViews() {
         binding.btnConnect.setOnClickListener { autoConnect() }
         binding.btnStopStream.setOnClickListener { stopAllStreams() }
+        binding.btnLogout.setOnClickListener { logout() }
         binding.tvAccessibility.setOnClickListener {
             startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
         binding.btnStopStream.isEnabled = false
+        binding.tvUser.text = sessionStore.username().ifBlank { "Kullanici" }
 
-        // Daha önce eşleşilmiş PC varsa bilgi göster
         if (pairedPcId != null) {
             val shortId = pairedPcId!!.takeLast(8)
             binding.tvIpPort.text = "Kayıtlı PC: ...$shortId"
@@ -134,10 +131,14 @@ class MainActivity : AppCompatActivity() {
         signalingClient = SignalingClient(
             serverUrl  = SIGNALING_URL,
             deviceId   = deviceId,
-            onPaired   = { _ ->
+            onPaired   = { _, partnerDeviceId ->
                 runOnUiThread {
+                    if (!partnerDeviceId.isNullOrBlank()) {
+                        onFirstPairComplete(partnerDeviceId)
+                    }
                     updateStatus("✅ PC bağlandı!")
                     binding.btnStopStream.isEnabled = true
+                    scope.launch { refreshPairings() }
                     if (IS_EMULATOR) {
                         updateStatus("✅ PC bağlandı! Kamera yayını başlıyor (emülatör)...")
                         requestCameraAccess(useFront = false)
@@ -178,11 +179,8 @@ class MainActivity : AppCompatActivity() {
      */
     fun onFirstPairComplete(pcDeviceId: String) {
         if (pcDeviceId.isBlank()) return
-        // SharedPreferences'e kaydet
-        getSharedPreferences(PREFS_DEVICE, MODE_PRIVATE)
-            .edit().putString(KEY_PAIRED_PC_ID, pcDeviceId).apply()
+        deviceIdentityStore.savePairedPcId(pcDeviceId)
         pairedPcId = pcDeviceId
-        // Sunucuya pair_confirm gönder
         signalingClient?.sendPairConfirm(pcDeviceId)
         Log.i(TAG, "Pair confirmed with PC: $pcDeviceId")
     }
@@ -284,6 +282,48 @@ class MainActivity : AppCompatActivity() {
         updateStatus("⏹ Tüm yayınlar durduruldu")
     }
 
+    private suspend fun syncDeviceState() {
+        val token = sessionStore.authToken()
+        if (token.isBlank()) return
+        backendApi.upsertDevice(token, deviceId, "phone")
+    }
+
+    private suspend fun refreshPairings() {
+        val token = sessionStore.authToken()
+        if (token.isBlank()) return
+        val result = backendApi.getPairings(token, deviceId)
+        val pairings = result.data ?: emptyList()
+        if (pairings.isEmpty()) {
+            binding.tvPairedDevices.text = "Henüz eşleşmiş bilgisayar yok."
+            return
+        }
+
+        val summary = buildString {
+            pairings.forEach { device ->
+                val shortId = device.deviceId.takeLast(8)
+                val state = if (device.online) "cevrimici" else "offline"
+                append("• ...")
+                append(shortId)
+                append("  ")
+                append(state)
+                if (!device.lastSeen.isNullOrBlank()) {
+                    append("\n  Son gorulme: ")
+                    append(device.lastSeen)
+                }
+                append("\n")
+            }
+        }.trim()
+        binding.tvPairedDevices.text = summary
+    }
+
+    private fun logout() {
+        stopAllStreams()
+        signalingClient?.disconnect()
+        sessionStore.clear()
+        startActivity(Intent(this, LoginActivity::class.java))
+        finish()
+    }
+
     private fun checkAccessibilityService() {
         val isEnabled = isAccessibilityServiceEnabled()
         binding.tvAccessibility.text = if (isEnabled)
@@ -325,7 +365,7 @@ class MainActivity : AppCompatActivity() {
                     val addrs = java.util.Collections.list(intf.inetAddresses)
                     for (addr in addrs) {
                         if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
-                            return addr.hostAddress
+                            return addr.hostAddress ?: "0.0.0.0"
                         }
                     }
                 }
@@ -340,6 +380,13 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, msg)
         if (binding.tvStatus.text.toString() != msg) {
             binding.tvStatus.text = msg
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (sessionStore.isLoggedIn()) {
+            scope.launch { refreshPairings() }
         }
     }
 

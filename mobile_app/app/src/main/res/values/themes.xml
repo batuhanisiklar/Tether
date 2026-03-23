@@ -7,7 +7,6 @@
         <item name="colorSecondary">@color/secondary</item>
         <item name="colorOnSecondary">@color/text_primary</item>
         <item name="colorSurface">@color/surface</item>
-        <item name="colorBackground">@color/bg_app</item>
         <item name="android:windowBackground">@color/bg_app</item>
         <item name="android:statusBarColor">@color/bg_app</item>
         <item name="android:navigationBarColor">@color/bg_app</item>

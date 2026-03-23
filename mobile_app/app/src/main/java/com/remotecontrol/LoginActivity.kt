@@ -1,44 +1,37 @@
 package com.remotecontrol
 
 import android.content.Intent
-import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.remotecontrol.databinding.ActivityLoginBinding
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Login Aktivitesi
  * ================
- * Uygulamanın başlangıç ekranı.
- * Doğru kimlik bilgileriyle giriş yapılınca MainActivity'ye geçiş sağlar.
- * SharedPreferences ile oturum durumu saklanır (uygulama kapatılınca da hatırlanır).
- *
- * Geçici kimlik bilgileri:
- *   Kullanıcı adı : admin
- *   Şifre         : 1234
+ * Uygulamanin giris ve kayit ekranidir.
+ * Basarili giriste backend token'i saklanir ve logout olana kadar korunur.
  */
 class LoginActivity : AppCompatActivity() {
-
-    companion object {
-        private const val PREFS_NAME   = "LoginPrefs"
-        private const val KEY_LOGGED   = "is_logged_in"
-
-        // Geçici hardcoded kimlik bilgileri — ileride DB ile değiştirilecek
-        private const val VALID_USER   = "admin"
-        private const val VALID_PASS   = "1234"
-    }
-
-    private lateinit var prefs: SharedPreferences
     private lateinit var binding: ActivityLoginBinding
+    private lateinit var sessionStore: SessionStore
+    private lateinit var deviceIdentityStore: DeviceIdentityStore
+    private lateinit var backendApi: BackendApi
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        sessionStore = SessionStore(this)
+        deviceIdentityStore = DeviceIdentityStore(this)
+        backendApi = BackendApi(MainActivity.SIGNALING_URL)
 
-        // Daha önce giriş yapıldıysa direkt MainActivity'ye geç
-        if (prefs.getBoolean(KEY_LOGGED, false)) {
+        if (sessionStore.isLoggedIn()) {
             goToMain()
             return
         }
@@ -50,8 +43,8 @@ class LoginActivity : AppCompatActivity() {
 
     private fun bindViews() {
         binding.btnLogin.setOnClickListener { attemptLogin() }
+        binding.btnRegister.setOnClickListener { attemptRegister() }
 
-        // Klavye "Done" tuşuyla da giriş yapılabilsin
         binding.etPassword.setOnEditorActionListener { _, _, _ ->
             attemptLogin()
             true
@@ -59,23 +52,45 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun attemptLogin() {
+        submitAuth(isRegister = false)
+    }
+
+    private fun attemptRegister() {
+        submitAuth(isRegister = true)
+    }
+
+    private fun submitAuth(isRegister: Boolean) {
         val username = binding.etUsername.text.toString().trim()
         val password = binding.etPassword.text.toString()
+        val deviceId = deviceIdentityStore.deviceId()
 
         if (username.isEmpty() || password.isEmpty()) {
-            showError("Lütfen tüm alanları doldurun.")
+            showError("Lutfen tum alanlari doldurun.")
             return
         }
 
-        if (username == VALID_USER && password == VALID_PASS) {
-            // Oturumu kaydet
-            prefs.edit().putBoolean(KEY_LOGGED, true).apply()
+        setLoading(true, isRegister)
+        hideError()
+        scope.launch {
+            val result = if (isRegister) {
+                backendApi.register(username, password, deviceId, "phone")
+            } else {
+                backendApi.login(username, password, deviceId, "phone")
+            }
+            setLoading(false, isRegister)
+
+            if (result.error != null || result.data == null) {
+                showError(result.error ?: "Beklenmeyen bir hata olustu.")
+                if (!isRegister) {
+                    binding.etPassword.text.clear()
+                    binding.etPassword.requestFocus()
+                }
+                return@launch
+            }
+
+            sessionStore.save(result.data)
             hideError()
             goToMain()
-        } else {
-            showError("Kullanıcı adı veya şifre hatalı.")
-            binding.etPassword.text.clear()
-            binding.etPassword.requestFocus()
         }
     }
 
@@ -85,11 +100,23 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun showError(msg: String) {
-        binding.tvLoginError.text = "⚠  $msg"
+        binding.tvLoginError.text = msg
         binding.tvLoginError.visibility = View.VISIBLE
     }
 
     private fun hideError() {
         binding.tvLoginError.visibility = View.GONE
+    }
+
+    private fun setLoading(loading: Boolean, isRegister: Boolean) {
+        binding.btnLogin.isEnabled = !loading
+        binding.btnRegister.isEnabled = !loading
+        binding.btnLogin.text = if (loading && !isRegister) "Giris yapiliyor..." else getString(R.string.login_button)
+        binding.btnRegister.text = if (loading && isRegister) "Kayit olusturuluyor..." else getString(R.string.register_button)
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 }

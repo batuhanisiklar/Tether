@@ -1,0 +1,262 @@
+import logging
+import os
+from contextlib import contextmanager
+from datetime import datetime
+
+import bcrypt
+import psycopg2
+import psycopg2.extras
+from psycopg2.pool import ThreadedConnectionPool
+
+logger = logging.getLogger(__name__)
+
+DB_URL = os.environ.get(
+    "NEON_DB_URL",
+    "postgresql://neondb_owner:npg_Y3JevV2SsERI@ep-crimson-sun-anqdvhsy-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+)
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    id          SERIAL PRIMARY KEY,
+    username    TEXT UNIQUE NOT NULL,
+    password_h  TEXT NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS devices (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    device_id   TEXT UNIQUE NOT NULL,
+    device_type TEXT NOT NULL,
+    last_seen   TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS pairings (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    phone_device_id TEXT NOT NULL,
+    pc_device_id    TEXT NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(phone_device_id, pc_device_id)
+);
+"""
+
+
+class ServerDbClient:
+    def __init__(self, db_url: str = DB_URL):
+        self._pool = ThreadedConnectionPool(1, 10, db_url)
+
+    @contextmanager
+    def _get_conn(self):
+        conn = self._pool.getconn()
+        conn.autocommit = False
+        try:
+            yield conn
+        finally:
+            self._pool.putconn(conn)
+
+    def close(self):
+        self._pool.closeall()
+
+    def init_schema(self) -> bool:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(SCHEMA_SQL)
+                conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("Schema init hatasi: %s", exc)
+            return False
+
+    def register_user(self, username: str, password: str) -> tuple[bool, str]:
+        normalized = username.strip().lower()
+        if len(normalized) < 3:
+            return False, "Kullanici adi en az 3 karakter olmali."
+        if len(password) < 6:
+            return False, "Sifre en az 6 karakter olmali."
+
+        try:
+            password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+            with self._get_conn() as conn:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "INSERT INTO users (username, password_h) VALUES (%s, %s)",
+                            (normalized, password_hash),
+                        )
+                    conn.commit()
+                    return True, "Kayit basarili."
+                except psycopg2.errors.UniqueViolation:
+                    conn.rollback()
+                    return False, "Bu kullanici adi zaten kullanimda."
+        except Exception as exc:
+            logger.error("Register hatasi: %s", exc)
+            return False, "Kayit sirasinda bir hata olustu."
+
+    def authenticate_user(self, username: str, password: str) -> tuple[int, str] | None:
+        normalized = username.strip().lower()
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id, username, password_h FROM users WHERE username = %s",
+                        (normalized,),
+                    )
+                    row = cur.fetchone()
+            if row is None:
+                return None
+            user_id, stored_username, password_hash = row
+            if bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8")):
+                return user_id, stored_username
+            return None
+        except Exception as exc:
+            logger.error("Auth hatasi: %s", exc)
+            return None
+
+    def upsert_device(self, user_id: int, device_id: str, device_type: str) -> bool:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO devices (user_id, device_id, device_type, last_seen)
+                        VALUES (%s, %s, %s, now())
+                        ON CONFLICT (device_id) DO UPDATE
+                            SET user_id = EXCLUDED.user_id,
+                                device_type = EXCLUDED.device_type,
+                                last_seen = now()
+                        """,
+                        (user_id, device_id, device_type),
+                    )
+                conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("Device upsert hatasi: %s", exc)
+            return False
+
+    def get_paired_partners(self, device_id: str) -> list[str]:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT pc_device_id AS partner_id
+                        FROM pairings
+                        WHERE phone_device_id = %s
+                        UNION
+                        SELECT phone_device_id AS partner_id
+                        FROM pairings
+                        WHERE pc_device_id = %s
+                        """,
+                        (device_id, device_id),
+                    )
+                    rows = cur.fetchall()
+            return [row[0] for row in rows]
+        except Exception as exc:
+            logger.error("Partner listeleme hatasi: %s", exc)
+            return []
+
+    def save_pairing_by_device_ids(self, first_device_id: str, second_device_id: str) -> bool:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT device_id, user_id, device_type
+                        FROM devices
+                        WHERE device_id IN (%s, %s)
+                        """,
+                        (first_device_id, second_device_id),
+                    )
+                    rows = {row["device_id"]: row for row in cur.fetchall()}
+
+                    first = rows.get(first_device_id)
+                    second = rows.get(second_device_id)
+                    user_id = None
+                    for item in (first, second):
+                        if item and item["user_id"]:
+                            user_id = item["user_id"]
+                            break
+                    if user_id is None:
+                        conn.rollback()
+                        return False
+
+                    phone_device_id, pc_device_id = self._resolve_pair_ids(first_device_id, second_device_id, first, second)
+                    cur.execute(
+                        """
+                        INSERT INTO pairings (user_id, phone_device_id, pc_device_id)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (phone_device_id, pc_device_id) DO NOTHING
+                        """,
+                        (user_id, phone_device_id, pc_device_id),
+                    )
+                conn.commit()
+            return True
+        except Exception as exc:
+            logger.error("Pairing kaydetme hatasi: %s", exc)
+            return False
+
+    def get_user_devices(self, user_id: int) -> list[dict]:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT device_id, device_type, last_seen
+                        FROM devices
+                        WHERE user_id = %s
+                        ORDER BY last_seen DESC NULLS LAST
+                        """,
+                        (user_id,),
+                    )
+                    return [dict(row) for row in cur.fetchall()]
+        except Exception as exc:
+            logger.error("Cihaz listeleme hatasi: %s", exc)
+            return []
+
+    def get_user_pairings(self, user_id: int, device_id: str | None = None) -> list[dict]:
+        base_query = """
+            SELECT counterpart.device_id, counterpart.device_type, counterpart.last_seen
+            FROM pairings p
+            JOIN devices counterpart
+              ON counterpart.device_id = CASE
+                    WHEN p.phone_device_id = %(device_id)s THEN p.pc_device_id
+                    ELSE p.phone_device_id
+                 END
+            WHERE p.user_id = %(user_id)s
+              AND (%(device_id)s IS NULL OR p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s)
+            ORDER BY counterpart.last_seen DESC NULLS LAST
+        """
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(base_query, {"user_id": user_id, "device_id": device_id})
+                    return [dict(row) for row in cur.fetchall()]
+        except Exception as exc:
+            logger.error("Pairings listeleme hatasi: %s", exc)
+            return []
+
+    @staticmethod
+    def _resolve_pair_ids(
+        first_device_id: str,
+        second_device_id: str,
+        first_row: dict | None,
+        second_row: dict | None,
+    ) -> tuple[str, str]:
+        def role_of(device_id: str, row: dict | None) -> str:
+            if row and row.get("device_type") in {"phone", "pc"}:
+                return row["device_type"]
+            if device_id.startswith("phone-"):
+                return "phone"
+            return "pc"
+
+        first_role = role_of(first_device_id, first_row)
+        second_role = role_of(second_device_id, second_row)
+        if first_role == "phone" and second_role == "pc":
+            return first_device_id, second_device_id
+        if first_role == "pc" and second_role == "phone":
+            return second_device_id, first_device_id
+        if first_device_id.startswith("phone-") or second_role == "pc":
+            return first_device_id, second_device_id
+        return second_device_id, first_device_id

@@ -4,16 +4,19 @@
     <string name="accessibility_description">Bilgisayardan dokunma ve kaydırma kontrolü sağlar</string>
     <string name="login_icon">Bağlantı</string>
     <string name="login_title">Remote Control</string>
-    <string name="login_subtitle">Yönetim paneline giriş yapın</string>
+    <string name="login_subtitle">Telefonunuzu ve masaustunuzu ayni hesapta bulusturun</string>
     <string name="login_username_label">Kullanıcı Adı</string>
     <string name="login_username_hint">Kullanıcı adınızı girin</string>
     <string name="login_password_label">Şifre</string>
     <string name="login_password_hint">Şifrenizi girin</string>
     <string name="login_button">Giriş Yap</string>
+    <string name="register_button">Kayit Ol</string>
+    <string name="login_helper">Ilk kullanimda kayit olun, sonraki acilislarda oturumunuz korunur.</string>
     <string name="login_footer">© 2026 Remote Phone Control</string>
 
     <string name="main_title">Remote Control</string>
     <string name="main_subtitle">Telefonunuzu bilgisayardan yönetin</string>
+    <string name="main_user_prefix">Aktif hesap</string>
     <string name="server_ip_label">PC (Sunucu) IP adresi</string>
     <string name="server_ip_hint">192.168.1.103</string>
     <string name="connection_code_title">Bağlantı Kodu</string>
@@ -21,7 +24,10 @@
     <string name="connection_code_help">Bu kodu desktop uygulamasına girin</string>
     <string name="status_title">Durum</string>
     <string name="status_initializing">Başlatılıyor...</string>
+    <string name="paired_devices_title">Eslesmis Bilgisayarlar</string>
+    <string name="paired_devices_empty">Henuz eslesmis bilgisayar yok.</string>
     <string name="warning_accessibility">Dokunma kontrolü için buraya tıklayın</string>
     <string name="retry_connect">Yeniden Bağlan</string>
     <string name="stop_stream">Yayını Durdur</string>
+    <string name="logout">Cikis Yap</string>
 </resources>

@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 class SignalingClient(
     private val serverUrl: String,
     private val deviceId: String,
-    private val onPaired: (streamPort: Int) -> Unit,
+    private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
     private val onDisconnected: () -> Unit,
 ) {
@@ -63,6 +63,7 @@ class SignalingClient(
                     put("type", "register")
                     put("code", sessionCode)
                     put("role", "phone")
+                    put("device_id", deviceId)
                 }
                 webSocket.send(registerMsg.toString())
             }
@@ -85,15 +86,16 @@ class SignalingClient(
                             Log.i(TAG, "Auto-paired with PC: $partnerDeviceId")
                             scope.launch {
                                 delay(500)
-                                onPaired(8080)
+                                onPaired(8080, partnerDeviceId.ifBlank { null })
                             }
                         }
 
                         "paired" -> {
+                            val partnerDeviceId = json.optString("partner_device_id", "")
                             Log.i(TAG, "Paired with PC via code!")
                             scope.launch {
                                 delay(500)
-                                onPaired(8080)
+                                onPaired(8080, partnerDeviceId.ifBlank { null })
                             }
                         }
 
