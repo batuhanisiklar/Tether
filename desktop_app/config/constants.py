@@ -33,6 +33,7 @@ class Prefs:
     KEY_LOGGED_IN: str     = "is_logged_in"
     KEY_USER_ID: str       = "user_id"
     KEY_USERNAME: str      = "username"
+    KEY_REMEMBERED_USERNAME: str = "remembered_username"
     KEY_DEVICE_ID: str     = "device_id"
     KEY_PAIRED_PHONE: str  = "paired_phone_id"
     DB_URL: str            = os.environ.get(
@@ -63,7 +64,7 @@ class Network:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Renk paleti — yumusak pastel yuzeyler
+# Renk paleti — koyu modern tema
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class Colors:
@@ -72,69 +73,69 @@ class Colors:
     '#' ile başlayan hex string'ler, PyQt stylesheet'te doğrudan kullanılır.
     """
     # ── Arka planlar ─────────────────────────────────────────────────
-    BG_APP:       str = "#F3F5FB"
-    BG_SURFACE:   str = "#FFFFFF"
-    BG_CARD:      str = "#FAFBFF"
-    BG_INPUT:     str = "#F5F7FD"
+    BG_APP:       str = "#0F1220"
+    BG_SURFACE:   str = "#161B2D"
+    BG_CARD:      str = "#1C2238"
+    BG_INPUT:     str = "#242C46"
 
     # ── Kenarlar ─────────────────────────────────────────────────────
-    BORDER:       str = "#D9E1EF"
-    BORDER_INPUT: str = "#D4DDEE"
-    BORDER_FOCUS: str = "#8695FF"
+    BORDER:       str = "#303A5C"
+    BORDER_INPUT: str = "#3B486E"
+    BORDER_FOCUS: str = "#8C96FF"
 
     # ── Metin ────────────────────────────────────────────────────────
-    TEXT:         str = "#24324A"
-    TEXT_MUTED:   str = "#6E7B95"
-    TEXT_SUBTLE:  str = "#8D98AE"
-    TEXT_OFF:     str = "#A2ACC0"
+    TEXT:         str = "#F2F5FF"
+    TEXT_MUTED:   str = "#A8B2D1"
+    TEXT_SUBTLE:  str = "#7984A8"
+    TEXT_OFF:     str = "#5F6C93"
 
     # ── Vurgu ────────────────────────────────────────────────────────────────
-    ACCENT:       str = "#7C8BFF"
-    ACCENT_HOVER: str = "#6F7EF7"
-    ACCENT_PRESS: str = "#6170E8"
-    ACCENT_DIM:   str = "#CDD3FF"
+    ACCENT:       str = "#8A95FF"
+    ACCENT_HOVER: str = "#7B87F7"
+    ACCENT_PRESS: str = "#6D78E8"
+    ACCENT_DIM:   str = "#44508B"
 
     # ── Durum renkleri — Bağlan (yeşil), Bağlantıyı Kes (kırmızı) ───────────────────
-    SUCCESS:            str = "#69B99C"
-    SUCCESS_HOVER:      str = "#56AA8B"
-    SUCCESS_PRESS:      str = "#489A7B"
-    SUCCESS_DIM:        str = "#DDEFE7"
-    ERROR:              str = "#E47D7D"
-    ERROR_HOVER:        str = "#D56D6D"
-    WARNING:            str = "#E5B35B"
+    SUCCESS:            str = "#5FD1A4"
+    SUCCESS_HOVER:      str = "#51C295"
+    SUCCESS_PRESS:      str = "#43B286"
+    SUCCESS_DIM:        str = "#224D41"
+    ERROR:              str = "#FF8B8B"
+    ERROR_HOVER:        str = "#F37F7F"
+    WARNING:            str = "#FFCB70"
 
     # ── Buton yüzeyleri ──────────────────────────────────────────────
-    BTN_CONNECT_BG:    str = "#7C8BFF"
-    BTN_CONNECT_HOV:   str = "#6F7EF7"
-    BTN_CONNECT_PRESS: str = "#6170E8"
-    BTN_CONNECT_DIM:   str = "#CDD3FF"
-    BTN_SEC_BG:        str = "#FFFFFF"
-    BTN_SEC_BDR:       str = "#D4DDEE"
-    BTN_SEC_FG:        str = "#55627C"
-    BTN_SEC_HOV:       str = "#F1F4FB"
+    BTN_CONNECT_BG:    str = "#8A95FF"
+    BTN_CONNECT_HOV:   str = "#7B87F7"
+    BTN_CONNECT_PRESS: str = "#6D78E8"
+    BTN_CONNECT_DIM:   str = "#44508B"
+    BTN_SEC_BG:        str = "#202845"
+    BTN_SEC_BDR:       str = "#334066"
+    BTN_SEC_FG:        str = "#D2D9F5"
+    BTN_SEC_HOV:       str = "#273153"
 
-    BTN_DANGER_BG:     str = "#FFF2F2"
-    BTN_DANGER_BDR:    str = "#F1C7C7"
-    BTN_DANGER_FG:     str = "#C96868"
-    BTN_DANGER_HOV:    str = "#FFE7E7"
+    BTN_DANGER_BG:     str = "#312028"
+    BTN_DANGER_BDR:    str = "#6A3D48"
+    BTN_DANGER_FG:     str = "#FF9AA0"
+    BTN_DANGER_HOV:    str = "#3B2630"
 
-    BTN_DISCONNECT_BG: str = "#FFF4F4"
-    BTN_DISCONNECT_BDR: str = "#EECACA"
-    BTN_DISCONNECT_FG: str = "#CC6F6F"
-    BTN_DISCONNECT_HOV: str = "#FFEAEA"
+    BTN_DISCONNECT_BG: str = "#312028"
+    BTN_DISCONNECT_BDR: str = "#6A3D48"
+    BTN_DISCONNECT_FG: str = "#FF9AA0"
+    BTN_DISCONNECT_HOV: str = "#3B2630"
 
     # Tuş kontrol buton renkleri (gruba göre renk ayrımı)
-    BTN_NAV_BG:        str = "#EEF2FF"
-    BTN_NAV_BDR:       str = "#CDD6FF"
-    BTN_NAV_FG:        str = "#6271DA"
+    BTN_NAV_BG:        str = "#20294A"
+    BTN_NAV_BDR:       str = "#32447D"
+    BTN_NAV_FG:        str = "#A7B4FF"
 
-    BTN_VOL_BG:        str = "#ECF8F2"
-    BTN_VOL_BDR:       str = "#CBE8D9"
-    BTN_VOL_FG:        str = "#4D9B7A"
+    BTN_VOL_BG:        str = "#1D302B"
+    BTN_VOL_BDR:       str = "#2E5A4D"
+    BTN_VOL_FG:        str = "#79D6B3"
 
-    BTN_SCR_BG:        str = "#F6EEFF"
-    BTN_SCR_BDR:       str = "#E0CCFF"
-    BTN_SCR_FG:        str = "#9A74C8"
+    BTN_SCR_BG:        str = "#2A2140"
+    BTN_SCR_BDR:       str = "#55427C"
+    BTN_SCR_FG:        str = "#C4A5FF"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

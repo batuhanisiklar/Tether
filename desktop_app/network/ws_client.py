@@ -161,7 +161,8 @@ class WsClient(QObject):
         ws.send(json.dumps({
             "type": "join",
             "code": self._session_code,
-            "role": "pc"
+            "role": "pc",
+            "device_id": self.device_id,
         }))
 
     def _on_open_device_hello(self, ws):
@@ -185,6 +186,9 @@ class WsClient(QObject):
             logger.debug(f"Mesaj alındı: type={msg_type}")
 
         if msg_type == "paired":
+            partner_id = msg.get("partner_device_id", "")
+            if partner_id:
+                save_paired_phone_id(partner_id)
             self.paired.emit(msg.get("stream_url", ""))
 
         elif msg_type == "auto_paired":

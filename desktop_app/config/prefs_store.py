@@ -47,9 +47,18 @@ def save_session(user_id: int, username: str) -> None:
             Prefs.KEY_LOGGED_IN: True,
             Prefs.KEY_USER_ID: user_id,
             Prefs.KEY_USERNAME: username,
+            Prefs.KEY_REMEMBERED_USERNAME: username,
         }
     )
 
 
 def clear_logged_in() -> None:
     update_prefs(**{Prefs.KEY_LOGGED_IN: False})
+
+
+def remembered_username() -> str:
+    return read_prefs().get(Prefs.KEY_REMEMBERED_USERNAME, "")
+
+
+def save_remembered_username(username: str) -> None:
+    update_prefs(**{Prefs.KEY_REMEMBERED_USERNAME: username.strip()})

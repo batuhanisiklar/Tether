@@ -609,7 +609,7 @@ class MainWindow(QMainWindow):
     def _try_auto_connect(self):
         """Kayıtlı telefon varsa sunucuya bağlan ve device_hello gönder."""
         paired_id = load_paired_phone_id()
-        if paired_id:
+        if paired_id or self._device_cards:
             self._paired_phone_id = paired_id
             self._set_status("Kayıtlı telefon aranıyor...")
             self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)

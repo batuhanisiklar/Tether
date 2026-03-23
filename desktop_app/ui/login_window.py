@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread
 
 from desktop_app.config import Colors, AppMeta
-from desktop_app.config.prefs_store import save_session
+from desktop_app.config.prefs_store import remembered_username, save_remembered_username, save_session
 from desktop_app.database.db_client import DbClient
 from desktop_app.ui.theme import (
     card_style,
@@ -63,6 +63,7 @@ class LoginWindow(QDialog):
         self._login_thread = None
         self._reg_worker = None
         self._reg_thread = None
+        self._remembered_username = remembered_username()
         self._build_ui()
 
     # ──────── UI ──────────────────────────────────────────────────────────────
@@ -145,7 +146,7 @@ class LoginWindow(QDialog):
         lay.setContentsMargins(32, 24, 32, 16)
         lay.setSpacing(4)
 
-        icon_lbl = QLabel("🔌")
+        icon_lbl = QLabel("◈")
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_lbl.setStyleSheet("font-size: 32px; background: transparent;")
         lay.addWidget(icon_lbl)
@@ -213,7 +214,9 @@ class LoginWindow(QDialog):
 
         lay.addWidget(self._field_lbl("Kullanıcı Adı"))
         lay.addSpacing(5)
-        self._inp_user = self._make_input("admin")
+        self._inp_user = self._make_input("Kullanici adiniz")
+        if self._remembered_username:
+            self._inp_user.setText(self._remembered_username)
         lay.addWidget(self._inp_user)
         lay.addSpacing(12)
 
@@ -239,6 +242,12 @@ class LoginWindow(QDialog):
         lay.addWidget(self._btn_login)
 
         lay.addStretch()
+
+        helper = QLabel("Son giris yapan kullanici adi otomatik hatirlanir")
+        helper.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        helper.setStyleSheet(text_style(c.TEXT_MUTED, size=10))
+        lay.addWidget(helper)
+        lay.addSpacing(10)
 
         ver = QLabel(f"v{AppMeta.VERSION}  ·  {AppMeta.NAME}")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -380,6 +389,7 @@ class LoginWindow(QDialog):
             return
 
         user_id, username = result
+        save_remembered_username(uname := self._inp_user.text().strip() or username)
         self._save_session(user_id, username)
         self.accept()
 
