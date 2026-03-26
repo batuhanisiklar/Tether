@@ -49,7 +49,7 @@ async def _require_user(request: web.Request) -> tuple[int, str] | None:
 
 
 async def _send_json(ws: web.WebSocketResponse, payload: dict) -> None:
-    await ws.send_str(json.dumps(payload))
+    await ws.send_str(json.dumps(payload, separators=(",", ":")))
 
 
 def _session_entry(app: web.Application, code: str) -> dict:
@@ -204,20 +204,49 @@ async def _handle_register_or_join(
         await _send_json(ws, {"type": MessageTypes.WAITING, "message": "Telefon baglanmayi bekliyor..."})
 
 
-async def _relay_message(app: web.Application, ws: web.WebSocketResponse, meta: dict, message: dict) -> None:
+async def _resolve_peer_ws(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    meta: dict,
+) -> web.WebSocketResponse | None:
     peer_code = meta.get("peer_code")
     peer_role = meta.get("peer_role")
     if not peer_code or not peer_role:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Not registered"})
-        return
+        return None
 
     session = app["sessions"].get(peer_code, {})
     other_role = "pc" if peer_role == "phone" else "phone"
     other_ws = session.get(other_role)
     if not other_ws:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": f"{other_role} bagli degil"})
+        return None
+    return other_ws
+
+
+async def _relay_message(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    meta: dict,
+    message: dict,
+    raw_text: str | None = None,
+) -> None:
+    other_ws = await _resolve_peer_ws(app, ws, meta)
+    if not other_ws:
         return
-    await other_ws.send_str(json.dumps(message))
+    await other_ws.send_str(raw_text if raw_text is not None else json.dumps(message, separators=(",", ":")))
+
+
+async def _relay_binary_frame(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    meta: dict,
+    payload: bytes,
+) -> None:
+    other_ws = await _resolve_peer_ws(app, ws, meta)
+    if not other_ws:
+        return
+    await other_ws.send_bytes(payload)
 
 
 async def websocket_handler(request: web.Request) -> web.StreamResponse:
@@ -234,6 +263,10 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
 
     try:
         async for raw in ws:
+            if raw.type == WSMsgType.BINARY:
+                await _relay_binary_frame(app, ws, meta, raw.data)
+                continue
+
             if raw.type != WSMsgType.TEXT:
                 continue
             try:
@@ -253,7 +286,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
             elif message_type in {MessageTypes.REGISTER, MessageTypes.JOIN}:
                 await _handle_register_or_join(app, ws, meta, message)
             elif message_type in MessageTypes.RELAY_TYPES:
-                await _relay_message(app, ws, meta, message)
+                await _relay_message(app, ws, meta, message, raw_text=raw.data)
             else:
                 await _send_json(ws, {"type": MessageTypes.ERROR, "message": f"Unknown: {message_type}"})
     finally:

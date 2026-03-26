@@ -172,7 +172,7 @@ class WsClient(QObject):
                 self.error_occurred.emit("Baglanti acik degil.")
             return False
         try:
-            current_ws.send(json.dumps(payload))
+            current_ws.send(json.dumps(payload, separators=(",", ":")))
             return True
         except websocket.WebSocketConnectionClosedException:
             logger.warning("Kapali WebSocket'a mesaj gonderilmeye calisildi: %s", payload.get("type"))
@@ -196,7 +196,7 @@ class WsClient(QObject):
             "code": self._session_code,
             "role": "pc",
             "device_id": self.device_id,
-        }))
+        }, separators=(",", ":")))
 
     def _on_open_device_hello(self, ws):
         self.connected.emit()
@@ -208,9 +208,13 @@ class WsClient(QObject):
         }
         if self._preferred_partner_id:
             payload["preferred_partner_id"] = self._preferred_partner_id
-        ws.send(json.dumps(payload))
+        ws.send(json.dumps(payload, separators=(",", ":")))
 
-    def _on_message(self, ws, raw: str):
+    def _on_message(self, ws, raw):
+        if isinstance(raw, (bytes, bytearray)):
+            self._handle_frame_bytes(bytes(raw))
+            return
+
         try:
             msg = json.loads(raw)
         except json.JSONDecodeError:
@@ -241,27 +245,14 @@ class WsClient(QObject):
             self.paired.emit(msg.get("url", ""))
 
         elif msg_type == "frame":
-            if self._frame_processing:
+            data_str = msg.get("data", "")
+            if not data_str:
+                logger.warning("Frame mesajı boş data içeriyor")
                 return
-            self._frame_processing = True
             try:
-                data_str = msg.get("data", "")
-                if not data_str:
-                    logger.warning("Frame mesajı boş data içeriyor")
-                    return
-                jpeg_bytes = base64.b64decode(data_str)
-                img = QImage()
-                if img.loadFromData(jpeg_bytes, "JPEG"):
-                    pixmap = QPixmap.fromImage(img)
-                    if not pixmap.isNull():
-                        self.frame_received.emit(pixmap)
-                        logger.debug(f"Frame gönderildi: {len(jpeg_bytes)} bytes {img.width()}x{img.height()}")
-                else:
-                    logger.warning("JPEG decode başarısız")
+                self._handle_frame_bytes(base64.b64decode(data_str))
             except Exception as e:
-                logger.error(f"Frame decode hatası: {e}", exc_info=True)
-            finally:
-                self._frame_processing = False
+                logger.warning("Eski tip frame mesajı decode edilemedi: %s", e)
 
         elif msg_type == "peer_disconnected":
             self.peer_disconnected.emit()
@@ -282,6 +273,24 @@ class WsClient(QObject):
         if not self._disconnect_emitted:
             self._disconnect_emitted = True
             self.disconnected.emit(f"code={code}, msg={msg}")
+
+    def _handle_frame_bytes(self, jpeg_bytes: bytes):
+        if self._frame_processing:
+            return
+        self._frame_processing = True
+        try:
+            img = QImage()
+            if img.loadFromData(jpeg_bytes, "JPEG"):
+                pixmap = QPixmap.fromImage(img)
+                if not pixmap.isNull():
+                    self.frame_received.emit(pixmap)
+                    logger.debug(f"Frame gönderildi: {len(jpeg_bytes)} bytes {img.width()}x{img.height()}")
+            else:
+                logger.warning("JPEG decode başarısız")
+        except Exception as e:
+            logger.error(f"Frame decode hatası: {e}", exc_info=True)
+        finally:
+            self._frame_processing = False
 
 
 def load_paired_phone_id() -> str | None:

@@ -811,8 +811,9 @@ class MainWindow(QMainWindow):
 
         from desktop_app.ui.login_window import LoginWindow
 
+        self.hide()
         new_db = DbClient()
-        login = LoginWindow(new_db, self)
+        login = LoginWindow(new_db)
         if login.exec() == QDialog.DialogCode.Accepted:
             replacement = MainWindow(new_db)
             app = QApplication.instance()
@@ -822,8 +823,11 @@ class MainWindow(QMainWindow):
             self.close()
         else:
             new_db.close()
-            import sys
-            sys.exit(0)
+            app = QApplication.instance()
+            self.close()
+            if app is not None:
+                app.quit()
+            return
         self._logging_out = False
 
     # ── WS slots ─────────────────────────────────────────────────────────────

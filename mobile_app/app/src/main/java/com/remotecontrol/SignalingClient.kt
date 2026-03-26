@@ -3,7 +3,7 @@ package com.remotecontrol
 import android.util.Log
 import kotlinx.coroutines.*
 import okhttp3.*
-import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -27,6 +27,7 @@ class SignalingClient(
 ) {
     companion object {
         private const val TAG = "SignalingClient"
+        private const val MAX_PENDING_FRAME_BYTES = 1_500_000L
         fun generateCode(): String = (100_000..999_999).random().toString()
 
         /** Diğer servislerden frame göndermek için erişilebilir instance */
@@ -162,14 +163,22 @@ class SignalingClient(
             return
         }
         try {
-            val b64 = android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP)
-            val msg = JSONObject().apply {
-                put("type", "frame")
-                put("data", b64)
+            val queuedBytes = currentWs.queueSize()
+            if (queuedBytes > MAX_PENDING_FRAME_BYTES) {
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(TAG, "Frame atlandi: websocket kuyrugu dolu ($queuedBytes bytes)")
+                }
+                return
             }
-            currentWs.send(msg.toString())
+
+            val sent = currentWs.send(jpeg.toByteString())
+            if (!sent) {
+                Log.w(TAG, "Frame gönderilemedi: websocket kabul etmedi")
+                return
+            }
+
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "Frame gönderildi: ${jpeg.size} bytes -> ${b64.length} chars base64")
+                Log.d(TAG, "Binary frame gönderildi: ${jpeg.size} bytes")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Frame gönderme hatası: $e", e)
