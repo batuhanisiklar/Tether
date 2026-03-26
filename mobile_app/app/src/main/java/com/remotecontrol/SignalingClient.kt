@@ -154,7 +154,7 @@ class SignalingClient(
     }
 
     /**
-     * Kamera/ekran JPEG frame'ini Base64 JSON olarak PC'ye relay eder.
+     * Kamera/ekran JPEG frame'ini binary WebSocket paketi olarak relay eder.
      */
     fun sendFrame(jpeg: ByteArray) {
         val currentWs = ws
