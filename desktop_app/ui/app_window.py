@@ -71,6 +71,7 @@ _CLR_ACCENT = "#E06040"
 _CLR_ACCENT_HOVER = "#D05535"
 _CLR_GREEN_DOT = "#55CC66"
 _CLR_RED_DOT = "#FF4444"
+_CLR_SURFACE_ALT = "#262626"
 
 
 def _desktop_device_name() -> str:
@@ -268,6 +269,7 @@ class MainWindow(QMainWindow):
         self._device_cards: dict[str, DeviceCard] = {}
         self._online_paired_devices: set[str] = set()
         self._logging_out = False
+        self._manual_disconnect = False
         self._user_id: int | None = None
         self._username = "Kullanici"
         self._user_address = ""
@@ -357,10 +359,10 @@ class MainWindow(QMainWindow):
         self._session_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._session_tab_btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; color: {_CLR_TEXT_MUTED}; border: none;
-                font-size: 12px; padding: 4px 10px;
+                background: {_CLR_SURFACE_ALT}; color: {_CLR_TEXT_MUTED}; border: 1px solid {_CLR_CARD_BORDER};
+                border-radius: 11px; font-size: 12px; padding: 4px 10px;
             }}
-            QPushButton:hover {{ color: {_CLR_TEXT}; }}
+            QPushButton:hover {{ color: {_CLR_TEXT}; border-color: {_CLR_ACCENT}; }}
         """)
         self._session_tab_btn.clicked.connect(lambda: self._switch_page(1))
         self._session_tab_btn.hide()
@@ -410,14 +412,36 @@ class MainWindow(QMainWindow):
         section = QFrame()
         section.setStyleSheet(f"background-color: {_CLR_BODY};")
         layout = QVBoxLayout(section)
-        layout.setContentsMargins(60, 40, 60, 28)
-        layout.setSpacing(14)
+        layout.setContentsMargins(60, 34, 60, 28)
+        layout.setSpacing(12)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_title = QLabel("Uzak Cihaza Baglan")
         lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_title.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 14px;")
+        lbl_title.setStyleSheet(f"color: {_CLR_TEXT}; font-size: 20px; font-weight: 700;")
         layout.addWidget(lbl_title)
+
+        lbl_subtitle = QLabel("12 haneli sabit adres ile hizli baglanti kurun")
+        lbl_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_subtitle.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 12px;")
+        layout.addWidget(lbl_subtitle)
+
+        if self._user_address:
+            hero_badge = QLabel(f"Hesap adresin: {_format_address(self._user_address)}")
+            hero_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            hero_badge.setStyleSheet(
+                f"background-color: {_CLR_SURFACE_ALT}; border: 1px solid {_CLR_CARD_BORDER}; "
+                f"border-radius: 12px; color: {_CLR_TEXT_MUTED}; font-size: 11px; padding: 6px 12px;"
+            )
+            layout.addWidget(hero_badge)
+
+        input_wrap = QFrame()
+        input_wrap.setStyleSheet(
+            f"background-color: {_CLR_CARD}; border: 1px solid {_CLR_CARD_BORDER}; border-radius: 12px;"
+        )
+        wrap_layout = QVBoxLayout(input_wrap)
+        wrap_layout.setContentsMargins(18, 16, 18, 12)
+        wrap_layout.setSpacing(10)
 
         input_row = QHBoxLayout()
         input_row.setSpacing(10)
@@ -461,7 +485,7 @@ class MainWindow(QMainWindow):
             QPushButton:disabled {{ background-color: #555; color: #888; }}
         """)
         input_row.addWidget(self._btn_connect)
-        layout.addLayout(input_row)
+        wrap_layout.addLayout(input_row)
 
         status_row = QHBoxLayout()
         status_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -475,7 +499,9 @@ class MainWindow(QMainWindow):
         self._addr_status_label = QLabel("Hazir")
         self._addr_status_label.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 11px;")
         status_row.addWidget(self._addr_status_label)
-        layout.addLayout(status_row)
+        wrap_layout.addLayout(status_row)
+
+        layout.addWidget(input_wrap)
 
         return section
 
@@ -494,7 +520,10 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
         self._lbl_device_count = QLabel("")
-        self._lbl_device_count.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 11px;")
+        self._lbl_device_count.setStyleSheet(
+            f"background-color: {_CLR_SURFACE_ALT}; color: {_CLR_TEXT_MUTED}; "
+            f"border: 1px solid {_CLR_CARD_BORDER}; border-radius: 10px; font-size: 10px; padding: 4px 8px;"
+        )
         layout.addWidget(self._lbl_device_count)
         return strip
 
@@ -515,6 +544,12 @@ class MainWindow(QMainWindow):
         section_icon.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 11px; font-weight: 600;")
         section_header.addWidget(section_icon)
         section_header.addStretch()
+        summary_hint = QLabel("Kayitli telefonlar")
+        summary_hint.setStyleSheet(
+            f"background-color: {_CLR_SURFACE_ALT}; color: {_CLR_TEXT_MUTED}; "
+            f"border: 1px solid {_CLR_CARD_BORDER}; border-radius: 10px; font-size: 10px; padding: 4px 8px;"
+        )
+        section_header.addWidget(summary_hint)
         inner.addLayout(section_header)
 
         self._recent_cards_container = QWidget()
@@ -754,6 +789,7 @@ class MainWindow(QMainWindow):
 
     # ── card actions ─────────────────────────────────────────────────────────
     def _on_card_connect(self, device_id: str):
+        self._manual_disconnect = True
         self._paired_phone_id = device_id
         card = self._device_cards.get(device_id)
         if card:
@@ -799,6 +835,7 @@ class MainWindow(QMainWindow):
     def _try_auto_connect(self):
         paired_id = load_paired_phone_id()
         if paired_id or self._device_cards:
+            self._manual_disconnect = True
             self._paired_phone_id = paired_id
             self._refresh_home_summary()
             self._set_status("Kayitli cihazlar kontrol ediliyor...")
@@ -824,6 +861,7 @@ class MainWindow(QMainWindow):
         if not partner_device_id:
             self._set_status("Bu adrese ait telefon bulunamadi.", error=True)
             return
+        self._manual_disconnect = True
         self._btn_connect.setEnabled(False)
         self._set_status("Adres cozuldu, baglaniliyor...")
         self._paired_phone_id = partner_device_id
@@ -843,6 +881,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_disconnect(self):
+        self._manual_disconnect = True
         self._mjpeg.stop()
         self._ws_client.disconnect()
         self._screen.clear_frame()
@@ -858,9 +897,11 @@ class MainWindow(QMainWindow):
 
         self._mjpeg.stop()
         self._heartbeat.stop()
+        self._manual_disconnect = True
         self._ws_client.disconnect()
         self._screen.clear_frame()
         clear_logged_in()
+        clear_paired_phone_id()
 
         from desktop_app.ui.login_window import LoginWindow
 
@@ -886,6 +927,7 @@ class MainWindow(QMainWindow):
     # ── WS slots ─────────────────────────────────────────────────────────────
     @pyqtSlot()
     def _on_ws_connected(self):
+        self._manual_disconnect = False
         self._set_status(Ui.MSG_SERVER_CONNECTED)
         self._btn_disconnect.setEnabled(True)
 
@@ -897,6 +939,10 @@ class MainWindow(QMainWindow):
             card.set_online(False)
         self._online_paired_devices.clear()
         self._refresh_home_summary()
+        if self._manual_disconnect:
+            self._manual_disconnect = False
+            self._btn_connect.setEnabled(True)
+            return
         if "10060" in reason or "timed out" in reason.lower():
             self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
         elif "already closed" in reason.lower():
@@ -967,6 +1013,12 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(QPixmap)
     def _on_frame_received(self, pixmap: QPixmap):
+        if not self._connected:
+            # Bazi akislarda paired/auto_paired olayi kacsa bile
+            # frame aliyorsak oturum fiilen hazirdir; kontrolleri ac.
+            self._set_connected(True)
+            self._switch_page(1)
+            self._set_status(Ui.MSG_PAIRED_WS)
         self._screen.set_frame(pixmap)
 
     @pyqtSlot(str)
@@ -1030,6 +1082,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._mjpeg.stop()
         self._heartbeat.stop()
+        self._manual_disconnect = True
         self._ws_client.disconnect()
         self.db.close()
         super().closeEvent(event)
