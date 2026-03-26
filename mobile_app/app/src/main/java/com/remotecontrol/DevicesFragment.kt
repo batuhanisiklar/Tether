@@ -75,7 +75,7 @@ class DevicesFragment : Fragment(), DashboardFragment {
         headerRow.addView(statusDot)
 
         val title = TextView(requireContext()).apply {
-            text = device.address ?: "...${device.deviceId.takeLast(8)}"
+            text = device.displayName()
             setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setTypeface(typeface, Typeface.BOLD)
@@ -94,7 +94,17 @@ class DevicesFragment : Fragment(), DashboardFragment {
         row.addView(headerRow)
 
         val subtitle = TextView(requireContext()).apply {
-            text = device.lastSeen?.let { "Son gorulme: $it" } ?: ""
+            val addressPart = device.address
+                ?.takeIf { it.isNotBlank() }
+                ?.filter { it.isDigit() }
+                ?.take(12)
+                ?.chunked(4)
+                ?.joinToString(" ")
+            val lastSeenPart = device.lastSeen
+                ?.substringBefore("T")
+                ?.takeIf { it.isNotBlank() }
+                ?.let { "Son gorulme: $it" }
+            text = listOfNotNull(addressPart, lastSeenPart).joinToString("  •  ")
             setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setPadding(dp(18), dp(4), 0, 0)

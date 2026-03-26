@@ -9,6 +9,7 @@ When a connection is active, a second stacked page shows live control.
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
@@ -72,10 +73,33 @@ _CLR_GREEN_DOT = "#55CC66"
 _CLR_RED_DOT = "#FF4444"
 
 
+def _desktop_device_name() -> str:
+    return (
+        os.environ.get("COMPUTERNAME")
+        or os.environ.get("HOSTNAME")
+        or "Bu Bilgisayar"
+    )
+
+
 def _format_address(addr: str) -> str:
-    """'000000000001' → '000 000 000 001' gibi 3'erli boşluklu gösterim."""
-    digits = addr.replace(" ", "")
-    return " ".join(digits[i:i + 3] for i in range(0, len(digits), 3))
+    """'000000000001' -> '0000 0000 0001' formatinda gosterim."""
+    digits = "".join(ch for ch in addr if ch.isdigit())[:12]
+    return " ".join(digits[i:i + 4] for i in range(0, len(digits), 4))
+
+
+def _display_device_name(device_name: str | None, address: str | None, device_id: str) -> str:
+    if device_name and device_name.strip():
+        return device_name.strip()
+    if address and address.strip():
+        return _format_address(address)
+    return "..." + device_id[-8:] if len(device_id) > 8 else device_id
+
+
+def _compact_label(text: str, limit: int = 24) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
 
 
 def _relative_time(dt: datetime | None) -> str:
@@ -100,17 +124,26 @@ def _relative_time(dt: datetime | None) -> str:
 class DeviceCard(QFrame):
     """AnyDesk recent session card: dark tile with device address/id, status dot, and actions."""
 
-    def __init__(self, device_id: str, last_seen: datetime | None, address: str | None = None, parent=None):
+    def __init__(
+        self,
+        device_id: str,
+        last_seen: datetime | None,
+        address: str | None = None,
+        device_name: str | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.device_id = device_id
         self.address = address
+        self.device_name = device_name
+        self._last_seen = last_seen
         self._online = False
         self._connect_cb = None
         self._forget_cb = None
-        self.setFixedSize(200, 120)
-        self._build(device_id, last_seen, address)
+        self.setFixedSize(220, 136)
+        self._build(device_id, last_seen, address, device_name)
 
-    def _build(self, device_id: str, last_seen: datetime | None, address: str | None):
+    def _build(self, device_id: str, last_seen: datetime | None, address: str | None, device_name: str | None):
         self.setStyleSheet(f"""
             DeviceCard {{
                 background-color: {_CLR_CARD};
@@ -125,7 +158,7 @@ class DeviceCard(QFrame):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 10, 12, 10)
-        root.setSpacing(6)
+        root.setSpacing(4)
 
         self._dot = QFrame()
         self._dot.setFixedSize(8, 8)
@@ -151,28 +184,26 @@ class DeviceCard(QFrame):
 
         root.addStretch()
 
-        display_id = address or device_id
-        if address:
-            formatted = _format_address(address)
+        formatted = _display_device_name(device_name, address, device_id)
+
+        self._title = QLabel(_compact_label(formatted, 22))
+        self._title.setStyleSheet(f"color: {_CLR_TEXT}; font-size: 13px; font-weight: 600;")
+        root.addWidget(self._title)
+
+        address_text = _format_address(address or "") if address else ""
+        if address_text and address_text != formatted:
+            self._lbl_address = QLabel(address_text)
         else:
-            formatted = "..." + device_id[-8:] if len(device_id) > 8 else device_id
-
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(6)
-        icon_lbl = QLabel("🖥")
-        icon_lbl.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 12px;")
-        bottom_row.addWidget(icon_lbl)
-
-        self._title = QLabel(formatted)
-        self._title.setStyleSheet(f"color: {_CLR_TEXT}; font-size: 12px; font-weight: 500;")
-        bottom_row.addWidget(self._title)
-        bottom_row.addStretch()
-        root.addLayout(bottom_row)
+            self._lbl_address = QLabel("Eslesmis cihaz")
+        self._lbl_address.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 10px;")
+        root.addWidget(self._lbl_address)
 
         self._lbl_time = QLabel(_relative_time(last_seen))
         self._lbl_time.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 10px;")
-        self._lbl_time.setContentsMargins(20, 0, 0, 0)
         root.addWidget(self._lbl_time)
+
+    def display_name(self) -> str:
+        return _display_device_name(self.device_name, self.address, self.device_id)
 
     def set_connect_callback(self, cb):
         self._connect_cb = cb
@@ -185,12 +216,14 @@ class DeviceCard(QFrame):
         if online:
             self._dot.setStyleSheet(f"background-color: {_CLR_GREEN_DOT}; border-radius: 4px;")
             self._lbl_time.setText("Cevrimici")
-            self._lbl_time.setStyleSheet(f"color: {_CLR_GREEN_DOT}; font-size: 10px;")
+            self._lbl_time.setStyleSheet(f"color: {_CLR_GREEN_DOT}; font-size: 10px; font-weight: 600;")
         else:
             self._dot.setStyleSheet(f"background-color: {_CLR_RED_DOT}; border-radius: 4px;")
             self._lbl_time.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 10px;")
+            self._lbl_time.setText(_relative_time(self._last_seen))
 
     def set_last_seen(self, dt: datetime | None):
+        self._last_seen = dt
         if not self._online:
             self._lbl_time.setText(_relative_time(dt))
 
@@ -396,10 +429,11 @@ class MainWindow(QMainWindow):
         input_row.addWidget(dot)
 
         self._inp_code = QLineEdit()
-        self._inp_code.setPlaceholderText("12 haneli sabit adresi girin")
+        self._inp_code.setPlaceholderText("xxxx xxxx xxxx")
         self._inp_code.setFixedHeight(50)
         self._inp_code.setMinimumWidth(420)
         self._inp_code.setMaximumWidth(560)
+        self._inp_code.setMaxLength(14)
         font = QFont("Segoe UI", 20)
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 3.0)
         self._inp_code.setFont(font)
@@ -412,6 +446,7 @@ class MainWindow(QMainWindow):
             QLineEdit:focus {{ border-color: {_CLR_INPUT_FOCUS}; }}
         """)
         self._inp_code.returnPressed.connect(self._on_connect)
+        self._inp_code.textChanged.connect(self._on_address_text_changed)
         input_row.addWidget(self._inp_code)
 
         self._btn_connect = QPushButton("→")
@@ -661,7 +696,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _load_devices_from_db(self):
         if self._user_id:
-            self.db.upsert_device(self._user_id, self._ws_client.device_id, "pc")
+            self.db.upsert_device(self._user_id, self._ws_client.device_id, "pc", _desktop_device_name())
         devices = self.db.get_paired_devices(self._ws_client.device_id)
         self._populate_device_cards(devices)
         self._try_auto_connect()
@@ -680,7 +715,12 @@ class MainWindow(QMainWindow):
         self._lbl_no_devices.hide()
         cols = max(1, (self.width() - 80) // 220)
         for index, device in enumerate(devices):
-            card = DeviceCard(device["device_id"], device.get("last_seen"), device.get("address"))
+            card = DeviceCard(
+                device["device_id"],
+                device.get("last_seen"),
+                device.get("address"),
+                device.get("device_name"),
+            )
             card.set_connect_callback(self._on_card_connect)
             card.set_forget_callback(self._on_card_forget)
             row = index // cols
@@ -700,10 +740,12 @@ class MainWindow(QMainWindow):
             self._addr_status_dot.setStyleSheet(f"background-color: {_CLR_GREEN_DOT}; border-radius: 4px;")
 
         if self._paired_phone_id:
-            short_id = self._paired_phone_id[-8:]
-            self._remote_device_badge.setText(f"Aktif: ...{short_id}")
+            card = self._device_cards.get(self._paired_phone_id)
+            display_name = card.display_name() if card else f"...{self._paired_phone_id[-8:]}"
+            compact_name = _compact_label(display_name, 20)
+            self._remote_device_badge.setText(f"Aktif: {compact_name}")
             if self._session_tab_btn is not None:
-                self._session_tab_btn.setText(f"  Cihaz ...{short_id}")
+                self._session_tab_btn.setText(f"  {compact_name}")
                 self._session_tab_btn.show()
         else:
             self._remote_device_badge.setText("Bagli cihaz yok")
@@ -787,6 +829,17 @@ class MainWindow(QMainWindow):
         self._paired_phone_id = partner_device_id
         self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, preferred_partner_id=partner_device_id)
         self._refresh_home_summary()
+
+    @pyqtSlot(str)
+    def _on_address_text_changed(self, text: str):
+        digits = "".join(ch for ch in text if ch.isdigit())[:12]
+        formatted = _format_address(digits)
+        if text != formatted:
+            cursor_pos = self._inp_code.cursorPosition()
+            self._inp_code.blockSignals(True)
+            self._inp_code.setText(formatted)
+            self._inp_code.blockSignals(False)
+            self._inp_code.setCursorPosition(min(len(formatted), cursor_pos))
 
     @pyqtSlot()
     def _on_disconnect(self):

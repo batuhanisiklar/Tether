@@ -63,6 +63,7 @@ class LoginActivity : AppCompatActivity() {
         val username = binding.etUsername.text.toString().trim()
         val password = binding.etPassword.text.toString()
         val deviceId = deviceIdentityStore.deviceId()
+        val deviceName = MainActivity.buildDeviceName()
 
         if (username.isEmpty() || password.isEmpty()) {
             showError("Lutfen tum alanlari doldurun.")
@@ -73,9 +74,9 @@ class LoginActivity : AppCompatActivity() {
         hideError()
         scope.launch {
             val result = if (isRegister) {
-                backendApi.register(username, password, deviceId, "phone")
+                backendApi.register(username, password, deviceId, "phone", deviceName)
             } else {
-                backendApi.login(username, password, deviceId, "phone")
+                backendApi.login(username, password, deviceId, "phone", deviceName)
             }
             setLoading(false, isRegister)
 

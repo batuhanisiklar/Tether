@@ -43,9 +43,11 @@ class SignalingClient(
         .build()
 
     private var ws: WebSocket? = null
+    private var disconnectNotified = false
 
     fun connect() {
         instance = this
+        disconnectNotified = false
         val request = Request.Builder().url(serverUrl).build()
         ws = client.newWebSocket(request, object : WebSocketListener() {
 
@@ -63,14 +65,16 @@ class SignalingClient(
                 }
                 webSocket.send(helloMsg.toString())
 
-                // Ayrıca 6-haneli kod ile de kayıt ol (ilk eşleşme için fallback)
-                val registerMsg = JSONObject().apply {
-                    put("type", "register")
-                    put("code", sessionCode)
-                    put("role", "phone")
-                    put("device_id", deviceId)
+                // Kayıtlı bir PC hedeflenmiyorsa 6 haneli fallback kodu da aç.
+                if (preferredPartnerId.isNullOrBlank()) {
+                    val registerMsg = JSONObject().apply {
+                        put("type", "register")
+                        put("code", sessionCode)
+                        put("role", "phone")
+                        put("device_id", deviceId)
+                    }
+                    webSocket.send(registerMsg.toString())
                 }
-                webSocket.send(registerMsg.toString())
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -117,7 +121,7 @@ class SignalingClient(
 
                         "peer_disconnected" -> {
                             Log.i(TAG, "PC disconnected")
-                            onDisconnected()
+                            notifyDisconnectedOnce()
                         }
 
                         "error" -> Log.e(TAG, "Server error: ${json.optString("message")}")
@@ -129,12 +133,12 @@ class SignalingClient(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "WS failure: $t")
-                onDisconnected()
+                notifyDisconnectedOnce()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "WS closed: $code $reason")
-                onDisconnected()
+                notifyDisconnectedOnce()
             }
         })
     }
@@ -195,8 +199,15 @@ class SignalingClient(
     }
 
     fun disconnect() {
+        instance = null
         ws?.close(1000, "Client disconnect")
         scope.cancel()
         client.dispatcher.executorService.shutdown()
+    }
+
+    private fun notifyDisconnectedOnce() {
+        if (disconnectNotified) return
+        disconnectNotified = true
+        onDisconnected()
     }
 }

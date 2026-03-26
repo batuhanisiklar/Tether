@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS devices (
     user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
     device_id   TEXT UNIQUE NOT NULL,
     device_type TEXT NOT NULL,
+    device_name TEXT,
     last_seen   TIMESTAMPTZ DEFAULT now()
 );
 
@@ -65,6 +66,7 @@ class ServerDbClient:
                 with conn.cursor() as cur:
                     cur.execute(SCHEMA_SQL)
                     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT")
+                    cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_name TEXT")
                     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_address_unique_idx ON users(address)")
                     cur.execute("UPDATE users SET address = (111111111110 + id)::text WHERE address IS NULL")
                     cur.execute("""
@@ -179,20 +181,27 @@ class ServerDbClient:
             logger.error("Profil alma hatasi: %s", exc)
             return None
 
-    def upsert_device(self, user_id: int, device_id: str, device_type: str) -> bool:
+    def upsert_device(
+        self,
+        user_id: int,
+        device_id: str,
+        device_type: str,
+        device_name: str | None = None,
+    ) -> bool:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO devices (user_id, device_id, device_type, last_seen)
-                        VALUES (%s, %s, %s, now())
+                        INSERT INTO devices (user_id, device_id, device_type, device_name, last_seen)
+                        VALUES (%s, %s, %s, NULLIF(%s, ''), now())
                         ON CONFLICT (device_id) DO UPDATE
                             SET user_id = EXCLUDED.user_id,
                                 device_type = EXCLUDED.device_type,
+                                device_name = COALESCE(EXCLUDED.device_name, devices.device_name),
                                 last_seen = now()
                         """,
-                        (user_id, device_id, device_type),
+                        (user_id, device_id, device_type, device_name),
                     )
                 conn.commit()
             return True
@@ -260,7 +269,7 @@ class ServerDbClient:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute(
                         """
-                        SELECT device_id, device_type, last_seen
+                        SELECT device_id, device_type, device_name, last_seen
                         FROM devices
                         WHERE user_id = %s
                         ORDER BY last_seen DESC NULLS LAST
@@ -274,7 +283,7 @@ class ServerDbClient:
 
     def get_device_pairings(self, device_id: str) -> list[dict]:
         query = """
-            SELECT counterpart.device_id, counterpart.device_type, counterpart.last_seen, owner.address
+            SELECT counterpart.device_id, counterpart.device_type, counterpart.device_name, counterpart.last_seen, owner.address
             FROM pairings p
             JOIN devices counterpart
               ON counterpart.device_id = CASE

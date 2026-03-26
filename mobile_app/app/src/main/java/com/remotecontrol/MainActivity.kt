@@ -33,6 +33,17 @@ class MainActivity : AppCompatActivity() {
                 || android.os.Build.MODEL.contains("Android SDK built for x86")
                 || android.os.Build.MANUFACTURER.contains("Genymotion")
                 || android.os.Build.BRAND.startsWith("generic"))
+
+        fun buildDeviceName(): String {
+            val manufacturer = Build.MANUFACTURER.trim()
+            val model = Build.MODEL.trim()
+            if (model.isBlank()) return manufacturer.ifBlank { "Android cihaz" }
+            return if (manufacturer.isBlank() || model.startsWith(manufacturer, ignoreCase = true)) {
+                model
+            } else {
+                "$manufacturer $model"
+            }
+        }
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -44,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private lateinit var deviceId: String
+    private val deviceName: String by lazy { buildDeviceName() }
     private var pairedPcId: String? = null
     private var currentStatus = "Baslatiliyor..."
     private var currentStatusDetail = ""
@@ -177,7 +189,7 @@ class MainActivity : AppCompatActivity() {
 
     fun usernameText(): String = sessionStore.username().ifBlank { "Kullanici" }
 
-    fun currentCodeText(): String = currentAddress
+    fun currentCodeText(): String = formatAddressForUi(currentAddress)
 
     fun statusText(): String = currentStatus
 
@@ -189,10 +201,14 @@ class MainActivity : AppCompatActivity() {
 
     fun canStopStream(): Boolean = streamRunning
 
-    fun deviceSummaryText(): String = "Telefon device id: $deviceId"
+    fun deviceSummaryText(): String = "Bu cihaz: $deviceName"
 
-    fun preferredPcText(): String = pairedPcId?.let { "Tercihli bilgisayar: ...${it.takeLast(8)}" }
-        ?: "Tercihli bilgisayar yok"
+    fun preferredPcText(): String {
+        val pairedId = pairedPcId ?: return "Tercihli bilgisayar yok"
+        val pairedDevice = currentPairings.firstOrNull { it.deviceId == pairedId }
+        val displayName = pairedDevice?.displayName() ?: "...${pairedId.takeLast(8)}"
+        return "Tercihli bilgisayar: $displayName"
+    }
 
     fun accessibilitySummaryText(): String = if (accessibilityEnabled) {
         "Erisilebilirlik servisi aktif"
@@ -361,7 +377,7 @@ class MainActivity : AppCompatActivity() {
     private suspend fun syncDeviceState() {
         val token = sessionStore.authToken()
         if (token.isBlank()) return
-        backendApi.upsertDevice(token, deviceId, "phone")
+        backendApi.upsertDevice(token, deviceId, "phone", deviceName)
     }
 
     private suspend fun syncUserProfile() {
@@ -454,6 +470,12 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatus(message: String) {
         currentStatus = message
         refreshFragments()
+    }
+
+    private fun formatAddressForUi(raw: String): String {
+        val digits = raw.filter { it.isDigit() }.take(12)
+        if (digits.isEmpty()) return "---- ---- ----"
+        return digits.chunked(4).joinToString(" ")
     }
 
     override fun onResume() {

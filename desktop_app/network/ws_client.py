@@ -60,7 +60,9 @@ class WsClient(QObject):
         :param url:  wss://... veya ws://...
         :param code: Telefon uygulamasının gösterdiği 6 haneli kod
         """
+        self.disconnect()
         self._session_code = code
+        self._preferred_partner_id = None
         self._disconnect_emitted = False
         self._ws = websocket.WebSocketApp(
             url,
@@ -85,6 +87,7 @@ class WsClient(QObject):
         Sunucuya bağlan ve device_hello gönder (kayıtlı eşleşme varsa auto_paired tetiklenir).
         Kod girmeden otomatik yeniden bağlanma için kullanılır.
         """
+        self.disconnect()
         self._session_code = ""
         self._preferred_partner_id = preferred_partner_id
         self._disconnect_emitted = False
@@ -114,6 +117,7 @@ class WsClient(QObject):
             except Exception:
                 pass
         self._ws = None
+        self._preferred_partner_id = None
 
     def send_pair_confirm(self, phone_device_id: str):
         """İlk eşleşmeden sonra çağrılır; sunucuya kalıcı pairing kaydedilir."""
@@ -188,6 +192,8 @@ class WsClient(QObject):
     # ─── WEBSOCKET CALLBACKS ───────────────────────────────────────────────────
 
     def _on_open(self, ws):
+        if ws is not self._ws:
+            return
         self.connected.emit()
         # PC olarak join isteği gönder (6-digit code flow)
         ws.send(json.dumps({
@@ -198,6 +204,8 @@ class WsClient(QObject):
         }, separators=(",", ":")))
 
     def _on_open_device_hello(self, ws):
+        if ws is not self._ws:
+            return
         self.connected.emit()
         # device_hello ile tanıt — kayıtlı telefon çevrimiçiyse auto_paired gelir
         payload = {
@@ -210,6 +218,8 @@ class WsClient(QObject):
         ws.send(json.dumps(payload, separators=(",", ":")))
 
     def _on_message(self, ws, raw):
+        if ws is not self._ws:
+            return
         if isinstance(raw, (bytes, bytearray)):
             self._handle_frame_bytes(bytes(raw))
             return
@@ -263,12 +273,19 @@ class WsClient(QObject):
             self.error_occurred.emit(msg.get("message", "Bilinmeyen hata"))
 
     def _on_error(self, ws, error):
+        if ws is not self._ws:
+            return
+        if isinstance(error, websocket.WebSocketConnectionClosedException):
+            logger.info("WebSocket kapali hata callback'i alindi")
         if isinstance(error, websocket.WebSocketConnectionClosedException) and not self._disconnect_emitted:
             self._disconnect_emitted = True
             self.disconnected.emit("socket is already closed")
+            return
         self.error_occurred.emit(str(error))
 
     def _on_close(self, ws, code, msg):
+        if ws is not self._ws:
+            return
         if not self._disconnect_emitted:
             self._disconnect_emitted = True
             self.disconnected.emit(f"code={code}, msg={msg}")

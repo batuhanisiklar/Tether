@@ -25,6 +25,7 @@ def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
     return {
         "device_id": device["device_id"],
         "device_type": device["device_type"],
+        "device_name": device.get("device_name"),
         "address": device.get("address"),
         "last_seen": _serialize_datetime(device.get("last_seen")),
         "online": device["device_id"] in online_devices,
@@ -155,6 +156,10 @@ async def _handle_device_hello(
         return
 
     paired_devices = await _get_paired_partners(app, device_id)
+    online_paired_devices = [
+        partner_id for partner_id in paired_devices
+        if partner_id in app["online_devices"] and app["online_devices"][partner_id]["role"] != role
+    ]
     await _send_json(
         ws,
         {
@@ -162,11 +167,8 @@ async def _handle_device_hello(
             "device_id": device_id,
             "paired_with": paired_devices[0] if paired_devices else "",
             "paired_devices": paired_devices,
-            "online_paired_devices": [
-                partner_id for partner_id in paired_devices
-                if partner_id in app["online_devices"] and app["online_devices"][partner_id]["role"] != role
-            ],
-            "partner_online": False,
+            "online_paired_devices": online_paired_devices,
+            "partner_online": bool(online_paired_devices),
         },
     )
 
@@ -188,6 +190,13 @@ async def _handle_register_or_join(
     role = message.get("role", "phone" if message.get("type") == MessageTypes.REGISTER else "pc")
     if not code:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "code missing"})
+        return
+
+    current_peer_code = meta.get("peer_code") or ""
+    if current_peer_code.startswith("__auto_"):
+        ack = MessageTypes.REGISTERED if message.get("type") == MessageTypes.REGISTER else MessageTypes.JOINED
+        await _send_json(ws, {"type": ack, "code": code, "role": role, "ignored": True})
+        logger.info("Ignored %s for already auto-paired device=%s", message.get("type"), meta.get("device_id"))
         return
 
     session = _session_entry(app, code)
@@ -331,8 +340,9 @@ async def auth_register(request: web.Request) -> web.Response:
 
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
+    device_name = data.get("device_name", "").strip()
     if device_id and device_type in {"phone", "pc"}:
-        await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type)
+        await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
 
     token = issue_token(user_id, normalized_username)
     return web.json_response(
@@ -358,8 +368,9 @@ async def auth_login(request: web.Request) -> web.Response:
     user_id, username, address = auth_result
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
+    device_name = data.get("device_name", "").strip()
     if device_id and device_type in {"phone", "pc"}:
-        await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type)
+        await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
 
     token = issue_token(user_id, username)
     return web.json_response(
@@ -390,10 +401,11 @@ async def upsert_device(request: web.Request) -> web.Response:
     data = await _json(request)
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
+    device_name = data.get("device_name", "").strip()
     if not device_id or device_type not in {"phone", "pc"}:
         return web.json_response({"ok": False, "message": "device_id ve device_type gerekli."}, status=400)
 
-    await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type)
+    await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type, device_name)
     return web.json_response({"ok": True})
 
 

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS devices (
     user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
     device_id   TEXT UNIQUE NOT NULL,
     device_type TEXT NOT NULL,
+    device_name TEXT,
     last_seen   TIMESTAMPTZ DEFAULT now()
 );
 
@@ -104,6 +105,7 @@ class DbClient:
                 with conn.cursor() as cur:
                     cur.execute(_SCHEMA_SQL)
                     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT")
+                    cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_name TEXT")
                     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_address_unique_idx ON users(address)")
                     cur.execute("UPDATE users SET address = (111111111110 + id)::text WHERE address IS NULL")
                     cur.execute("""
@@ -238,18 +240,21 @@ class DbClient:
 
     # ─── Cihaz yönetimi ───────────────────────────────────────────────────────
 
-    def upsert_device(self, user_id: int, device_id: str, device_type: str) -> bool:
+    def upsert_device(self, user_id: int, device_id: str, device_type: str, device_name: str | None = None) -> bool:
         """Cihazı DB'ye ekler ya da last_seen günceller."""
         try:
             with self._get_conn() as conn:
                 try:
                     with conn.cursor() as cur:
                         cur.execute("""
-                            INSERT INTO devices (user_id, device_id, device_type, last_seen)
-                            VALUES (%s, %s, %s, now())
+                            INSERT INTO devices (user_id, device_id, device_type, device_name, last_seen)
+                            VALUES (%s, %s, %s, NULLIF(%s, ''), now())
                             ON CONFLICT (device_id) DO UPDATE
-                                SET last_seen = now(), user_id = EXCLUDED.user_id
-                        """, (user_id, device_id, device_type))
+                                SET last_seen = now(),
+                                    user_id = EXCLUDED.user_id,
+                                    device_type = EXCLUDED.device_type,
+                                    device_name = COALESCE(EXCLUDED.device_name, devices.device_name)
+                        """, (user_id, device_id, device_type, device_name))
                     conn.commit()
                     return True
                 except Exception:
@@ -269,6 +274,7 @@ class DbClient:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute("""
                         SELECT p.phone_device_id AS device_id,
+                               d.device_name,
                                d.last_seen,
                                u.address
                         FROM pairings p

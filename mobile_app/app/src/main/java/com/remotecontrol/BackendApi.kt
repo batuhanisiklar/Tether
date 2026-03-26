@@ -25,10 +25,20 @@ data class AuthSession(
 data class DeviceSummary(
     val deviceId: String,
     val deviceType: String,
+    val deviceName: String?,
     val address: String?,
     val lastSeen: String?,
     val online: Boolean,
-)
+) {
+    fun displayName(): String = deviceName?.takeIf { it.isNotBlank() }
+        ?: address
+            ?.filter { it.isDigit() }
+            ?.take(12)
+            ?.chunked(4)
+            ?.joinToString(" ")
+            ?.takeIf { it.isNotBlank() }
+        ?: "...${deviceId.takeLast(8)}"
+}
 
 class BackendApi(
     signalingUrl: String,
@@ -40,31 +50,51 @@ class BackendApi(
         .replaceFirst("ws://", "http://")
         .trimEnd('/')
 
-    suspend fun login(username: String, password: String, deviceId: String, deviceType: String): ApiResult<AuthSession> {
+    suspend fun login(
+        username: String,
+        password: String,
+        deviceId: String,
+        deviceType: String,
+        deviceName: String,
+    ): ApiResult<AuthSession> {
         val payload = JSONObject().apply {
             put("username", username)
             put("password", password)
             put("device_id", deviceId)
             put("device_type", deviceType)
+            put("device_name", deviceName)
         }
         return authRequest("/auth/login", payload)
     }
 
-    suspend fun register(username: String, password: String, deviceId: String, deviceType: String): ApiResult<AuthSession> {
+    suspend fun register(
+        username: String,
+        password: String,
+        deviceId: String,
+        deviceType: String,
+        deviceName: String,
+    ): ApiResult<AuthSession> {
         val payload = JSONObject().apply {
             put("username", username)
             put("password", password)
             put("device_id", deviceId)
             put("device_type", deviceType)
+            put("device_name", deviceName)
         }
         return authRequest("/auth/register", payload)
     }
 
-    suspend fun upsertDevice(token: String, deviceId: String, deviceType: String): ApiResult<Unit> = withContext(Dispatchers.IO) {
+    suspend fun upsertDevice(
+        token: String,
+        deviceId: String,
+        deviceType: String,
+        deviceName: String,
+    ): ApiResult<Unit> = withContext(Dispatchers.IO) {
         try {
             val payload = JSONObject().apply {
                 put("device_id", deviceId)
                 put("device_type", deviceType)
+                put("device_name", deviceName)
             }
             val request = Request.Builder()
                 .url("$baseHttpUrl/devices/upsert")
@@ -200,6 +230,7 @@ class BackendApi(
                     DeviceSummary(
                         deviceId = item.optString("device_id"),
                         deviceType = item.optString("device_type"),
+                        deviceName = item.optString("device_name").takeIf { it.isNotBlank() },
                         address = item.optString("address").takeIf { it.isNotBlank() },
                         lastSeen = item.optString("last_seen").takeIf { it.isNotBlank() },
                         online = item.optBoolean("online", false),
