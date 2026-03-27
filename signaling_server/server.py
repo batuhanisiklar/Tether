@@ -131,6 +131,30 @@ async def _persist_pairing(app: web.Application, user_id: int, first_device_id: 
     await asyncio.to_thread(app["db"].save_pairing_by_device_ids, user_id, first_device_id, second_device_id)
 
 
+async def _persist_session_pairings(
+    app: web.Application,
+    first_user_id: int,
+    first_device_id: str,
+    second_user_id: int,
+    second_device_id: str,
+) -> None:
+    await _persist_pairing(app, first_user_id, first_device_id, second_device_id)
+    if second_user_id != first_user_id:
+        await _persist_pairing(app, second_user_id, first_device_id, second_device_id)
+
+
+async def _broadcast_session_presence(
+    app: web.Application,
+    first_user_id: int,
+    first_device_id: str,
+    second_user_id: int,
+    second_device_id: str,
+) -> None:
+    await _broadcast_presence_update(app, first_user_id, first_device_id, second_device_id)
+    if second_user_id != first_user_id:
+        await _broadcast_presence_update(app, second_user_id, first_device_id, second_device_id)
+
+
 async def _notify_paired(app: web.Application, code: str) -> None:
     session = app["sessions"].get(code, {})
     session_devices = app["session_devices"].get(code, {})
@@ -139,15 +163,16 @@ async def _notify_paired(app: web.Application, code: str) -> None:
 
     phone_meta = app["ws_meta"].get(id(session["phone"])) or {}
     pc_meta = app["ws_meta"].get(id(session["pc"])) or {}
-    user_id = phone_meta.get("user_id")
-    if not user_id or user_id != pc_meta.get("user_id"):
-        await _send_json(session["phone"], {"type": MessageTypes.ERROR, "message": "Baglanti icin iki cihaz da ayni hesaba bagli olmali."})
-        await _send_json(session["pc"], {"type": MessageTypes.ERROR, "message": "Baglanti icin iki cihaz da ayni hesaba bagli olmali."})
+    phone_user_id = phone_meta.get("user_id")
+    pc_user_id = pc_meta.get("user_id")
+    if not phone_user_id or not pc_user_id:
+        await _send_json(session["phone"], {"type": MessageTypes.ERROR, "message": "Baglanti kullanici bilgisi eksik."})
+        await _send_json(session["pc"], {"type": MessageTypes.ERROR, "message": "Baglanti kullanici bilgisi eksik."})
         return
 
     phone_device_id = session_devices.get("phone", "")
     pc_device_id = session_devices.get("pc", "")
-    await _persist_pairing(app, user_id, phone_device_id, pc_device_id)
+    await _persist_session_pairings(app, phone_user_id, phone_device_id, pc_user_id, pc_device_id)
 
     logger.info("Paired session created: %s", code)
     for role, ws in session.items():
@@ -161,7 +186,7 @@ async def _notify_paired(app: web.Application, code: str) -> None:
                 "partner_device_id": session_devices.get(partner_role, ""),
             },
         )
-    await _broadcast_presence_update(app, user_id, phone_device_id, pc_device_id)
+    await _broadcast_session_presence(app, phone_user_id, phone_device_id, pc_user_id, pc_device_id)
 
 
 async def _pick_online_partner(app: web.Application, user_id: int, device_id: str, role: str) -> str | None:
@@ -180,23 +205,29 @@ async def _pick_preferred_online_partner(
     role: str,
     preferred_partner_id: str | None,
     preferred_partner_address: str | None,
-) -> str | None:
+) -> tuple[int, str] | None:
     if preferred_partner_address:
         partner_type = "phone" if role == "pc" else "pc"
+        target_user_id = await asyncio.to_thread(app["db"].get_user_id_by_address, preferred_partner_address)
+        if not target_user_id:
+            return None
         candidate_ids = await asyncio.to_thread(
             app["db"].get_device_ids_by_address,
             preferred_partner_address,
             partner_type,
         )
         for candidate_id in candidate_ids:
-            partner_entry = app["online_devices"].get(_online_key(user_id, candidate_id))
+            partner_entry = app["online_devices"].get(_online_key(target_user_id, candidate_id))
             if partner_entry and partner_entry["role"] != role:
-                return candidate_id
+                return target_user_id, candidate_id
     if preferred_partner_id:
         partner_entry = app["online_devices"].get(_online_key(user_id, preferred_partner_id))
         if partner_entry and partner_entry["role"] != role:
-            return preferred_partner_id
-    return await _pick_online_partner(app, user_id, device_id, role)
+            return user_id, preferred_partner_id
+    fallback_partner_id = await _pick_online_partner(app, user_id, device_id, role)
+    if fallback_partner_id:
+        return user_id, fallback_partner_id
+    return None
 
 
 async def _handle_device_hello(
@@ -225,9 +256,9 @@ async def _handle_device_hello(
     preferred_partner_id = str(message.get("preferred_partner_id") or "").strip() or None
     preferred_partner_address = str(message.get("preferred_partner_address") or "").strip() or None
     allow_auto_pair = bool(message.get("auto_pair", False))
-    partner_id = None
+    partner_info = None
     if allow_auto_pair:
-        partner_id = await _pick_preferred_online_partner(
+        partner_info = await _pick_preferred_online_partner(
             app,
             user_id,
             device_id,
@@ -235,8 +266,9 @@ async def _handle_device_hello(
             preferred_partner_id,
             preferred_partner_address,
         )
-    if allow_auto_pair and partner_id:
-        partner_entry = app["online_devices"][_online_key(user_id, partner_id)]
+    if allow_auto_pair and partner_info:
+        partner_user_id, partner_id = partner_info
+        partner_entry = app["online_devices"][_online_key(partner_user_id, partner_id)]
         partner_ws = partner_entry["ws"]
         partner_role = partner_entry["role"]
         session_code = f"__auto_{min(device_id, partner_id)}_{max(device_id, partner_id)}"
@@ -249,7 +281,7 @@ async def _handle_device_hello(
             partner_meta["peer_code"] = session_code
             partner_meta["peer_role"] = partner_role
 
-        await _persist_pairing(app, user_id, device_id, partner_id)
+        await _persist_session_pairings(app, user_id, device_id, partner_user_id, partner_id)
         await _send_json(
             ws,
             {
@@ -266,7 +298,7 @@ async def _handle_device_hello(
                 "partner_device_id": device_id,
             },
         )
-        await _broadcast_presence_update(app, user_id, device_id, partner_id)
+        await _broadcast_session_presence(app, user_id, device_id, partner_user_id, partner_id)
         return
 
     if allow_auto_pair and (preferred_partner_id or preferred_partner_address):
