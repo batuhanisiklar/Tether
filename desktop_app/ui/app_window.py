@@ -26,11 +26,18 @@ from PyQt6.QtWidgets import (
 from desktop_app.config import AppMeta, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
 from desktop_app.config.prefs_store import (
     clear_logged_in,
+    load_auth_token,
+    clear_paired_phone_address,
     clear_paired_phone_id,
     load_paired_phone_id,
+    load_paired_phone_address,
+    load_user_address,
+    save_paired_phone_address,
+    save_user_address,
     read_prefs,
 )
 from desktop_app.database.db_client import DbClient
+from desktop_app.network.backend_api import BackendApi
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
 from desktop_app.network.ws_client import WsClient
 from desktop_app.ui.screen_widget import ScreenWidget
@@ -89,6 +96,14 @@ def _compact_label(text: str, limit: int = 24) -> str:
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
+def _address_digits(value: str | None) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())[:12]
+
+
+def _device_card_key(device_id: str, address: str | None) -> str:
+    return _address_digits(address) or device_id
+
+
 def _display_username(username: str | None) -> str:
     value = (username or "").strip()
     if not value:
@@ -125,13 +140,13 @@ class DeviceCard(QFrame):
     ):
         super().__init__(parent)
         self.device_id = device_id
-        self.address = address
+        self.address = _address_digits(address)
         self.device_name = device_name
         self._online = False
         self._connect_cb = None
         self._forget_cb = None
         self.setFixedSize(230, 125)
-        self._build(device_id, address, device_name)
+        self._build(device_id, self.address, device_name)
 
     def _build(self, device_id: str, address: str | None, device_name: str | None):
         root = QVBoxLayout(self)
@@ -183,8 +198,11 @@ class DeviceCard(QFrame):
         return _display_device_name(self.device_name, self.address, self.device_id)
 
     def connection_address(self) -> str | None:
-        digits = "".join(ch for ch in (self.address or "") if ch.isdigit())[:12]
+        digits = _address_digits(self.address)
         return _format_address(digits) if digits else None
+
+    def card_key(self) -> str:
+        return _device_card_key(self.device_id, self.address)
 
     def set_connect_callback(self, cb):
         self._connect_cb = cb
@@ -226,17 +244,20 @@ class DeviceCard(QFrame):
             self._lbl_status.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
         self._apply_card_style()
 
+    def is_online(self) -> bool:
+        return self._online
+
     def set_connecting(self):
         self._lbl_status.setText("Baglaniyor...")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._online and self._connect_cb:
-            self._connect_cb(self.device_id)
+            self._connect_cb(self.card_key())
         super().mousePressEvent(event)
 
     def _on_forget_clicked(self):
         if self._forget_cb:
-            self._forget_cb(self.device_id)
+            self._forget_cb(self.card_key())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -251,15 +272,19 @@ class MainWindow(QMainWindow):
         self._connected = False
         self._rotation_step = 0
         self._paired_phone_id: str | None = None
+        self._paired_phone_address: str | None = None
         self._device_cards: dict[str, DeviceCard] = {}
         self._online_paired_devices: set[str] = set()
         self._logging_out = False
         self._manual_disconnect = False
+        self._ws_mode = "idle"
         self._user_id: int | None = None
         self._username = "Kullanici"
         self._user_address = ""
+        self._auth_token = ""
         self._current_page = 0
         self._account_button: QPushButton | None = None
+        self._backend_api = BackendApi()
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
         self.setMinimumSize(960, 600)
@@ -277,14 +302,132 @@ class MainWindow(QMainWindow):
         self._presence_timer.setInterval(15_000)
         self._presence_timer.timeout.connect(self._on_presence_tick)
 
+        self._reconnect_timer = QTimer(self)
+        self._reconnect_timer.setSingleShot(True)
+        self._reconnect_timer.timeout.connect(self._reconnect_current_mode)
+
         QTimer.singleShot(250, self._load_devices_from_db)
 
     def _load_user_prefs(self):
         prefs = read_prefs()
         self._user_id = prefs.get("user_id")
         self._username = prefs.get("username", "Kullanici")
-        if self._user_id:
+        self._auth_token = load_auth_token()
+        self._user_address = load_user_address()
+        if self._auth_token:
+            profile, _ = self._backend_api.get_me(self._auth_token, self._ws_client.device_id)
+            if profile:
+                self._user_address = _address_digits(profile.get("address"))
+                if self._user_address:
+                    save_user_address(self._user_address)
+        if not self._user_address and self._user_id:
             self._user_address = self.db.get_user_address(self._user_id) or ""
+        self._ws_client.set_device_address(self._user_address)
+
+    def _load_paired_devices(self) -> list[dict]:
+        merged: dict[str, dict] = {}
+        if self._auth_token:
+            devices, devices_error = self._backend_api.get_devices(self._auth_token)
+            if devices is not None:
+                for device in devices:
+                    if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
+                        key = _device_card_key(device["device_id"], device.get("address"))
+                        merged[key] = {**dict(device), "address": _address_digits(device.get("address"))}
+            else:
+                logger.warning("Server devices alinamadi: %s", devices_error)
+
+            recent_devices, recent_error = self._backend_api.get_recent_devices(self._auth_token, "phone")
+            if recent_devices is not None:
+                for device in recent_devices:
+                    if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
+                        key = _device_card_key(device["device_id"], device.get("address"))
+                        existing = merged.get(key, {})
+                        merged[key] = {
+                            **existing,
+                            **dict(device),
+                            "address": _address_digits(device.get("address")) or existing.get("address"),
+                            "is_online": bool(device.get("is_online")) or bool(existing.get("is_online")),
+                        }
+            else:
+                logger.warning("Server recent devices alinamadi: %s", recent_error)
+
+            pairings, pairings_error = self._backend_api.get_pairings(self._auth_token, self._ws_client.device_id)
+            if pairings is not None:
+                for device in pairings:
+                    if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
+                        key = _device_card_key(device["device_id"], device.get("address"))
+                        existing = merged.get(key, {})
+                        merged[key] = {
+                            **dict(device),
+                            **existing,
+                            "address": _address_digits(device.get("address")) or existing.get("address"),
+                            "is_online": bool(device.get("is_online")) or bool(existing.get("is_online")),
+                        }
+            else:
+                logger.warning("Server pairings alinamadi: %s", pairings_error)
+
+            if merged:
+                return list(merged.values())
+        return self.db.get_paired_devices(self._ws_client.device_id)
+
+    def _connect_presence_mode(self, status_message: str | None = None):
+        if self._logging_out:
+            return
+        if not (self._device_cards or load_paired_phone_id() or load_paired_phone_address()):
+            self._ws_mode = "idle"
+            self._set_status(Ui.MSG_WAITING)
+            return
+        self._ws_mode = "presence"
+        self._reconnect_timer.stop()
+        self._presence_timer.stop()
+        if status_message:
+            self._set_status(status_message)
+        self._manual_disconnect = True
+        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, auto_pair=False)
+
+    def _connect_session_mode(
+        self,
+        partner_device_id: str | None = None,
+        partner_address: str | None = None,
+        status_message: str | None = None,
+    ):
+        address_digits = "".join(ch for ch in (partner_address or "") if ch.isdigit())[:12]
+        if not partner_device_id and not address_digits:
+            return
+        self._ws_mode = "session"
+        self._paired_phone_id = partner_device_id
+        self._paired_phone_address = address_digits or None
+        self._reconnect_timer.stop()
+        self._presence_timer.stop()
+        if status_message:
+            self._set_status(status_message)
+        self._manual_disconnect = True
+        if address_digits:
+            save_paired_phone_address(address_digits)
+        self._ws_client.connect_with_device_id(
+            ServerDefaults.DEFAULT_URL,
+            preferred_partner_id=partner_device_id,
+            preferred_partner_address=address_digits or None,
+            auto_pair=True,
+        )
+
+    def _schedule_reconnect(self, delay_ms: int = 1500):
+        if self._logging_out:
+            return
+        if not self._reconnect_timer.isActive():
+            self._reconnect_timer.start(delay_ms)
+
+    def _reconnect_current_mode(self):
+        if self._logging_out:
+            return
+        if self._ws_mode == "session" and (self._paired_phone_id or self._paired_phone_address):
+            self._connect_session_mode(
+                self._paired_phone_id,
+                self._paired_phone_address,
+                "Baglanti yeniden kuruluyor...",
+            )
+            return
+        self._connect_presence_mode("Cihaz durumu yeniden baglaniyor...")
 
     # ── Global stylesheet ────────────────────────────────────────────────────
     def _apply_global_style(self):
@@ -841,7 +984,7 @@ class MainWindow(QMainWindow):
     def _load_devices_from_db(self):
         if self._user_id:
             self.db.upsert_device(self._user_id, self._ws_client.device_id, "pc", _desktop_device_name())
-        devices = self.db.get_paired_devices(self._ws_client.device_id)
+        devices = self._load_paired_devices()
         self._populate_device_cards(devices)
         self._try_auto_connect()
 
@@ -851,11 +994,11 @@ class MainWindow(QMainWindow):
             card.deleteLater()
         self._device_cards.clear()
         db_online_devices = {
-            device["device_id"]
+            _device_card_key(device["device_id"], device.get("address"))
             for device in devices
             if bool(device.get("is_online"))
         }
-        known_device_ids = {device["device_id"] for device in devices}
+        known_device_ids = {_device_card_key(device["device_id"], device.get("address")) for device in devices}
         if self._online_paired_devices:
             self._online_paired_devices = (self._online_paired_devices & known_device_ids) | db_online_devices
         else:
@@ -873,18 +1016,25 @@ class MainWindow(QMainWindow):
                 device.get("address"),
                 device.get("device_name"),
             )
-            online_hint = device["device_id"] in self._online_paired_devices or bool(device.get("is_online"))
+            card_key = card.card_key()
+            online_hint = card_key in self._online_paired_devices or bool(device.get("is_online"))
             card.set_online(online_hint)
             card.set_connect_callback(self._on_card_connect)
             card.set_forget_callback(self._on_card_forget)
-            self._device_cards[device["device_id"]] = card
+            self._device_cards[card_key] = card
 
-        online_count = sum(1 for device in devices if device["device_id"] in self._online_paired_devices)
+        online_count = sum(1 for device in devices if _device_card_key(device["device_id"], device.get("address")) in self._online_paired_devices)
         self._lbl_device_count.setText(
             f"{online_count} aktif / {len(devices)} cihaz" if devices else ""
         )
         self._reflow_device_cards()
         self._refresh_home_summary()
+
+    def _card_for_member_device(self, device_id: str) -> DeviceCard | None:
+        for card in self._device_cards.values():
+            if device_id == card.device_id:
+                return card
+        return None
 
     def _reflow_device_cards(self):
         while self._recent_devices_layout.count():
@@ -892,7 +1042,7 @@ class MainWindow(QMainWindow):
 
         ordered = sorted(
             self._device_cards.items(),
-            key=lambda item: (item[0] not in self._online_paired_devices,),
+            key=lambda item: (not item[1].is_online(),),
         )
         cols = max(1, (self.width() - 60) // 236)
         for idx, (_, card) in enumerate(ordered):
@@ -913,9 +1063,13 @@ class MainWindow(QMainWindow):
                 self._hero_status_label.setText("  Baglanti bekleniyor")
                 self._hero_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
 
-        if self._connected and self._paired_phone_id:
-            card = self._device_cards.get(self._paired_phone_id)
-            display_name = card.display_name() if card else f"...{self._paired_phone_id[-8:]}"
+        active_card = None
+        if self._paired_phone_address:
+            active_card = self._device_cards.get(self._paired_phone_address)
+        if active_card is None and self._paired_phone_id:
+            active_card = self._card_for_member_device(self._paired_phone_id)
+        if self._connected and (active_card or self._paired_phone_id):
+            display_name = active_card.display_name() if active_card else f"...{self._paired_phone_id[-8:]}"
             compact_name = _compact_label(display_name, 20)
             self._remote_device_badge.setText(f"Aktif: {compact_name}")
             self._tab_session_btn.setText(f"  {compact_name}")
@@ -953,24 +1107,39 @@ class MainWindow(QMainWindow):
     def _show_profile_dialog(self):
         lines = [f"Kullanici:  {_display_username(self._username)}"]
         if self._user_address:
-            lines.append(f"Hesap adresi:  {_format_address(self._user_address)}")
+            lines.append(f"Bu bilgisayarin adresi:  {_format_address(self._user_address)}")
         lines.append(f"Bilgisayar:  {_desktop_device_name()}")
         QMessageBox.information(self, "Profil", "\n".join(lines))
 
     # ── Card actions ─────────────────────────────────────────────────────────
-    def _on_card_connect(self, device_id: str):
-        card = self._device_cards.get(device_id)
+    def _on_card_connect(self, card_key: str):
+        card = self._device_cards.get(card_key)
         if not card:
             return
         address = card.connection_address()
-        if not address:
-            self._set_status("Bu cihazin baglanti adresi bulunamadi.", error=True)
+        if not card.is_online():
+            self._set_status("Bu cihaz su an cevrimici degil.", error=True)
             return
-        self._inp_code.setText(address)
-        self._inp_code.setFocus()
-        self._set_status("Aktif cihazin adresi baglanti alanina eklendi.")
+        if address:
+            self._inp_code.setText(address)
+            self._inp_code.setFocus()
+            self._paired_phone_address = _address_digits(address)
+        self._paired_phone_id = card.device_id
+        display_name = _compact_label(card.display_name(), 20)
+        self._remote_device_badge.setText(f"Baglaniyor: {display_name}")
+        self._tab_session_btn.setText(f"  {display_name}")
+        self._tab_session.show()
+        self._switch_page(1)
+        self._connect_session_mode(
+            partner_device_id=None if address else card.device_id,
+            partner_address=address,
+            status_message="Secilen cihaza baglaniliyor...",
+        )
 
-    def _on_card_forget(self, device_id: str):
+    def _on_card_forget(self, card_key: str):
+        card = self._device_cards.get(card_key)
+        if not card:
+            return
         answer = QMessageBox.question(
             self, "Eslesmeyi Kaldir",
             "Bu eslesme kaldirilsin mi?",
@@ -980,38 +1149,39 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        if not self.db.delete_pairing(device_id, self._ws_client.device_id):
-            self._set_status("Eslesme silinemedi.", error=True)
+        if not self._auth_token:
+            self._set_status("Eslesmeyi sunucudan silmek icin yeniden giris yapin.", error=True)
             return
 
-        card = self._device_cards.pop(device_id, None)
-        if card:
-            self._recent_devices_layout.removeWidget(card)
-            card.deleteLater()
-        if not self._device_cards:
-            self._lbl_no_devices.show()
-        self._online_paired_devices.discard(device_id)
+        success, error_message = self._backend_api.delete_pairing(
+            self._auth_token,
+            self._ws_client.device_id,
+            card.device_id,
+            card.address,
+        )
+        if not success:
+            self._set_status(error_message or "Eslesme silinemedi.", error=True)
+            return
 
-        if self._paired_phone_id == device_id:
+        devices = self._load_paired_devices()
+        self._populate_device_cards(devices)
+        self._online_paired_devices.discard(card_key)
+
+        if self._paired_phone_address == card.address or self._paired_phone_id == card.device_id:
             self._paired_phone_id = None
+            self._paired_phone_address = None
+            clear_paired_phone_address()
             clear_paired_phone_id()
             self._ws_client.forget_paired_phone()
             self._on_disconnect()
+            return
 
+        self._ws_client.send_request_presence()
         self._refresh_home_summary()
-        self._lbl_device_count.setText(f"{len(self._device_cards)} cihaz" if self._device_cards else "")
         self._set_status("Eslesme kaldirildi.")
 
     def _connect_presence_channel(self, status_message: str | None = None):
-        if self._logging_out:
-            return
-        if not (self._device_cards or load_paired_phone_id()):
-            self._set_status(Ui.MSG_WAITING)
-            return
-        if status_message:
-            self._set_status(status_message)
-        self._manual_disconnect = True
-        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, auto_pair=False)
+        self._connect_presence_mode(status_message)
 
     def _on_presence_tick(self):
         self._ws_client.send_request_presence()
@@ -1020,8 +1190,10 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _try_auto_connect(self):
         paired_id = load_paired_phone_id()
-        if paired_id or self._device_cards:
+        paired_address = load_paired_phone_address()
+        if paired_id or paired_address or self._device_cards:
             self._paired_phone_id = paired_id
+            self._paired_phone_address = paired_address
             self._refresh_home_summary()
             self._connect_presence_channel("Kayitli cihazlar kontrol ediliyor...")
         else:
@@ -1041,18 +1213,27 @@ class MainWindow(QMainWindow):
             self._set_status("12 haneli sabit adresi girin.", error=True)
             return
 
-        partner_device_id = self.db.find_phone_device_by_address(raw_value)
-        if not partner_device_id:
-            self._set_status("Bu adrese ait telefon bulunamadi.", error=True)
-            return
         self._manual_disconnect = True
         self._btn_connect.setEnabled(False)
-        self._set_status("Adres cozuldu, baglaniliyor...")
-        self._paired_phone_id = partner_device_id
-        self._ws_client.connect_with_device_id(
-            ServerDefaults.DEFAULT_URL,
-            preferred_partner_id=partner_device_id,
-            auto_pair=True,
+        self._set_status("Cihaz adresine baglaniliyor...")
+        matching_card = next(
+            (card for card in self._device_cards.values() if (card.connection_address() or "") == _format_address(raw_value)),
+            None,
+        )
+        self._paired_phone_id = matching_card.device_id if matching_card else None
+        self._paired_phone_address = raw_value
+        save_paired_phone_address(raw_value)
+        display_name = None
+        if matching_card:
+            display_name = _compact_label(matching_card.display_name(), 20)
+        self._remote_device_badge.setText(f"Baglaniyor: {display_name or 'cihaz'}")
+        self._tab_session_btn.setText(f"  {display_name or 'Baglaniyor'}")
+        self._tab_session.show()
+        self._switch_page(1)
+        self._connect_session_mode(
+            partner_device_id=self._paired_phone_id,
+            partner_address=raw_value,
+            status_message="Cihaz adresine baglaniliyor...",
         )
         self._refresh_home_summary()
 
@@ -1071,6 +1252,8 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_disconnect(self):
+        self._ws_mode = "presence"
+        self._reconnect_timer.stop()
         self._manual_disconnect = True
         self._mjpeg.stop()
         self._ws_client.disconnect()
@@ -1125,39 +1308,52 @@ class MainWindow(QMainWindow):
         self._btn_disconnect.setEnabled(True)
         if not self._presence_timer.isActive():
             self._presence_timer.start()
+        if self._ws_mode == "presence":
+            devices = self._load_paired_devices()
+            if devices:
+                self._populate_device_cards(devices)
+            self._ws_client.send_request_presence()
 
     @pyqtSlot(str)
     def _on_ws_disconnected(self, reason: str):
+        was_manual = self._manual_disconnect
+        self._manual_disconnect = False
+        self._btn_connect.setEnabled(True)
+        if was_manual:
+            return
         self._set_connected(False)
         self._switch_page(0)
         self._screen.clear_frame()
         self._presence_timer.stop()
+        self._reconnect_timer.stop()
         for card in self._device_cards.values():
             card.set_online(False)
         self._online_paired_devices.clear()
         self._refresh_home_summary()
-        was_manual = self._manual_disconnect
-        self._manual_disconnect = False
-        self._btn_connect.setEnabled(True)
-        if not was_manual:
-            if "10060" in reason or "timed out" in reason.lower():
-                self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
-            elif "already closed" in reason.lower():
-                self._set_status("Baglanti kapandi.", error=True)
-            else:
-                self._set_status(f"Baglanti kesildi: {reason}", error=True)
-        QTimer.singleShot(1500, lambda: self._connect_presence_channel("Cihaz durumu yeniden baglaniyor..."))
+        if "10060" in reason or "timed out" in reason.lower():
+            self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
+        elif "already closed" in reason.lower():
+            self._set_status("Baglanti kapandi.", error=True)
+        else:
+            self._set_status(f"Baglanti kesildi: {reason}", error=True)
+        self._schedule_reconnect()
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
+        self._reconnect_timer.stop()
         paired_phone_id = load_paired_phone_id()
-        if paired_phone_id:
-            self._paired_phone_id = paired_phone_id
-            if paired_phone_id not in self._device_cards:
-                devices = self.db.get_paired_devices(self._ws_client.device_id)
+        paired_phone_address = load_paired_phone_address()
+        target_key = paired_phone_address or ""
+        if target_key or paired_phone_id:
+            if target_key and target_key not in self._device_cards:
+                devices = self._load_paired_devices()
                 self._populate_device_cards(devices)
-            card = self._device_cards.get(paired_phone_id)
+            card = self._device_cards.get(target_key) if target_key else None
+            if card is None and paired_phone_id:
+                card = self._card_for_member_device(paired_phone_id)
             if card:
+                self._paired_phone_id = card.device_id
+                self._paired_phone_address = card.address
                 card.set_online(True)
         self._set_connected(True)
         self._switch_page(1)
@@ -1174,7 +1370,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_auto_paired(self, partner_device_id: str):
-        self._paired_phone_id = partner_device_id
+        self._reconnect_timer.stop()
         self._set_connected(True)
         self._switch_page(1)
         self._set_status("Otomatik baglanti kuruldu.")
@@ -1182,31 +1378,43 @@ class MainWindow(QMainWindow):
         self.db.save_pairing(partner_device_id, self._ws_client.device_id)
         self._ws_client.send_pair_confirm(partner_device_id)
 
-        if partner_device_id not in self._device_cards:
-            devices = self.db.get_paired_devices(self._ws_client.device_id)
+        target_key = self._paired_phone_address or ""
+        if (target_key and target_key not in self._device_cards) or (not target_key and partner_device_id not in {card.device_id for card in self._device_cards.values()}):
+            devices = self._load_paired_devices()
             self._populate_device_cards(devices)
 
-        card = self._device_cards.get(partner_device_id)
+        card = self._device_cards.get(target_key) if target_key else None
+        if card is None:
+            card = self._card_for_member_device(partner_device_id)
         if card:
+            self._paired_phone_id = card.device_id
+            self._paired_phone_address = card.address
             card.set_online(True)
         self._refresh_home_summary()
 
     @pyqtSlot(list, list)
     def _on_paired_devices_status(self, paired_devices: list, online_devices: list):
-        self._online_paired_devices = set(online_devices)
-        if paired_devices and any(did not in self._device_cards for did in paired_devices):
-            devices = self.db.get_paired_devices(self._ws_client.device_id)
+        if self._auth_token:
+            devices = self._load_paired_devices()
             self._populate_device_cards(devices)
+        else:
+            self._online_paired_devices = set(online_devices)
+            current_ids = set(self._device_cards.keys())
+            incoming_ids = set(paired_devices)
+            if incoming_ids != current_ids:
+                devices = self._load_paired_devices()
+                self._populate_device_cards(devices)
 
-        for device_id, card in self._device_cards.items():
-            card.set_online(device_id in self._online_paired_devices)
+            for device_id, card in self._device_cards.items():
+                card.set_online(device_id in self._online_paired_devices)
 
-        self._reflow_device_cards()
-        online_count = sum(1 for d in self._device_cards if d in self._online_paired_devices)
-        self._lbl_device_count.setText(
-            f"{online_count} aktif / {len(self._device_cards)} cihaz" if self._device_cards else ""
-        )
+            self._reflow_device_cards()
+            online_count = sum(1 for d in self._device_cards if d in self._online_paired_devices)
+            self._lbl_device_count.setText(
+                f"{online_count} aktif / {len(self._device_cards)} cihaz" if self._device_cards else ""
+            )
         if not self._connected:
+            online_count = sum(1 for card in self._device_cards.values() if card._online)
             if online_count:
                 self._set_status(f"Sunucuya baglandi  —  {online_count} cihaz cevrimici")
             else:
@@ -1215,14 +1423,20 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_peer_disconnected(self):
+        self._ws_mode = "presence"
         self._mjpeg.stop()
         self._screen.clear_frame()
         self._set_connected(False)
         self._switch_page(0)
-        if self._paired_phone_id and self._paired_phone_id in self._device_cards:
-            self._device_cards[self._paired_phone_id].set_online(False)
-        self._online_paired_devices.discard(self._paired_phone_id or "")
+        if self._auth_token:
+            devices = self._load_paired_devices()
+            self._populate_device_cards(devices)
+        else:
+            if self._paired_phone_id and self._paired_phone_id in self._device_cards:
+                self._device_cards[self._paired_phone_id].set_online(False)
+            self._online_paired_devices.discard(self._paired_phone_id or "")
         self._refresh_home_summary()
+        self._ws_client.send_request_presence()
         self._set_status(Ui.MSG_PEER_DISCONNECTED, error=True)
 
     @pyqtSlot(str)
@@ -1300,6 +1514,7 @@ class MainWindow(QMainWindow):
         self._mjpeg.stop()
         self._heartbeat.stop()
         self._presence_timer.stop()
+        self._reconnect_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect()
         self.db.close()

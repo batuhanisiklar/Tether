@@ -1,5 +1,4 @@
 import json
-import uuid
 import threading
 import base64
 import logging
@@ -7,25 +6,15 @@ import websocket
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QPixmap, QImage
 
-from desktop_app.config import Network, Prefs
-from desktop_app.config.prefs_store import clear_paired_phone_id, load_paired_phone_id as _load_paired_phone_id
-from desktop_app.config.prefs_store import read_prefs, save_paired_phone_id, write_prefs
+from desktop_app.config import Network
+from desktop_app.config.prefs_store import (
+    clear_paired_phone_id,
+    load_or_create_device_id,
+    load_paired_phone_id as _load_paired_phone_id,
+)
+from desktop_app.config.prefs_store import save_paired_phone_id
 
 logger = logging.getLogger(__name__)
-
-
-def _load_or_create_device_id() -> str:
-    """PC için kalıcı device_id okur; yoksa UUID oluşturup kaydeder."""
-    prefs = read_prefs()
-
-    if Prefs.KEY_DEVICE_ID in prefs:
-        return prefs[Prefs.KEY_DEVICE_ID]
-
-    device_id = f"pc-{uuid.uuid4().hex[:12]}"
-    prefs[Prefs.KEY_DEVICE_ID] = device_id
-    write_prefs(prefs)
-    return device_id
-
 
 class WsClient(QObject):
     """Signaling sunucusuyla ve (relay üzerinden) telefonla WebSocket haberleşmesi."""
@@ -47,9 +36,11 @@ class WsClient(QObject):
         self._session_code: str = ""
         self._frame_processing: bool = False  # Frame throttle bayrağı
         self._preferred_partner_id: str | None = None
+        self._preferred_partner_address: str | None = None
+        self._device_address: str | None = None
         self._auto_pair_enabled = False
         self._disconnect_emitted = False
-        self.device_id: str = _load_or_create_device_id()
+        self.device_id: str = load_or_create_device_id()
         logger.info(f"PC device_id: {self.device_id}")
 
     # ─── PUBLIC API ────────────────────────────────────────────────────────────
@@ -64,6 +55,7 @@ class WsClient(QObject):
         self.disconnect()
         self._session_code = code
         self._preferred_partner_id = None
+        self._preferred_partner_address = None
         self._disconnect_emitted = False
         self._ws = websocket.WebSocketApp(
             url,
@@ -75,8 +67,6 @@ class WsClient(QObject):
         self._thread = threading.Thread(
             target=self._ws.run_forever,
             kwargs={
-                "ping_interval": Network.PING_INTERVAL_SEC,
-                "ping_timeout": Network.PING_TIMEOUT_SEC,
                 "skip_utf8_validation": True,
             },
             daemon=True,
@@ -87,6 +77,7 @@ class WsClient(QObject):
         self,
         url: str,
         preferred_partner_id: str | None = None,
+        preferred_partner_address: str | None = None,
         auto_pair: bool = False,
     ):
         """
@@ -96,6 +87,7 @@ class WsClient(QObject):
         self.disconnect()
         self._session_code = ""
         self._preferred_partner_id = preferred_partner_id
+        self._preferred_partner_address = preferred_partner_address
         self._auto_pair_enabled = auto_pair
         self._disconnect_emitted = False
         self._ws = websocket.WebSocketApp(
@@ -108,8 +100,6 @@ class WsClient(QObject):
         self._thread = threading.Thread(
             target=self._ws.run_forever,
             kwargs={
-                "ping_interval": Network.PING_INTERVAL_SEC,
-                "ping_timeout": Network.PING_TIMEOUT_SEC,
                 "skip_utf8_validation": True,
             },
             daemon=True,
@@ -125,7 +115,12 @@ class WsClient(QObject):
                 pass
         self._ws = None
         self._preferred_partner_id = None
+        self._preferred_partner_address = None
         self._auto_pair_enabled = False
+
+    def set_device_address(self, device_address: str | None):
+        digits = "".join(ch for ch in (device_address or "") if ch.isdigit())[:12]
+        self._device_address = digits or None
 
     def send_pair_confirm(self, phone_device_id: str):
         """İlk eşleşmeden sonra çağrılır; sunucuya kalıcı pairing kaydedilir."""
@@ -213,6 +208,7 @@ class WsClient(QObject):
             "code": self._session_code,
             "role": "pc",
             "device_id": self.device_id,
+            "device_address": self._device_address or "",
         }, separators=(",", ":")))
 
     def _on_open_device_hello(self, ws):
@@ -228,6 +224,10 @@ class WsClient(QObject):
         }
         if self._preferred_partner_id:
             payload["preferred_partner_id"] = self._preferred_partner_id
+        if self._preferred_partner_address:
+            payload["preferred_partner_address"] = self._preferred_partner_address
+        if self._device_address:
+            payload["device_address"] = self._device_address
         ws.send(json.dumps(payload, separators=(",", ":")))
 
     def _on_message(self, ws, raw):
@@ -305,6 +305,13 @@ class WsClient(QObject):
 
     def _handle_frame_bytes(self, jpeg_bytes: bytes):
         if self._frame_processing:
+            return
+        if (
+            len(jpeg_bytes) < 4
+            or not jpeg_bytes.startswith(Network.JPEG_MARKER_START)
+            or not jpeg_bytes.endswith(Network.JPEG_MARKER_END)
+        ):
+            logger.debug("JPEG marker kontrolunden gecmeyen binary paket atlandi: %s bytes", len(jpeg_bytes))
             return
         self._frame_processing = True
         try:

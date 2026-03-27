@@ -6,6 +6,7 @@ Tüm auth işlemleri DbClient üzerinden Neon DB'ye gider.
 """
 
 import logging
+import os
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
@@ -14,8 +15,15 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
 
 from desktop_app.config import Colors, AppMeta
-from desktop_app.config.prefs_store import remembered_username, save_remembered_username, save_session
+from desktop_app.config.prefs_store import (
+    load_or_create_device_id,
+    remembered_username,
+    save_auth_token,
+    save_remembered_username,
+    save_session,
+)
 from desktop_app.database.db_client import DbClient
+from desktop_app.network.backend_api import BackendApi
 from desktop_app.ui.theme import (
     card_style,
     filled_button_style,
@@ -53,6 +61,7 @@ class LoginWindow(QDialog):
     def __init__(self, db: DbClient, parent=None):
         super().__init__(parent)
         self.db = db
+        self._backend_api = BackendApi()
         self.setWindowTitle(AppMeta.NAME)
         self.setFixedSize(420, 530)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
@@ -372,6 +381,34 @@ class LoginWindow(QDialog):
         if self._pending_close and self._wait_for_auth_threads():
             self.reject()
 
+    def _desktop_device_name(self) -> str:
+        return os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "Bu Bilgisayar"
+
+    def _authenticate_login_session(self, username: str, password: str):
+        auth_result, auth_error = self.db.authenticate_user_with_error(username, password)
+        if auth_error or auth_result is None:
+            return {"auth_result": auth_result, "auth_error": auth_error, "token": ""}
+
+        device_id = load_or_create_device_id()
+        api_result, api_error = self._backend_api.login(
+            username=username,
+            password=password,
+            device_id=device_id,
+            device_name=self._desktop_device_name(),
+        )
+        token = ""
+        address = ""
+        if api_result:
+            token = str(api_result.get("token") or "")
+            address = str((api_result.get("user") or {}).get("address") or "")
+        return {
+            "auth_result": auth_result,
+            "auth_error": auth_error,
+            "token": token,
+            "address": address,
+            "api_error": api_error,
+        }
+
     def _start_auth_task(self, thread_attr: str, fn, done_handler, *args):
         thread = _AuthThread(fn, *args)
         thread.finished_with_result.connect(done_handler)
@@ -389,7 +426,7 @@ class LoginWindow(QDialog):
         self._lbl_login_err.setText("")
         self._set_loading(True, self._btn_login)
         self._btn_login.setText("Giriş yapılıyor...")
-        self._start_auth_task("_login_thread", self.db.authenticate_user_with_error, self._on_login_done, uname, pwd)
+        self._start_auth_task("_login_thread", self._authenticate_login_session, self._on_login_done, uname, pwd)
 
     def _on_login_done(self, result, err: str):
         self._set_loading(False, self._btn_login)
@@ -398,7 +435,8 @@ class LoginWindow(QDialog):
             self._lbl_login_err.setText(f"Bağlantı hatası: {err}")
             return
 
-        auth_result, auth_error = result
+        auth_result = result.get("auth_result")
+        auth_error = result.get("auth_error", "")
         if auth_error:
             self._lbl_login_err.setText(auth_error)
             return
@@ -408,7 +446,11 @@ class LoginWindow(QDialog):
 
         user_id, username = auth_result
         save_remembered_username(uname := self._inp_user.text().strip() or username)
-        self._save_session(user_id, username)
+        token = result.get("token", "")
+        address = result.get("address", "")
+        if token:
+            save_auth_token(token)
+        self._save_session(user_id, username, address)
         self.accept()
 
     def _on_register(self):
@@ -445,5 +487,5 @@ class LoginWindow(QDialog):
         else:
             self._lbl_reg_err.setText(msg)
 
-    def _save_session(self, user_id: int, username: str):
-        save_session(user_id, username)
+    def _save_session(self, user_id: int, username: str, address: str = ""):
+        save_session(user_id, username, address)
