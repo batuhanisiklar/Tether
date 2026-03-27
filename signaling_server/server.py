@@ -269,6 +269,15 @@ async def _handle_device_hello(
         await _broadcast_presence_update(app, user_id, device_id, partner_id)
         return
 
+    if allow_auto_pair and (preferred_partner_id or preferred_partner_address):
+        await _send_json(
+            ws,
+            {
+                "type": MessageTypes.ERROR,
+                "message": "Bu hesap icin cevrimici uygun cihaz bulunamadi.",
+            },
+        )
+
     await _broadcast_presence_update(app, user_id, device_id)
 
 
