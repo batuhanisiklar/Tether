@@ -23,7 +23,7 @@ def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
         "device_name": device.get("device_name"),
         "address": device.get("address"),
         "is_online": bool(device.get("is_online")),
-        "install_id": device.get("install_id"),
+        "mac_address": device.get("mac_address"),
     }
 
 
@@ -60,7 +60,7 @@ def _online_key(user_id: int, device_id: str) -> str:
 
 
 async def _evict_superseded_sessions(app: web.Application, evicted: list[tuple[int, str]]) -> None:
-    """Ayni install_id uzerinden yeni oturum acilinca onceki WS baglantilarini kapat ve presence yayinla."""
+    """Ayni MAC ile baska oturum supersede edilince WS kapat ve presence yayinla."""
     for uid, did in evicted:
         key = _online_key(uid, did)
         entry = app["online_devices"].pop(key, None)
@@ -81,7 +81,6 @@ async def _upsert_device_and_evict(
     device_id: str,
     device_type: str,
     device_name: str,
-    install_id: str | None,
     mac_address: str | None = None,
 ) -> str | None:
     result = await asyncio.to_thread(
@@ -90,7 +89,6 @@ async def _upsert_device_and_evict(
         device_id,
         device_type,
         device_name,
-        install_id,
         mac_address,
     )
     if not result or result[0] is None:
@@ -306,9 +304,15 @@ async def _pick_preferred_online_partner(
         else:
             target_user_id = int(binding["user_id"])
             candidate_id = str(binding["device_id"])
-            partner_entry = app["online_devices"].get(_online_key(target_user_id, candidate_id))
-            if partner_entry and partner_entry["role"] != role:
-                return target_user_id, candidate_id
+            paired = await asyncio.to_thread(
+                app["db"].pairing_exists_between_devices,
+                device_id,
+                candidate_id,
+            )
+            if paired:
+                partner_entry = app["online_devices"].get(_online_key(target_user_id, candidate_id))
+                if partner_entry and partner_entry["role"] != role:
+                    return target_user_id, candidate_id
     fallback_partner = await _pick_online_partner(app, user_id, device_id, role)
     if fallback_partner:
         return fallback_partner
@@ -323,7 +327,6 @@ async def _handle_device_hello(
 ) -> None:
     device_id = str(message.get("device_id") or "").strip()
     role = message.get("role", "")
-    install_id = str(message.get("install_id") or message.get("installId") or "").strip() or None
     if not device_id or role not in {"phone", "pc"}:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id ve role gerekli"})
         return
@@ -337,12 +340,7 @@ async def _handle_device_hello(
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz adresi bu oturumla eslesmiyor"})
         return
 
-    evicted = await asyncio.to_thread(
-        app["db"].apply_install_and_supersede_sessions,
-        user_id,
-        device_id,
-        install_id,
-    )
+    evicted = await asyncio.to_thread(app["db"].apply_mac_supersede_sessions, user_id, device_id)
     await _evict_superseded_sessions(app, evicted)
 
     meta["device_id"] = device_id
@@ -479,13 +477,7 @@ async def _handle_register_or_join(
     meta["peer_role"] = role
     if meta.get("user_id") and device_id:
         meta["device_id"] = device_id
-        install_id = str(message.get("install_id") or message.get("installId") or "").strip() or None
-        evicted = await asyncio.to_thread(
-            app["db"].apply_install_and_supersede_sessions,
-            meta["user_id"],
-            device_id,
-            install_id,
-        )
+        evicted = await asyncio.to_thread(app["db"].apply_mac_supersede_sessions, meta["user_id"], device_id)
         await _evict_superseded_sessions(app, evicted)
         online_key = _online_key(meta["user_id"], device_id)
         if online_key not in app["online_devices"]:
@@ -655,7 +647,6 @@ async def auth_register(request: web.Request) -> web.Response:
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
-    install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
     mac_address = _mac_from_body(data)
     resolved_device_id = ""
     if device_type in {"phone", "pc"}:
@@ -666,7 +657,6 @@ async def auth_register(request: web.Request) -> web.Response:
                 device_id,
                 device_type,
                 device_name,
-                install_id,
                 mac_address,
             )
             or ""
@@ -706,7 +696,6 @@ async def auth_login(request: web.Request) -> web.Response:
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
-    install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
     mac_address = _mac_from_body(data)
     resolved_device_id = ""
     if device_type in {"phone", "pc"}:
@@ -717,7 +706,6 @@ async def auth_login(request: web.Request) -> web.Response:
                 device_id,
                 device_type,
                 device_name,
-                install_id,
                 mac_address,
             )
             or ""
@@ -761,7 +749,6 @@ async def upsert_device(request: web.Request) -> web.Response:
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
-    install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
     mac_address = _mac_from_body(data)
     if device_type not in {"phone", "pc"}:
         return web.json_response({"ok": False, "message": "device_id ve device_type gerekli."}, status=400)
@@ -773,7 +760,6 @@ async def upsert_device(request: web.Request) -> web.Response:
             device_id,
             device_type,
             device_name,
-            install_id,
             mac_address,
         )
         or ""

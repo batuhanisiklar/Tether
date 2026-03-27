@@ -83,16 +83,7 @@ class ServerDbClient:
                         );
                         """
                     )
-                    cur.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS connections (
-                            connection_id SERIAL PRIMARY KEY,
-                            device_id_from TEXT REFERENCES devices(device_id) ON DELETE SET NULL,
-                            device_id_to TEXT REFERENCES devices(device_id) ON DELETE SET NULL,
-                            connected_at TIMESTAMPTZ DEFAULT now()
-                        );
-                        """
-                    )
+                    cur.execute("DROP TABLE IF EXISTS connections CASCADE")
                     cur.execute(
                         "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT NOT NULL DEFAULT ''"
                     )
@@ -106,11 +97,10 @@ class ServerDbClient:
                         "ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE"
                     )
                     cur.execute(
-                        "ALTER TABLE devices ADD COLUMN IF NOT EXISTS install_id TEXT"
-                    )
-                    cur.execute(
                         "ALTER TABLE devices ADD COLUMN IF NOT EXISTS mac_address TEXT"
                     )
+                    cur.execute("DROP INDEX IF EXISTS idx_devices_install_id")
+                    cur.execute("ALTER TABLE devices DROP COLUMN IF EXISTS install_id")
                     cur.execute(
                         """
                         DELETE FROM devices d
@@ -127,13 +117,6 @@ class ServerDbClient:
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_user_type_mac
                         ON devices(user_id, device_type, mac_address)
                         WHERE mac_address IS NOT NULL AND mac_address <> ''
-                        """
-                    )
-                    cur.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_devices_install_id
-                        ON devices(install_id)
-                        WHERE install_id IS NOT NULL
                         """
                     )
                     cur.execute(
@@ -154,22 +137,6 @@ class ServerDbClient:
                         """
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_pairings_phone_pc
                         ON pairings(phone_device_id, pc_device_id)
-                        """
-                    )
-                    # Baglanti yonu: her zaman bilgisayar (pc) -> telefon (phone)
-                    cur.execute(
-                        """
-                        UPDATE connections c
-                        SET device_id_from = c.device_id_to, device_id_to = c.device_id_from
-                        WHERE c.device_id_from IS NOT NULL AND c.device_id_to IS NOT NULL
-                          AND EXISTS (
-                              SELECT 1 FROM devices df
-                              WHERE df.device_id = c.device_id_from AND df.device_type = 'phone'
-                          )
-                          AND EXISTS (
-                              SELECT 1 FROM devices dt
-                              WHERE dt.device_id = c.device_id_to AND dt.device_type = 'pc'
-                          )
                         """
                     )
                 conn.commit()
@@ -200,16 +167,6 @@ class ServerDbClient:
         return digits
 
     @staticmethod
-    def _normalize_install_id(raw: str | None) -> str | None:
-        """Ayni fiziksel kurulum (app install); hesap degisse bile kalir."""
-        if not raw:
-            return None
-        s = "".join(c for c in str(raw).strip() if c.isalnum() or c in "-_")
-        if len(s) < 16:
-            return None
-        return s[:64]
-
-    @staticmethod
     def _normalize_mac(raw: str | None) -> str | None:
         """MAC (12 hex) veya aid:... Android parmak izi; kullanici+cihaz tipi ile eslestirme."""
         if not raw:
@@ -227,51 +184,74 @@ class ServerDbClient:
             return digits
         return None
 
-    def _install_supersede_in_cursor(
+    def _mac_supersede_in_cursor(
         self,
         cur,
-        user_id: int,
         device_id: str,
-        install_id: str | None,
+        device_type: str,
+        mac_n: str,
     ) -> list[tuple[int, str]]:
-        ins = self._normalize_install_id(install_id)
-        n = self._normalize_public_device_id(device_id)
-        if not ins or not n:
-            return []
-        cur.execute(
-            """
-            UPDATE devices SET install_id = %s
-            WHERE user_id = %s AND device_id = %s
-            """,
-            (ins, user_id, n),
-        )
+        """Ayni MAC + cihaz tipi: diger hesap/satirlari cevrimdisi (fiziksel cihaz tekilligi)."""
         cur.execute(
             """
             UPDATE devices SET is_online = false
-            WHERE install_id = %s
-              AND NOT (user_id = %s AND device_id = %s)
+            WHERE mac_address = %s AND device_type = %s AND device_id != %s
             RETURNING user_id, device_id
             """,
-            (ins, user_id, n),
+            (mac_n, device_type, device_id),
         )
         return [(int(r[0]), str(r[1])) for r in cur.fetchall()]
 
-    def apply_install_and_supersede_sessions(
-        self,
-        user_id: int,
-        device_id: str,
-        install_id: str | None,
-    ) -> list[tuple[int, str]]:
-        """WebSocket device_hello: ayni install_id ile baska hesap/cihaz oturumlarini DB'de offline yap."""
+    def apply_mac_supersede_sessions(self, user_id: int, device_id: str) -> list[tuple[int, str]]:
+        """device_hello / WS: bu cihaz satirinin MAC'i ile ayni olan diger oturumlari offline yap."""
+        n = self._normalize_public_device_id(device_id)
+        if not n:
+            return []
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
-                    evicted = self._install_supersede_in_cursor(cur, user_id, device_id, install_id)
+                    cur.execute(
+                        """
+                        SELECT device_type, mac_address FROM devices
+                        WHERE user_id = %s AND device_id = %s
+                        """,
+                        (user_id, n),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        return []
+                    device_type = str(row[0])
+                    mac_n = self._normalize_mac(row[1])
+                    if not mac_n:
+                        return []
+                    evicted = self._mac_supersede_in_cursor(cur, n, device_type, mac_n)
                 conn.commit()
             return evicted
         except Exception as e:
-            logger.warning("apply_install_and_supersede_sessions: %s", e)
+            logger.warning("apply_mac_supersede_sessions: %s", e)
             return []
+
+    def pairing_exists_between_devices(self, device_id_a: str, device_id_b: str) -> bool:
+        a = self._normalize_public_device_id(device_id_a)
+        b = self._normalize_public_device_id(device_id_b)
+        if not a or not b:
+            return False
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT 1 FROM pairings
+                        WHERE (phone_device_id = %s AND pc_device_id = %s)
+                           OR (phone_device_id = %s AND pc_device_id = %s)
+                        LIMIT 1
+                        """,
+                        (a, b, b, a),
+                    )
+                    return cur.fetchone() is not None
+        except Exception as e:
+            logger.error("pairing_exists_between_devices: %s", e)
+            return False
 
     def _generate_unique_device_id(self, cur) -> str:
         for _ in range(80):
@@ -474,12 +454,11 @@ class ServerDbClient:
         device_id: str,
         device_type: str,
         device_name: str | None,
-        install_id: str | None = None,
         mac_address: str | None = None,
     ) -> tuple[str | None, list[tuple[int, str]]]:
         """
         Cihaz kaydi. mac_address ayni kullanici+cihaz tipinde eslesirse mevcut device_id doner.
-        install_id verilirse ayni kurulumdaki diger device satirlari offline olur.
+        Ayni MAC baska satirda (baska hesap) ise o satirlar cevrimdisi yapilir.
         """
         if device_type not in {"phone", "pc"}:
             return None, []
@@ -499,7 +478,13 @@ class ServerDbClient:
                         """,
                         (device_name or "", device_type, mac_n or "", resolved, user_id),
                     )
-                    evicted = self._install_supersede_in_cursor(cur, user_id, resolved, install_id)
+                    cur.execute(
+                        "SELECT mac_address FROM devices WHERE user_id = %s AND device_id = %s",
+                        (user_id, resolved),
+                    )
+                    row = cur.fetchone()
+                    mac_db = self._normalize_mac(row[0] if row else None)
+                    evicted = self._mac_supersede_in_cursor(cur, resolved, device_type, mac_db) if mac_db else []
                 conn.commit()
             return resolved, evicted
         except Exception as e:
@@ -570,7 +555,7 @@ class ServerDbClient:
                         SELECT d.device_id, d.device_type, d.device_name,
                                d.device_id AS address,
                                COALESCE(d.is_online, false) AS is_online,
-                               d.install_id
+                               d.mac_address
                         FROM devices d
                         WHERE d.user_id = %s
                         ORDER BY d.device_type, d.device_name, d.device_id
@@ -593,8 +578,7 @@ class ServerDbClient:
         return types.get(a), types.get(b)
 
     def save_pairing_by_device_ids(self, first_device_id: str, second_device_id: str) -> None:
-        """Iki cihaz (telefon+pc) arasinda tek pairing satiri; user_id=telefon sahibi, partner_user_id=pc sahibi.
-        connections: device_id_from=pc, device_id_to=phone (bilgisayardan telefona)."""
+        """Iki cihaz (telefon+pc) arasinda tek pairing satiri; user_id=telefon sahibi, partner_user_id=pc sahibi."""
         a = self._normalize_public_device_id(first_device_id)
         b = self._normalize_public_device_id(second_device_id)
         if not a or not b:
@@ -633,13 +617,6 @@ class ServerDbClient:
                             partner_user_id = EXCLUDED.partner_user_id
                         """,
                         (phone_user_id, pc_user_id, phone_id, pc_id),
-                    )
-                    cur.execute(
-                        """
-                        INSERT INTO connections (device_id_from, device_id_to)
-                        VALUES (%s, %s)
-                        """,
-                        (pc_id, phone_id),
                     )
                 conn.commit()
         except Exception as e:
@@ -708,7 +685,8 @@ class ServerDbClient:
                         cur.execute(
                             """
                             SELECT d.device_id, d.device_type, d.device_name,
-                                   d.device_id AS address, COALESCE(d.is_online, false) AS is_online
+                                   d.device_id AS address, COALESCE(d.is_online, false) AS is_online,
+                                   d.mac_address
                             FROM devices d WHERE d.device_id = %s
                             """,
                             (oid,),
@@ -758,7 +736,7 @@ class ServerDbClient:
                             """
                             SELECT d.device_id, d.device_type, d.device_name,
                                    d.device_id AS address, COALESCE(d.is_online, false) AS is_online,
-                                   d.install_id
+                                   d.mac_address
                             FROM devices d
                             WHERE d.device_id = %s AND d.device_type = %s
                             """,
@@ -817,22 +795,3 @@ class ServerDbClient:
             logger.error("delete_pairing_by_device_ids: %s", e)
             return False
 
-    def record_connection(self, pc_device_id: str, phone_device_id: str) -> None:
-        """Baglanti kaydi: her zaman pc -> phone."""
-        a = self._normalize_public_device_id(pc_device_id)
-        b = self._normalize_public_device_id(phone_device_id)
-        if not a or not b:
-            return
-        try:
-            with self._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO connections (device_id_from, device_id_to)
-                        VALUES (%s, %s)
-                        """,
-                        (a, b),
-                    )
-                conn.commit()
-        except Exception as e:
-            logger.warning("record_connection: %s", e)
