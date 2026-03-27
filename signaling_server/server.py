@@ -290,7 +290,15 @@ async def _pick_preferred_online_partner(
     preferred_partner_id: str | None,
     preferred_partner_address: str | None,
 ) -> tuple[int, str] | None:
+    """
+    Sabit adres / device_id ile hedeflenen cihaza baglanir.
+    Hedef devices tablosunda kayitli ve signaling uzerinde cevrimici + karsi roldedir yeterli
+    (hesap farki pairings sartina bagli degil).
+    Acikca adres verildiyse basarisiz olunca rastgele baska cihaza dusulmez (fallback yok).
+    """
     lookup_partner_id = preferred_partner_id or preferred_partner_address
+    explicit_target = bool(str(lookup_partner_id or "").strip())
+
     if lookup_partner_id:
         binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, lookup_partner_id)
         if not binding:
@@ -304,15 +312,14 @@ async def _pick_preferred_online_partner(
         else:
             target_user_id = int(binding["user_id"])
             candidate_id = str(binding["device_id"])
-            paired = await asyncio.to_thread(
-                app["db"].pairing_exists_between_devices,
-                device_id,
-                candidate_id,
-            )
-            if paired:
+            if candidate_id != device_id:
                 partner_entry = app["online_devices"].get(_online_key(target_user_id, candidate_id))
                 if partner_entry and partner_entry["role"] != role:
                     return target_user_id, candidate_id
+
+    if explicit_target:
+        return None
+
     fallback_partner = await _pick_online_partner(app, user_id, device_id, role)
     if fallback_partner:
         return fallback_partner
@@ -404,11 +411,11 @@ async def _handle_device_hello(
             ws,
             {
                 "type": MessageTypes.ERROR,
-                "message": "Bu hesap icin cevrimici uygun cihaz bulunamadi.",
+                "message": "Hedef cihaz bu adreste kayitli degil veya su an cevrimici degil.",
             },
         )
 
-    await _broadcast_presence_update(app, user_id, device_id)
+    await _broadcast_presence_change(app, user_id, device_id)
 
 
 async def _handle_pair_confirm(app: web.Application, meta: dict, message: dict) -> None:
@@ -483,6 +490,7 @@ async def _handle_register_or_join(
         if online_key not in app["online_devices"]:
             app["online_devices"][online_key] = {"ws": ws, "role": role, "user_id": meta["user_id"], "device_id": device_id}
             await asyncio.to_thread(app["db"].set_device_online, meta["user_id"], device_id, True)
+            await _broadcast_presence_change(app, meta["user_id"], device_id)
 
     ack = MessageTypes.REGISTERED if message.get("type") == MessageTypes.REGISTER else MessageTypes.JOINED
     await _send_json(ws, {"type": ack, "code": code, "role": role})
