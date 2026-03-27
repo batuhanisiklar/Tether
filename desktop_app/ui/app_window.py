@@ -72,9 +72,9 @@ def _format_address(addr: str) -> str:
 
 
 def _format_address_spaced(addr: str) -> str:
-    """Large hero display: '000000000001' → '0000 0000 0001'."""
+    """Large hero display: '000000000001' → '0000-0000-0001'."""
     digits = "".join(ch for ch in addr if ch.isdigit())[:12]
-    return "  ".join(digits[i:i + 4] for i in range(0, len(digits), 4))
+    return "-".join(digits[i:i + 4] for i in range(0, len(digits), 4))
 
 
 def _display_device_name(device_name: str | None, address: str | None, device_id: str) -> str:

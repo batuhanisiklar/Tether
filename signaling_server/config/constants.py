@@ -31,7 +31,8 @@ class MessageTypes:
     AUTO_PAIRED: str = "auto_paired"      # Server → Both: paired partner came online
     PAIR_CONFIRM: str = "pair_confirm"    # Client → Server: confirm pairing after code-join
     PAIRED_DEVICES: str = "paired_devices"  # Server → Client: list of known paired devices
+    REQUEST_PRESENCE: str = "request_presence"  # Client → Server: refresh device_ack
 
     RELAY_TYPES: Set[str] = frozenset({
-        COMMAND, STREAM_INFO, HEARTBEAT, RELAY, FRAME,
+        COMMAND, STREAM_INFO, RELAY, FRAME,
     })

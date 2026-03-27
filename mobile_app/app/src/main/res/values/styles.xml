@@ -12,27 +12,27 @@
     </style>
 
     <style name="TextRemoteControlSectionLabel">
-        <item name="android:textSize">11sp</item>
+        <item name="android:textSize">12sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:letterSpacing">0.05</item>
+        <item name="android:letterSpacing">0.06</item>
         <item name="android:textAllCaps">true</item>
     </style>
 
     <style name="TextRemoteControlFieldLabel">
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">13sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:letterSpacing">0.03</item>
     </style>
 
     <style name="TextRemoteControlValue">
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">15sp</item>
         <item name="android:textColor">@color/text_primary</item>
     </style>
 
     <style name="TextRemoteControlCaption">
-        <item name="android:textSize">11sp</item>
+        <item name="android:textSize">12sp</item>
         <item name="android:textColor">@color/text_tertiary</item>
     </style>
 
@@ -42,6 +42,7 @@
         <item name="android:textSize">14sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:backgroundTint">@color/primary</item>
+        <item name="cornerRadius">12dp</item>
     </style>
 
     <style name="WidgetRemoteControlDangerButton">
@@ -50,6 +51,7 @@
         <item name="android:textSize">14sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:backgroundTint">@color/danger</item>
+        <item name="cornerRadius">12dp</item>
     </style>
 
     <style name="WidgetRemoteControlSecondaryButton">
@@ -58,5 +60,6 @@
         <item name="android:textSize">13sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:backgroundTint">@color/surface_tint</item>
+        <item name="cornerRadius">12dp</item>
     </style>
 </resources>

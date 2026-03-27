@@ -334,7 +334,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 continue
 
             message_type = message.get("type", "")
-            if message_type != MessageTypes.FRAME:
+            if message_type not in {MessageTypes.FRAME, MessageTypes.HEARTBEAT}:
                 logger.info("[%s] device_id=%s code=%s role=%s", message_type, message.get("device_id"), message.get("code"), message.get("role"))
 
             if message_type == MessageTypes.DEVICE_HELLO:
@@ -343,6 +343,14 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 await _handle_pair_confirm(app, message)
             elif message_type in {MessageTypes.REGISTER, MessageTypes.JOIN}:
                 await _handle_register_or_join(app, ws, meta, message)
+            elif message_type in {MessageTypes.REQUEST_PRESENCE, MessageTypes.HEARTBEAT}:
+                device_id = meta.get("device_id")
+                if device_id:
+                    await _send_device_ack(app, device_id)
+                if message_type == MessageTypes.HEARTBEAT:
+                    peer_ws = await _resolve_peer_ws(app, ws, meta) if meta.get("peer_code") else None
+                    if peer_ws:
+                        await peer_ws.send_str(raw.data)
             elif message_type in MessageTypes.RELAY_TYPES:
                 await _relay_message(app, ws, meta, message, raw_text=raw.data)
             else:

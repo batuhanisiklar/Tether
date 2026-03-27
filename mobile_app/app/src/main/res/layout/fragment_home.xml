@@ -4,9 +4,9 @@
     android:layout_height="match_parent"
     android:fillViewport="true"
     android:background="@color/bg_app"
-    android:paddingHorizontal="16dp"
-    android:paddingTop="16dp"
-    android:paddingBottom="20dp">
+    android:paddingHorizontal="18dp"
+    android:paddingTop="18dp"
+    android:paddingBottom="24dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -18,37 +18,37 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/card_soft_bg"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="12dp">
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="18dp"
+            android:layout_marginBottom="14dp">
 
-            <TextView
-                style="@style/TextRemoteControlSectionLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/home_account_title"
-                android:layout_marginBottom="8dp" />
+            <View
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:background="@color/success" />
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="12dp">
 
-                <View
-                    android:layout_width="10dp"
-                    android:layout_height="10dp"
-                    android:background="@color/success" />
+                <TextView
+                    style="@style/TextRemoteControlSectionLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/home_account_title"
+                    android:layout_marginBottom="4dp" />
 
                 <TextView
                     android:id="@+id/tv_user"
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:textColor="@color/text_primary"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginStart="10dp" />
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
@@ -59,26 +59,28 @@
             android:background="@drawable/card_accent_bg"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="26dp"
-            android:layout_marginBottom="12dp">
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="28dp"
+            android:layout_marginBottom="14dp">
 
             <TextView
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_code_title"
-                android:layout_marginBottom="10dp" />
+                android:textColor="@color/primary"
+                android:layout_marginBottom="12dp" />
 
             <TextView
                 android:id="@+id/tv_code"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_code_placeholder"
-                android:textSize="30sp"
+                android:textSize="32sp"
                 android:textStyle="bold"
                 android:textColor="@color/primary"
                 android:fontFamily="monospace"
-                android:letterSpacing="0.04"
+                android:letterSpacing="0.06"
                 android:maxLines="1"
                 android:singleLine="true"
                 android:scrollHorizontally="false"
@@ -89,7 +91,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_code_help"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="12dp"
                 android:gravity="center" />
         </LinearLayout>
 
@@ -99,15 +101,15 @@
             android:layout_height="wrap_content"
             android:background="@drawable/card_soft_bg"
             android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="12dp">
+            android:padding="18dp"
+            android:layout_marginBottom="14dp">
 
             <TextView
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/status_title"
-                android:layout_marginBottom="6dp" />
+                android:layout_marginBottom="8dp" />
 
             <TextView
                 android:id="@+id/tv_status"
@@ -115,7 +117,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/status_initializing"
                 android:textColor="@color/text_primary"
-                android:textSize="14sp"
+                android:textSize="15sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -123,30 +125,31 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="@color/text_secondary"
-                android:textSize="12sp"
+                android:textSize="13sp"
                 android:layout_marginTop="4dp" />
         </LinearLayout>
 
+        <!-- Hizli Islemler -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/card_soft_bg"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="18dp">
 
             <TextView
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/home_quick_actions_title"
-                android:layout_marginBottom="10dp" />
+                android:layout_marginBottom="12dp" />
 
             <Button
                 android:id="@+id/btn_connect"
                 style="@style/WidgetRemoteControlPrimaryButton"
                 android:layout_width="match_parent"
                 android:text="@string/retry_connect"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginBottom="10dp" />
 
             <Button
                 android:id="@+id/btn_stop_stream"
