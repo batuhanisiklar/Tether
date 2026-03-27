@@ -82,6 +82,7 @@ async def _upsert_device_and_evict(
     device_type: str,
     device_name: str,
     install_id: str | None,
+    mac_address: str | None = None,
 ) -> str | None:
     result = await asyncio.to_thread(
         app["db"].upsert_device,
@@ -90,6 +91,7 @@ async def _upsert_device_and_evict(
         device_type,
         device_name,
         install_id,
+        mac_address,
     )
     if not result or result[0] is None:
         return None
@@ -180,6 +182,40 @@ async def _broadcast_presence_change(app: web.Application, user_id: int, device_
     }
     for partner_user_id, partner_id in cross_account_targets:
         await _broadcast_presence_update(app, partner_user_id, partner_id)
+
+
+def _mac_from_body(data: dict) -> str | None:
+    m = (data.get("mac_address") or data.get("macAddress") or "").strip()
+    return m or None
+
+
+async def _handle_device_logout(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    meta: dict,
+    message: dict,
+) -> None:
+    """Cikis: DB cevrimdisi, eslestirilmis tum taraflara presence yayini."""
+    device_id = str(message.get("device_id") or meta.get("device_id") or "").strip()
+    if not device_id:
+        return
+    binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, device_id)
+    if not binding:
+        return
+    user_id = int(binding["user_id"])
+    key = _online_key(user_id, device_id)
+    entry = app["online_devices"].get(key)
+    meta_uid = meta.get("user_id")
+    authorized = (entry and entry.get("ws") is ws) or (
+        meta_uid is not None and int(meta_uid) == user_id
+    )
+    if not authorized:
+        return
+    if entry and entry.get("ws") is ws:
+        app["online_devices"].pop(key, None)
+    await asyncio.to_thread(app["db"].set_device_online, user_id, device_id, False)
+    meta["logout_notified"] = True
+    await _broadcast_presence_change(app, user_id, device_id)
 
 
 async def _persist_session_pairings(
@@ -541,6 +577,8 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
 
             if message_type == MessageTypes.DEVICE_HELLO:
                 await _handle_device_hello(app, ws, meta, message)
+            elif message_type == MessageTypes.DEVICE_LOGOUT:
+                await _handle_device_logout(app, ws, meta, message)
             elif message_type == MessageTypes.PAIR_CONFIRM:
                 await _handle_pair_confirm(app, meta, message)
             elif message_type in {MessageTypes.REGISTER, MessageTypes.JOIN}:
@@ -562,9 +600,10 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         device_id = meta.get("device_id")
         user_id = meta.get("user_id")
         online_key = _online_key(user_id, device_id) if device_id and user_id else None
-        if online_key and app["online_devices"].get(online_key, {}).get("ws") is ws:
-            app["online_devices"].pop(online_key, None)
-            await asyncio.to_thread(app["db"].set_device_online, user_id, device_id, False)
+        if not meta.get("logout_notified"):
+            if online_key and app["online_devices"].get(online_key, {}).get("ws") is ws:
+                app["online_devices"].pop(online_key, None)
+                await asyncio.to_thread(app["db"].set_device_online, user_id, device_id, False)
 
         peer_code = meta.get("peer_code")
         peer_role = meta.get("peer_role")
@@ -585,7 +624,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 app["session_devices"].pop(peer_code, None)
 
         app["ws_meta"].pop(id(ws), None)
-        if device_id and user_id:
+        if device_id and user_id and not meta.get("logout_notified"):
             await _broadcast_presence_change(app, user_id, device_id)
     return ws
 
@@ -617,6 +656,7 @@ async def auth_register(request: web.Request) -> web.Response:
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
     install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
+    mac_address = _mac_from_body(data)
     resolved_device_id = ""
     if device_type in {"phone", "pc"}:
         resolved_device_id = (
@@ -627,6 +667,7 @@ async def auth_register(request: web.Request) -> web.Response:
                 device_type,
                 device_name,
                 install_id,
+                mac_address,
             )
             or ""
         )
@@ -666,6 +707,7 @@ async def auth_login(request: web.Request) -> web.Response:
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
     install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
+    mac_address = _mac_from_body(data)
     resolved_device_id = ""
     if device_type in {"phone", "pc"}:
         resolved_device_id = (
@@ -676,6 +718,7 @@ async def auth_login(request: web.Request) -> web.Response:
                 device_type,
                 device_name,
                 install_id,
+                mac_address,
             )
             or ""
         )
@@ -719,6 +762,7 @@ async def upsert_device(request: web.Request) -> web.Response:
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
     install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
+    mac_address = _mac_from_body(data)
     if device_type not in {"phone", "pc"}:
         return web.json_response({"ok": False, "message": "device_id ve device_type gerekli."}, status=400)
 
@@ -730,6 +774,7 @@ async def upsert_device(request: web.Request) -> web.Response:
             device_type,
             device_name,
             install_id,
+            mac_address,
         )
         or ""
     )

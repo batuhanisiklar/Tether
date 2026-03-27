@@ -109,6 +109,27 @@ class ServerDbClient:
                         "ALTER TABLE devices ADD COLUMN IF NOT EXISTS install_id TEXT"
                     )
                     cur.execute(
+                        "ALTER TABLE devices ADD COLUMN IF NOT EXISTS mac_address TEXT"
+                    )
+                    cur.execute(
+                        """
+                        DELETE FROM devices d
+                        USING devices d2
+                        WHERE d.user_id = d2.user_id
+                          AND d.device_type = d2.device_type
+                          AND d.mac_address IS NOT NULL
+                          AND d.mac_address = d2.mac_address
+                          AND d.device_id > d2.device_id
+                        """
+                    )
+                    cur.execute(
+                        """
+                        CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_user_type_mac
+                        ON devices(user_id, device_type, mac_address)
+                        WHERE mac_address IS NOT NULL AND mac_address <> ''
+                        """
+                    )
+                    cur.execute(
                         """
                         CREATE INDEX IF NOT EXISTS idx_devices_install_id
                         ON devices(install_id)
@@ -188,6 +209,24 @@ class ServerDbClient:
             return None
         return s[:64]
 
+    @staticmethod
+    def _normalize_mac(raw: str | None) -> str | None:
+        """MAC (12 hex) veya aid:... Android parmak izi; kullanici+cihaz tipi ile eslestirme."""
+        if not raw:
+            return None
+        s = str(raw).strip().lower()
+        if len(s) > 96:
+            s = s[:96]
+        if s.startswith("aid:"):
+            return s
+        hexonly = "".join(c for c in s if c in "0123456789abcdef")
+        if len(hexonly) == 12:
+            return hexonly
+        digits = "".join(ch for ch in s if ch.isdigit())
+        if len(digits) == 12:
+            return digits
+        return None
+
     def _install_supersede_in_cursor(
         self,
         cur,
@@ -249,7 +288,20 @@ class ServerDbClient:
         requested: str | None,
         device_type: str,
         device_name: str | None,
+        mac_n: str | None,
     ) -> str:
+        if mac_n:
+            cur.execute(
+                """
+                SELECT device_id FROM devices
+                WHERE user_id = %s AND device_type = %s AND mac_address = %s
+                """,
+                (user_id, device_type, mac_n),
+            )
+            row = cur.fetchone()
+            if row:
+                return str(row[0])
+
         normalized = self._normalize_public_device_id(requested)
         if normalized:
             cur.execute(
@@ -261,22 +313,31 @@ class ServerDbClient:
             )
             row = cur.fetchone()
             if row:
-                return str(row[0])
+                d_id = str(row[0])
+                if mac_n:
+                    cur.execute(
+                        """
+                        UPDATE devices SET mac_address = %s
+                        WHERE device_id = %s AND user_id = %s AND (mac_address IS NULL OR mac_address = '')
+                        """,
+                        (mac_n, d_id, user_id),
+                    )
+                return d_id
             cur.execute(
                 """
-                INSERT INTO devices (device_id, device_name, device_type, is_active, user_id)
-                VALUES (%s, %s, %s, TRUE, %s)
+                INSERT INTO devices (device_id, device_name, device_type, is_active, user_id, mac_address)
+                VALUES (%s, %s, %s, TRUE, %s, %s)
                 """,
-                (normalized, device_name or "", device_type, user_id),
+                (normalized, device_name or "", device_type, user_id, mac_n),
             )
             return normalized
         new_id = self._generate_unique_device_id(cur)
         cur.execute(
             """
-            INSERT INTO devices (device_id, device_name, device_type, is_active, user_id)
-            VALUES (%s, %s, %s, TRUE, %s)
+            INSERT INTO devices (device_id, device_name, device_type, is_active, user_id, mac_address)
+            VALUES (%s, %s, %s, TRUE, %s, %s)
             """,
-            (new_id, device_name or "", device_type, user_id),
+            (new_id, device_name or "", device_type, user_id, mac_n),
         )
         return new_id
 
@@ -414,26 +475,29 @@ class ServerDbClient:
         device_type: str,
         device_name: str | None,
         install_id: str | None = None,
+        mac_address: str | None = None,
     ) -> tuple[str | None, list[tuple[int, str]]]:
         """
-        Cihaz kaydi. install_id verilirse ayni kurulumdaki diger device satirlari offline olur.
-        Donus: (resolved_device_id, evicted_sessions) — evicted WebSocket belleginden dusurulmeli.
+        Cihaz kaydi. mac_address ayni kullanici+cihaz tipinde eslesirse mevcut device_id doner.
+        install_id verilirse ayni kurulumdaki diger device satirlari offline olur.
         """
         if device_type not in {"phone", "pc"}:
             return None, []
+        mac_n = self._normalize_mac(mac_address)
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     resolved = self._resolve_owned_device_id(
-                        cur, user_id, device_id, device_type, device_name
+                        cur, user_id, device_id, device_type, device_name, mac_n
                     )
                     cur.execute(
                         """
                         UPDATE devices SET device_name = COALESCE(NULLIF(%s, ''), device_name),
-                        device_type = %s, is_active = TRUE
+                        device_type = %s, is_active = TRUE,
+                        mac_address = COALESCE(NULLIF(%s, ''), mac_address)
                         WHERE device_id = %s AND user_id = %s
                         """,
-                        (device_name or "", device_type, resolved, user_id),
+                        (device_name or "", device_type, mac_n or "", resolved, user_id),
                     )
                     evicted = self._install_supersede_in_cursor(cur, user_id, resolved, install_id)
                 conn.commit()

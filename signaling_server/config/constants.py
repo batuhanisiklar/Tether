@@ -32,6 +32,7 @@ class MessageTypes:
     PAIR_CONFIRM: str = "pair_confirm"    # Client → Server: confirm pairing after code-join
     PAIRED_DEVICES: str = "paired_devices"  # Server → Client: list of known paired devices
     REQUEST_PRESENCE: str = "request_presence"  # Client → Server: refresh device_ack
+    DEVICE_LOGOUT: str = "device_logout"  # Client → Server: cikis / cevrimdisi bildir
 
     RELAY_TYPES: Set[str] = frozenset({
         COMMAND, STREAM_INFO, RELAY, FRAME,
