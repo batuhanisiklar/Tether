@@ -21,6 +21,7 @@ class SignalingClient(
     private val serverUrl: String,
     private val deviceId: String,
     private val preferredPartnerId: String? = null,
+    private val allowAutoPair: Boolean = false,
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
@@ -63,7 +64,8 @@ class SignalingClient(
                     put("type", "device_hello")
                     put("device_id", deviceId)
                     put("role", "phone")
-                    if (!preferredPartnerId.isNullOrBlank()) {
+                    put("auto_pair", allowAutoPair)
+                    if (allowAutoPair && !preferredPartnerId.isNullOrBlank()) {
                         put("preferred_partner_id", preferredPartnerId)
                     }
                 }

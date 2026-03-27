@@ -74,11 +74,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_code_placeholder"
-                android:textSize="34sp"
+                android:textSize="30sp"
                 android:textStyle="bold"
                 android:textColor="@color/primary"
                 android:fontFamily="monospace"
-                android:letterSpacing="0.12" />
+                android:letterSpacing="0.04"
+                android:maxLines="1"
+                android:singleLine="true"
+                android:scrollHorizontally="false"
+                android:ellipsize="none" />
 
             <TextView
                 style="@style/TextRemoteControlCaption"
@@ -148,21 +152,7 @@
                 android:id="@+id/btn_stop_stream"
                 style="@style/WidgetRemoteControlDangerButton"
                 android:layout_width="match_parent"
-                android:text="@string/stop_stream"
-                android:layout_marginBottom="8dp" />
-
-            <Button
-                android:id="@+id/btn_accessibility"
-                style="@style/WidgetRemoteControlSecondaryButton"
-                android:layout_width="match_parent"
-                android:text="@string/open_accessibility_settings"
-                android:layout_marginBottom="8dp" />
-
-            <Button
-                android:id="@+id/btn_logout"
-                style="@style/WidgetRemoteControlSecondaryButton"
-                android:layout_width="match_parent"
-                android:text="@string/logout" />
+                android:text="@string/stop_stream" />
         </LinearLayout>
 
     </LinearLayout>

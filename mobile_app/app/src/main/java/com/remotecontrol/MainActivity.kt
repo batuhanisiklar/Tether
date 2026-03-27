@@ -119,7 +119,7 @@ class MainActivity : AppCompatActivity() {
             syncDeviceState()
             refreshPairings()
         }
-        autoConnect(pairedPcId)
+        autoConnect(pairedPcId, allowAutoPair = false)
     }
 
     private fun setupNavigation(initialSelect: Boolean) {
@@ -127,6 +127,7 @@ class MainActivity : AppCompatActivity() {
             when (item.itemId) {
                 R.id.nav_home -> showFragment("home") { HomeFragment() }
                 R.id.nav_devices -> showFragment("devices") { DevicesFragment() }
+                R.id.nav_profile -> showFragment("profile") { SettingsFragment() }
                 else -> false
             }
         }
@@ -144,7 +145,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun reconnect() {
-        autoConnect(pairedPcId)
+        autoConnect(pairedPcId, allowAutoPair = pairedPcId != null)
     }
 
     fun connectToPairedDevice(partnerDeviceId: String) {
@@ -152,7 +153,7 @@ class MainActivity : AppCompatActivity() {
         pairedPcId = partnerDeviceId
         updateStatus("Secilen bilgisayara baglaniliyor")
         refreshFragments()
-        autoConnect(partnerDeviceId)
+        autoConnect(partnerDeviceId, allowAutoPair = true)
     }
 
     fun stopStreamsFromUi() {
@@ -224,10 +225,14 @@ class MainActivity : AppCompatActivity() {
         "Dokunma kontrolu icin erisilebilirlik servisini acin"
     }
 
-    private fun autoConnect(preferredPartnerId: String?) {
+    private fun autoConnect(preferredPartnerId: String?, allowAutoPair: Boolean) {
         val generation = ++connectionGeneration
         currentStatus = "Signaling sunucusuna baglaniyor"
-        currentStatusDetail = preferredPartnerId?.let { "Tercihli bilgisayar: ...${it.takeLast(8)}" }.orEmpty()
+        currentStatusDetail = if (allowAutoPair && preferredPartnerId != null) {
+            "Tercihli bilgisayar: ...${preferredPartnerId.takeLast(8)}"
+        } else {
+            ""
+        }
         refreshFragments()
 
         signalingClient?.disconnect()
@@ -236,6 +241,7 @@ class MainActivity : AppCompatActivity() {
             serverUrl = SIGNALING_URL,
             deviceId = deviceId,
             preferredPartnerId = preferredPartnerId,
+            allowAutoPair = allowAutoPair,
             onPaired = { _, partnerDeviceId ->
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
@@ -275,10 +281,10 @@ class MainActivity : AppCompatActivity() {
         clientRef[0] = client
         signalingClient = client
         signalingClient?.connect()
-        currentStatus = if (preferredPartnerId != null) {
+        currentStatus = if (allowAutoPair && preferredPartnerId != null) {
             "Kayitli bilgisayar bekleniyor"
         } else {
-            "Bilgisayar baglantisi bekleniyor"
+            "Cihaz aktif, baglanti bekleniyor"
         }
         currentStatusDetail = "Adres: $currentAddress"
         refreshFragments()
@@ -551,8 +557,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun formatAddressForUi(raw: String): String {
         val digits = raw.filter { it.isDigit() }.take(12)
-        if (digits.isEmpty()) return "---- ---- ----"
-        return digits.chunked(4).joinToString(" ")
+        if (digits.isEmpty()) return "---- ---- ----".replace(" ", "-")
+        return digits.chunked(4).joinToString("-")
     }
 
     override fun onResume() {

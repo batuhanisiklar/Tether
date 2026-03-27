@@ -64,13 +64,25 @@ async def _get_paired_partners(app: web.Application, device_id: str) -> list[str
     return await asyncio.to_thread(app["db"].get_paired_partners, device_id)
 
 
-async def _send_device_ack(app: web.Application, device_id: str) -> None:
+async def _get_paired_partners_map(app: web.Application, device_ids: list[str]) -> dict[str, list[str]]:
+    return await asyncio.to_thread(app["db"].get_paired_partners_map, device_ids)
+
+
+async def _send_device_ack(
+    app: web.Application,
+    device_id: str,
+    paired_partners_map: dict[str, list[str]] | None = None,
+) -> None:
     device_entry = app["online_devices"].get(device_id)
     if not device_entry:
         return
 
     role = device_entry["role"]
-    paired_devices = await _get_paired_partners(app, device_id)
+    paired_devices = (
+        paired_partners_map.get(device_id, [])
+        if paired_partners_map is not None
+        else await _get_paired_partners(app, device_id)
+    )
     online_paired_devices = [
         partner_id
         for partner_id in paired_devices
@@ -90,13 +102,23 @@ async def _send_device_ack(app: web.Application, device_id: str) -> None:
 
 
 async def _broadcast_presence_update(app: web.Application, *device_ids: str) -> None:
-    impacted_device_ids: set[str] = {device_id for device_id in device_ids if device_id}
-    for device_id in list(impacted_device_ids):
-        impacted_device_ids.update(await _get_paired_partners(app, device_id))
+    root_device_ids = list(dict.fromkeys(device_id for device_id in device_ids if device_id))
+    if not root_device_ids:
+        return
+
+    direct_partners_map = await _get_paired_partners_map(app, root_device_ids)
+    impacted_device_ids: set[str] = set(root_device_ids)
+    for partner_ids in direct_partners_map.values():
+        impacted_device_ids.update(partner_ids)
+
+    paired_partners_map = dict(direct_partners_map)
+    missing_ids = [device_id for device_id in impacted_device_ids if device_id not in paired_partners_map]
+    if missing_ids:
+        paired_partners_map.update(await _get_paired_partners_map(app, missing_ids))
 
     for impacted_device_id in impacted_device_ids:
         try:
-            await _send_device_ack(app, impacted_device_id)
+            await _send_device_ack(app, impacted_device_id, paired_partners_map)
         except Exception:
             logger.exception("Presence update gonderilemedi: %s", impacted_device_id)
 
@@ -159,8 +181,11 @@ async def _handle_device_hello(
     app["online_devices"][device_id] = {"ws": ws, "role": role}
 
     preferred_partner_id = str(message.get("preferred_partner_id") or "").strip() or None
-    partner_id = await _pick_preferred_online_partner(app, device_id, role, preferred_partner_id)
-    if partner_id:
+    allow_auto_pair = bool(message.get("auto_pair", False))
+    partner_id = None
+    if allow_auto_pair:
+        partner_id = await _pick_preferred_online_partner(app, device_id, role, preferred_partner_id)
+    if allow_auto_pair and partner_id:
         partner_entry = app["online_devices"][partner_id]
         partner_ws = partner_entry["ws"]
         partner_role = partner_entry["role"]
@@ -368,7 +393,9 @@ async def auth_register(request: web.Request) -> web.Response:
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
     if device_id and device_type in {"phone", "pc"}:
-        await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
+        claimed = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
+        if not claimed:
+            return web.json_response({"ok": False, "message": "Bu cihaz baska bir hesapta kayitli."}, status=403)
 
     token = issue_token(user_id, normalized_username)
     return web.json_response(
@@ -396,7 +423,9 @@ async def auth_login(request: web.Request) -> web.Response:
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
     if device_id and device_type in {"phone", "pc"}:
-        await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
+        claimed = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
+        if not claimed:
+            return web.json_response({"ok": False, "message": "Bu cihaz baska bir hesapta kayitli."}, status=403)
 
     token = issue_token(user_id, username)
     return web.json_response(
@@ -431,7 +460,9 @@ async def upsert_device(request: web.Request) -> web.Response:
     if not device_id or device_type not in {"phone", "pc"}:
         return web.json_response({"ok": False, "message": "device_id ve device_type gerekli."}, status=400)
 
-    await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type, device_name)
+    claimed = await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type, device_name)
+    if not claimed:
+        return web.json_response({"ok": False, "message": "Bu cihaz baska bir hesapta kayitli."}, status=403)
     return web.json_response({"ok": True})
 
 
@@ -453,6 +484,9 @@ async def list_pairings(request: web.Request) -> web.Response:
     device_id = request.query.get("device_id")
     if not device_id:
         return web.json_response({"ok": False, "message": "device_id gerekli."}, status=400)
+    owns_device = await asyncio.to_thread(request.app["db"].user_owns_device, user[0], device_id)
+    if not owns_device:
+        return web.json_response({"ok": False, "message": "Bu cihaza erisim yetkiniz yok."}, status=403)
     pairings = await asyncio.to_thread(request.app["db"].get_device_pairings, device_id)
     payload = [_device_payload(item, request.app["online_devices"]) for item in pairings]
     return web.json_response({"ok": True, "pairings": payload})
@@ -468,6 +502,9 @@ async def delete_pairing(request: web.Request) -> web.Response:
     partner_device_id = data.get("partner_device_id", "").strip()
     if not device_id or not partner_device_id:
         return web.json_response({"ok": False, "message": "device_id ve partner_device_id gerekli."}, status=400)
+    owns_device = await asyncio.to_thread(request.app["db"].user_owns_device, user[0], device_id)
+    if not owns_device:
+        return web.json_response({"ok": False, "message": "Bu cihaza erisim yetkiniz yok."}, status=403)
 
     success = await asyncio.to_thread(
         request.app["db"].delete_pairing_by_device_ids,

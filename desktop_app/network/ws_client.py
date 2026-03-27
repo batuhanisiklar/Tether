@@ -47,6 +47,7 @@ class WsClient(QObject):
         self._session_code: str = ""
         self._frame_processing: bool = False  # Frame throttle bayrağı
         self._preferred_partner_id: str | None = None
+        self._auto_pair_enabled = False
         self._disconnect_emitted = False
         self.device_id: str = _load_or_create_device_id()
         logger.info(f"PC device_id: {self.device_id}")
@@ -82,7 +83,12 @@ class WsClient(QObject):
         )
         self._thread.start()
 
-    def connect_with_device_id(self, url: str, preferred_partner_id: str | None = None):
+    def connect_with_device_id(
+        self,
+        url: str,
+        preferred_partner_id: str | None = None,
+        auto_pair: bool = False,
+    ):
         """
         Sunucuya bağlan ve device_hello gönder (kayıtlı eşleşme varsa auto_paired tetiklenir).
         Kod girmeden otomatik yeniden bağlanma için kullanılır.
@@ -90,6 +96,7 @@ class WsClient(QObject):
         self.disconnect()
         self._session_code = ""
         self._preferred_partner_id = preferred_partner_id
+        self._auto_pair_enabled = auto_pair
         self._disconnect_emitted = False
         self._ws = websocket.WebSocketApp(
             url,
@@ -118,6 +125,7 @@ class WsClient(QObject):
                 pass
         self._ws = None
         self._preferred_partner_id = None
+        self._auto_pair_enabled = False
 
     def send_pair_confirm(self, phone_device_id: str):
         """İlk eşleşmeden sonra çağrılır; sunucuya kalıcı pairing kaydedilir."""
@@ -212,6 +220,7 @@ class WsClient(QObject):
             "type": "device_hello",
             "device_id": self.device_id,
             "role": "pc",
+            "auto_pair": self._auto_pair_enabled,
         }
         if self._preferred_partner_id:
             payload["preferred_partner_id"] = self._preferred_partner_id

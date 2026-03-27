@@ -200,9 +200,15 @@ class ServerDbClient:
                                 device_type = EXCLUDED.device_type,
                                 device_name = COALESCE(EXCLUDED.device_name, devices.device_name),
                                 last_seen = now()
+                        WHERE devices.user_id = EXCLUDED.user_id OR devices.user_id IS NULL
+                        RETURNING device_id
                         """,
                         (user_id, device_id, device_type, device_name),
                     )
+                    if cur.fetchone() is None:
+                        conn.rollback()
+                        logger.warning("Baska kullaniciya ait cihaz claim edilmeye calisildi: %s", device_id)
+                        return False
                 conn.commit()
             return True
         except Exception as exc:
@@ -230,6 +236,53 @@ class ServerDbClient:
         except Exception as exc:
             logger.error("Partner listeleme hatasi: %s", exc)
             return []
+
+    def get_paired_partners_map(self, device_ids: list[str]) -> dict[str, list[str]]:
+        if not device_ids:
+            return {}
+
+        unique_ids = list(dict.fromkeys(device_ids))
+        result: dict[str, list[str]] = {device_id: [] for device_id in unique_ids}
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT phone_device_id AS device_id, pc_device_id AS partner_id
+                        FROM pairings
+                        WHERE phone_device_id = ANY(%s)
+                        UNION ALL
+                        SELECT pc_device_id AS device_id, phone_device_id AS partner_id
+                        FROM pairings
+                        WHERE pc_device_id = ANY(%s)
+                        """,
+                        (unique_ids, unique_ids),
+                    )
+                    for device_id, partner_id in cur.fetchall():
+                        if partner_id not in result.setdefault(device_id, []):
+                            result[device_id].append(partner_id)
+            return result
+        except Exception as exc:
+            logger.error("Toplu partner listeleme hatasi: %s", exc)
+            return result
+
+    def user_owns_device(self, user_id: int, device_id: str) -> bool:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM devices
+                        WHERE user_id = %s AND device_id = %s
+                        LIMIT 1
+                        """,
+                        (user_id, device_id),
+                    )
+                    return cur.fetchone() is not None
+        except Exception as exc:
+            logger.error("Cihaz sahiplik kontrolu hatasi: %s", exc)
+            return False
 
     def save_pairing_by_device_ids(self, first_device_id: str, second_device_id: str) -> bool:
         try:

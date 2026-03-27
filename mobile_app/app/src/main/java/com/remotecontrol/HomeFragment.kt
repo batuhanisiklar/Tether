@@ -28,12 +28,6 @@ class HomeFragment : Fragment(), DashboardFragment {
         binding.btnStopStream.setOnClickListener {
             (activity as? MainActivity)?.stopStreamsFromUi()
         }
-        binding.btnAccessibility.setOnClickListener {
-            (activity as? MainActivity)?.openAccessibilitySettingsScreen()
-        }
-        binding.btnLogout.setOnClickListener {
-            (activity as? MainActivity)?.logout()
-        }
         refreshContent()
     }
 

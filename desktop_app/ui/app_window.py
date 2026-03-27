@@ -1,11 +1,13 @@
 """
-AnyDesk-inspired desktop shell.
-Layout (top→bottom):
-  1. Title bar  (app name · session tab · account)
-  2. Connect hero  (large remote address input)
-  3. Recent Sessions tab strip
-  4. Recent Sessions device card grid
-When a connection is active, a second stacked page shows live control.
+Remote Phone Control — Desktop Shell  (AnyDesk-inspired)
+=========================================================
+Layout (home page, top → bottom):
+  1. Title bar           (logo · session chip · account pill)
+  2. Address input bar   (full-width dark bar like AnyDesk)
+  3. Your Address hero   (large formatted number)
+  4. Tab strip           (Recent Sessions)
+  5. Device card grid    (paired phones)
+When a connection is active, page 1 shows live remote control.
 """
 
 import logging
@@ -15,6 +17,7 @@ from datetime import datetime, timezone
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QFont, QPixmap
 from PyQt6.QtWidgets import (
+    QMenu,
     QApplication,
     QDialog,
     QFrame,
@@ -54,38 +57,36 @@ from desktop_app.ui.theme import (
 
 logger = logging.getLogger(__name__)
 
-# ── Renkler (AnyDesk-inspired dark palette) ──────────────────────────────────
-_CLR_TITLEBAR = "#1A1A1A"
-_CLR_BODY = "#222222"
-_CLR_CARD = "#2C2C2C"
-_CLR_CARD_BORDER = "#3A3A3A"
-_CLR_INPUT_BG = "#2E2E2E"
-_CLR_INPUT_BORDER = "#444444"
-_CLR_INPUT_FOCUS = "#E06040"
-_CLR_TAB_ACTIVE = "#E06040"
-_CLR_TAB_INACTIVE = "#888888"
-_CLR_TEXT = "#EEEEEE"
-_CLR_TEXT_MUTED = "#999999"
-_CLR_TEXT_DIM = "#666666"
-_CLR_ACCENT = "#E06040"
-_CLR_ACCENT_HOVER = "#D05535"
-_CLR_GREEN_DOT = "#55CC66"
-_CLR_RED_DOT = "#FF4444"
-_CLR_SURFACE_ALT = "#262626"
+# ── Palette ──────────────────────────────────────────────────────────────────
+_BG = "#181818"
+_BG_RAISED = "#1E1E1E"
+_BG_CARD = "#262626"
+_BG_INPUT = "#2A2A2A"
+_BORDER = "#333333"
+_BORDER_SUBTLE = "#2C2C2C"
+_ACCENT = "#E85D3A"
+_ACCENT_HOVER = "#D04E2E"
+_GREEN = "#4ADE80"
+_GREEN_DIM = "rgba(74,222,128,0.35)"
+_RED = "#F87171"
+_TEXT = "#F0F0F0"
+_TEXT_SEC = "#A0A0A0"
+_TEXT_DIM = "#606060"
 
 
 def _desktop_device_name() -> str:
-    return (
-        os.environ.get("COMPUTERNAME")
-        or os.environ.get("HOSTNAME")
-        or "Bu Bilgisayar"
-    )
+    return os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "Bu Bilgisayar"
 
 
 def _format_address(addr: str) -> str:
-    """'000000000001' -> '0000 0000 0001' formatinda gosterim."""
     digits = "".join(ch for ch in addr if ch.isdigit())[:12]
-    return " ".join(digits[i:i + 4] for i in range(0, len(digits), 4))
+    return "-".join(digits[i:i + 4] for i in range(0, len(digits), 4))
+
+
+def _format_address_spaced(addr: str) -> str:
+    """Large hero display: '000000000001' → '0000 0000 0001'."""
+    digits = "".join(ch for ch in addr if ch.isdigit())[:12]
+    return "  ".join(digits[i:i + 4] for i in range(0, len(digits), 4))
 
 
 def _display_device_name(device_name: str | None, address: str | None, device_id: str) -> str:
@@ -98,9 +99,7 @@ def _display_device_name(device_name: str | None, address: str | None, device_id
 
 def _compact_label(text: str, limit: int = 24) -> str:
     text = text.strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3].rstrip() + "..."
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
 def _display_username(username: str | None) -> str:
@@ -126,12 +125,26 @@ def _relative_time(dt: datetime | None) -> str:
     return f"{diff // 86400} gun once"
 
 
+def _digits_before_cursor(text: str, cursor: int) -> int:
+    """Count how many digit characters appear before `cursor` in `text`."""
+    return sum(1 for ch in text[:cursor] if ch.isdigit())
+
+
+def _cursor_for_digit_count(text: str, digit_count: int) -> int:
+    """Return the character index in `text` after the first `digit_count` digits."""
+    seen = 0
+    for i, ch in enumerate(text):
+        if ch.isdigit():
+            seen += 1
+            if seen == digit_count:
+                return i + 1
+    return len(text)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# DeviceCard — Recent Sessions grid item
+# DeviceCard
 # ─────────────────────────────────────────────────────────────────────────────
 class DeviceCard(QFrame):
-    """AnyDesk recent session card: dark tile with device address/id, status dot, and actions."""
-
     def __init__(
         self,
         device_id: str,
@@ -148,20 +161,20 @@ class DeviceCard(QFrame):
         self._online = False
         self._connect_cb = None
         self._forget_cb = None
-        self.setFixedSize(220, 136)
+        self.setFixedSize(230, 125)
         self._build(device_id, last_seen, address, device_name)
 
     def _build(self, device_id: str, last_seen: datetime | None, address: str | None, device_name: str | None):
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 10, 12, 10)
+        root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(4)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
 
         self._dot = QFrame()
         self._dot.setFixedSize(8, 8)
-        self._dot.setStyleSheet(f"background-color: {_CLR_RED_DOT}; border-radius: 4px;")
-
-        top_row = QHBoxLayout()
-        top_row.setSpacing(0)
+        self._dot.setStyleSheet(f"background-color: {_TEXT_DIM}; border-radius: 4px;")
         top_row.addWidget(self._dot)
         top_row.addStretch()
 
@@ -170,12 +183,10 @@ class DeviceCard(QFrame):
         self._btn_forget.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_forget.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; color: {_CLR_TEXT_DIM}; border: 1px solid transparent;
+                background: transparent; color: {_TEXT_DIM}; border: none;
                 border-radius: 11px; font-size: 14px; font-weight: 700;
             }}
-            QPushButton:hover {{
-                color: {_CLR_TEXT}; background-color: #3A2020; border-color: #663333;
-            }}
+            QPushButton:hover {{ color: {_RED}; background-color: rgba(248,113,113,0.12); }}
         """)
         self._btn_forget.clicked.connect(self._on_forget_clicked)
         top_row.addWidget(self._btn_forget)
@@ -184,22 +195,19 @@ class DeviceCard(QFrame):
         root.addStretch()
 
         formatted = _display_device_name(device_name, address, device_id)
-
-        self._title = QLabel(_compact_label(formatted, 22))
-        self._title.setStyleSheet(f"color: {_CLR_TEXT}; font-size: 13px; font-weight: 600;")
+        self._title = QLabel(_compact_label(formatted, 24))
+        self._title.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 600; background: transparent;")
         root.addWidget(self._title)
 
         address_text = _format_address(address or "") if address else ""
-        if address_text and address_text != formatted:
-            self._lbl_address = QLabel(address_text)
-        else:
-            self._lbl_address = QLabel("Eslesmis cihaz")
-        self._lbl_address.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 10px;")
+        self._lbl_address = QLabel(address_text if address_text and address_text != formatted else "Eslesmis cihaz")
+        self._lbl_address.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 10px; background: transparent;")
         root.addWidget(self._lbl_address)
 
         self._lbl_time = QLabel(_relative_time(last_seen))
-        self._lbl_time.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 10px;")
+        self._lbl_time.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
         root.addWidget(self._lbl_time)
+
         self._apply_card_style()
 
     def display_name(self) -> str:
@@ -216,30 +224,36 @@ class DeviceCard(QFrame):
         self._forget_cb = cb
 
     def _apply_card_style(self):
-        hover_border = _CLR_ACCENT if self._online else _CLR_CARD_BORDER
-        self.setStyleSheet(f"""
-            DeviceCard {{
-                background-color: {_CLR_CARD};
-                border: 1px solid {_CLR_CARD_BORDER};
-                border-radius: 6px;
-            }}
-            DeviceCard:hover {{
-                border-color: {hover_border};
-            }}
-        """)
-        self.setCursor(
-            Qt.CursorShape.PointingHandCursor if self._online else Qt.CursorShape.ArrowCursor
-        )
+        if self._online:
+            self.setStyleSheet(f"""
+                DeviceCard {{
+                    background-color: {_BG_CARD};
+                    border: 1px solid {_GREEN_DIM};
+                    border-radius: 8px;
+                }}
+                DeviceCard:hover {{ border-color: {_GREEN}; }}
+            """)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.setStyleSheet(f"""
+                DeviceCard {{
+                    background-color: {_BG_CARD};
+                    border: 1px solid {_BORDER_SUBTLE};
+                    border-radius: 8px;
+                }}
+                DeviceCard:hover {{ border-color: {_BORDER}; }}
+            """)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
 
     def set_online(self, online: bool):
         self._online = online
         if online:
-            self._dot.setStyleSheet(f"background-color: {_CLR_GREEN_DOT}; border-radius: 4px;")
+            self._dot.setStyleSheet(f"background-color: {_GREEN}; border-radius: 4px;")
             self._lbl_time.setText("Cevrimici")
-            self._lbl_time.setStyleSheet(f"color: {_CLR_GREEN_DOT}; font-size: 10px; font-weight: 600;")
+            self._lbl_time.setStyleSheet(f"color: {_GREEN}; font-size: 10px; font-weight: 600; background: transparent;")
         else:
-            self._dot.setStyleSheet(f"background-color: {_CLR_RED_DOT}; border-radius: 4px;")
-            self._lbl_time.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 10px;")
+            self._dot.setStyleSheet(f"background-color: {_TEXT_DIM}; border-radius: 4px;")
+            self._lbl_time.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
             self._lbl_time.setText(_relative_time(self._last_seen))
         self._apply_card_style()
 
@@ -286,10 +300,11 @@ class MainWindow(QMainWindow):
         self._current_page = 0
         self._session_chip: QFrame | None = None
         self._session_chip_btn: QPushButton | None = None
+        self._account_button: QPushButton | None = None
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
-        self.setMinimumSize(960, 640)
-        self.resize(1060, 720)
+        self.setMinimumSize(960, 600)
+        self.resize(1060, 700)
         self._load_user_prefs()
         self._apply_global_style()
         self._build_ui()
@@ -301,7 +316,6 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(250, self._load_devices_from_db)
 
-    # ── prefs ────────────────────────────────────────────────────────────────
     def _load_user_prefs(self):
         prefs = read_prefs()
         self._user_id = prefs.get("user_id")
@@ -309,22 +323,25 @@ class MainWindow(QMainWindow):
         if self._user_id:
             self._user_address = self.db.get_user_address(self._user_id) or ""
 
-    # ── global style ─────────────────────────────────────────────────────────
+    # ── Global stylesheet ────────────────────────────────────────────────────
     def _apply_global_style(self):
         self.setStyleSheet(f"""
-            QMainWindow {{ background-color: {_CLR_BODY}; }}
-            QWidget {{ background: transparent; color: {_CLR_TEXT}; font-family: 'Segoe UI', Arial, sans-serif; }}
-            QScrollArea {{ border: none; background: transparent; }}
+            QMainWindow {{ background-color: {_BG}; }}
+            QWidget {{
+                background: transparent; color: {_TEXT};
+                font-family: 'Segoe UI', 'Inter', Arial, sans-serif;
+            }}
+            QScrollArea {{ border: none; }}
             QScrollBar:vertical {{
-                background: {_CLR_BODY}; width: 6px; border: none;
+                background: {_BG}; width: 6px; border: none;
             }}
             QScrollBar::handle:vertical {{
-                background: #555555; border-radius: 3px; min-height: 24px;
+                background: #444; border-radius: 3px; min-height: 24px;
             }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """)
 
-    # ── build UI ─────────────────────────────────────────────────────────────
+    # ── Build UI ─────────────────────────────────────────────────────────────
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -342,7 +359,8 @@ class MainWindow(QMainWindow):
         self._status_bar = QStatusBar()
         self._status_bar.showMessage(Ui.MSG_WAITING)
         self._status_bar.setStyleSheet(
-            f"QStatusBar {{ background-color: {_CLR_TITLEBAR}; border-top: 1px solid #333; color: {_CLR_TEXT_MUTED}; font-size: 11px; }}"
+            f"QStatusBar {{ background-color: {_BG}; border-top: 1px solid {_BORDER_SUBTLE};"
+            f" color: {_TEXT_SEC}; font-size: 11px; padding: 2px 14px; }}"
         )
         self.setStatusBar(self._status_bar)
 
@@ -350,256 +368,346 @@ class MainWindow(QMainWindow):
     def _build_title_bar(self) -> QWidget:
         bar = QFrame()
         bar.setFixedHeight(38)
-        bar.setStyleSheet(f"background-color: {_CLR_TITLEBAR}; border-bottom: 1px solid #333;")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(14, 0, 14, 0)
-        layout.setSpacing(0)
+        bar.setStyleSheet(f"background-color: {_BG}; border-bottom: 1px solid {_BORDER_SUBTLE};")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(14, 0, 14, 0)
+        lay.setSpacing(0)
 
-        logo_dot = QFrame()
-        logo_dot.setFixedSize(14, 14)
-        logo_dot.setStyleSheet(f"background-color: {_CLR_ACCENT}; border-radius: 7px;")
-        layout.addWidget(logo_dot)
-        layout.addSpacing(8)
+        logo = QFrame()
+        logo.setFixedSize(10, 10)
+        logo.setStyleSheet(f"background-color: {_ACCENT}; border-radius: 5px;")
+        lay.addWidget(logo)
+        lay.addSpacing(8)
 
-        app_name = QLabel("Remote Control")
-        app_name.setStyleSheet(f"color: {_CLR_TEXT}; font-size: 13px; font-weight: 700;")
-        layout.addWidget(app_name)
-        layout.addSpacing(18)
+        title = QLabel("Remote Phone Control")
+        title.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 700;")
+        lay.addWidget(title)
+        lay.addSpacing(16)
 
         self._session_chip = QFrame()
         self._session_chip.setStyleSheet(
-            f"background-color: {_CLR_SURFACE_ALT}; border: 1px solid {_CLR_CARD_BORDER}; border-radius: 11px;"
+            f"background-color: rgba(232,93,58,0.10); border: 1px solid rgba(232,93,58,0.25); border-radius: 12px;"
         )
-        chip_layout = QHBoxLayout(self._session_chip)
-        chip_layout.setContentsMargins(0, 0, 0, 0)
-        chip_layout.setSpacing(0)
+        chip_lay = QHBoxLayout(self._session_chip)
+        chip_lay.setContentsMargins(0, 0, 0, 0)
+        chip_lay.setSpacing(0)
 
         self._session_chip_btn = QPushButton("Aktif Oturum")
         self._session_chip_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._session_chip_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; color: {_CLR_TEXT_MUTED}; border: none;
-                font-size: 12px; padding: 4px 8px 4px 10px;
-            }}
-            QPushButton:hover {{ color: {_CLR_TEXT}; }}
+            QPushButton {{ background: transparent; color: {_ACCENT}; border: none; font-size: 11px; font-weight: 600; padding: 4px 8px 4px 10px; }}
+            QPushButton:hover {{ color: {_TEXT}; }}
         """)
         self._session_chip_btn.clicked.connect(lambda: self._switch_page(1))
-        chip_layout.addWidget(self._session_chip_btn)
+        chip_lay.addWidget(self._session_chip_btn)
 
-        session_close_btn = QPushButton("×")
-        session_close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        session_close_btn.setFixedSize(24, 24)
-        session_close_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; color: {_CLR_TEXT_DIM}; border: none;
-                font-size: 14px; font-weight: 700;
-            }}
-            QPushButton:hover {{ color: {_CLR_TEXT}; background-color: #3A2020; border-radius: 10px; }}
+        chip_close = QPushButton("×")
+        chip_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        chip_close.setFixedSize(22, 22)
+        chip_close.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {_ACCENT}; border: none; font-size: 14px; font-weight: 700; }}
+            QPushButton:hover {{ color: {_TEXT}; }}
         """)
-        session_close_btn.clicked.connect(self._on_disconnect)
-        chip_layout.addWidget(session_close_btn)
+        chip_close.clicked.connect(self._on_disconnect)
+        chip_lay.addWidget(chip_close)
 
         self._session_chip.hide()
-        layout.addWidget(self._session_chip)
+        lay.addWidget(self._session_chip)
 
-        layout.addStretch()
+        lay.addStretch()
 
         self._header_status_dot = QFrame()
         self._header_status_dot.setFixedSize(8, 8)
-        self._header_status_dot.setStyleSheet(f"background-color: {_CLR_GREEN_DOT}; border-radius: 4px;")
-        layout.addWidget(self._header_status_dot)
-        layout.addSpacing(6)
+        self._header_status_dot.setStyleSheet(f"background-color: {_TEXT_DIM}; border-radius: 4px;")
+        lay.addWidget(self._header_status_dot)
+        lay.addSpacing(6)
 
-        self._header_user_label = QLabel(_display_username(self._username))
-        self._header_user_label.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 11px;")
-        layout.addWidget(self._header_user_label)
-        layout.addSpacing(14)
-
-        logout_btn = QPushButton("Cikis")
-        logout_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        logout_btn.setFixedHeight(24)
-        logout_btn.setStyleSheet(f"""
+        self._account_button = QPushButton(f"{_display_username(self._username)}  ▾")
+        self._account_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._account_button.setFixedHeight(26)
+        self._account_button.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; color: {_CLR_TEXT_DIM}; border: 1px solid #444;
-                border-radius: 4px; font-size: 11px; padding: 2px 10px;
+                background: transparent; color: {_TEXT_SEC}; border: 1px solid {_BORDER};
+                border-radius: 4px; font-size: 11px; padding: 0 10px;
             }}
-            QPushButton:hover {{ color: {_CLR_TEXT}; border-color: #666; }}
+            QPushButton:hover {{ color: {_TEXT}; border-color: #555; }}
         """)
-        logout_btn.clicked.connect(self._on_logout)
-        layout.addWidget(logout_btn)
+        self._account_button.clicked.connect(self._show_account_menu)
+        lay.addWidget(self._account_button)
+
         return bar
 
-    # ── 2. Home Page ────────────────────────────────────────────────────────
+    # ── 2. Home Page ─────────────────────────────────────────────────────────
     def _build_home_page(self) -> QWidget:
         page = QWidget()
-        page.setStyleSheet(f"background-color: {_CLR_BODY};")
-        layout = QVBoxLayout(page)
+        page.setStyleSheet(f"background-color: {_BG};")
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"background-color: {_BG};")
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        layout.addWidget(self._build_connect_hero())
+        layout.addWidget(self._build_address_input_bar())
+        layout.addWidget(self._build_your_address_hero())
+        layout.addWidget(self._build_feature_cards())
         layout.addWidget(self._build_tab_strip())
-        layout.addWidget(self._build_recent_sessions_section(), stretch=1)
+        layout.addWidget(self._build_recent_sessions())
+        layout.addStretch()
+
+        scroll.setWidget(content)
+
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(scroll)
         return page
 
-    def _build_connect_hero(self) -> QWidget:
-        section = QFrame()
-        section.setStyleSheet(f"background-color: {_CLR_BODY};")
-        layout = QVBoxLayout(section)
-        layout.setContentsMargins(60, 34, 60, 28)
-        layout.setSpacing(12)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    # ── 2a. Full-width address input bar ─────────────────────────────────────
+    def _build_address_input_bar(self) -> QWidget:
+        bar = QFrame()
+        bar.setFixedHeight(42)
+        bar.setStyleSheet(f"background-color: {_BG_RAISED}; border-bottom: 1px solid {_BORDER_SUBTLE};")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(14, 0, 14, 0)
+        lay.setSpacing(8)
 
-        lbl_title = QLabel("Uzak Cihaza Baglan")
-        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_title.setStyleSheet(f"color: {_CLR_TEXT}; font-size: 20px; font-weight: 700;")
-        layout.addWidget(lbl_title)
-
-        lbl_subtitle = QLabel("12 haneli sabit adres ile hizli baglanti kurun")
-        lbl_subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_subtitle.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 12px;")
-        layout.addWidget(lbl_subtitle)
-
-        if self._user_address:
-            hero_badge = QLabel(f"Hesap adresin: {_format_address(self._user_address)}")
-            hero_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            hero_badge.setStyleSheet(
-                f"background-color: {_CLR_SURFACE_ALT}; border: 1px solid {_CLR_CARD_BORDER}; "
-                f"border-radius: 12px; color: {_CLR_TEXT_MUTED}; font-size: 11px; padding: 6px 12px;"
-            )
-            layout.addWidget(hero_badge)
-
-        input_wrap = QFrame()
-        input_wrap.setStyleSheet(
-            f"background-color: {_CLR_CARD}; border: 1px solid {_CLR_CARD_BORDER}; border-radius: 12px;"
-        )
-        wrap_layout = QVBoxLayout(input_wrap)
-        wrap_layout.setContentsMargins(18, 16, 18, 12)
-        wrap_layout.setSpacing(10)
-
-        input_row = QHBoxLayout()
-        input_row.setSpacing(10)
-        input_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dot = QFrame()
+        dot.setFixedSize(8, 8)
+        dot.setStyleSheet(f"background-color: {_GREEN}; border-radius: 4px;")
+        lay.addWidget(dot)
 
         self._inp_code = QLineEdit()
-        self._inp_code.setPlaceholderText("xxxx xxxx xxxx")
-        self._inp_code.setFixedHeight(50)
-        self._inp_code.setMinimumWidth(420)
-        self._inp_code.setMaximumWidth(560)
+        self._inp_code.setPlaceholderText("Uzak adres girin")
+        self._inp_code.setFixedHeight(28)
         self._inp_code.setMaxLength(14)
-        font = QFont("Segoe UI", 20)
-        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 3.0)
+        font = QFont("Segoe UI", 12)
         self._inp_code.setFont(font)
-        self._inp_code.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._inp_code.setStyleSheet(f"""
             QLineEdit {{
-                background-color: {_CLR_INPUT_BG}; border: 1px solid {_CLR_INPUT_BORDER};
-                border-radius: 6px; padding: 0 18px; color: {_CLR_TEXT};
+                background-color: {_BG_INPUT}; border: 1px solid {_BORDER};
+                border-radius: 4px; padding: 0 10px; color: {_TEXT};
+                selection-background-color: {_ACCENT};
             }}
-            QLineEdit:focus {{ border-color: {_CLR_INPUT_FOCUS}; }}
+            QLineEdit:focus {{ border-color: {_ACCENT}; }}
         """)
         self._inp_code.returnPressed.connect(self._on_connect)
         self._inp_code.textChanged.connect(self._on_address_text_changed)
-        input_row.addWidget(self._inp_code)
+        lay.addWidget(self._inp_code, stretch=1)
 
         self._btn_connect = QPushButton("→")
-        self._btn_connect.setFixedSize(50, 50)
+        self._btn_connect.setFixedSize(28, 28)
         self._btn_connect.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_connect.setStyleSheet(f"""
             QPushButton {{
-                background-color: {_CLR_ACCENT}; color: white; border: none;
-                border-radius: 6px; font-size: 22px; font-weight: bold;
+                background-color: {_ACCENT}; color: white; border: none;
+                border-radius: 4px; font-size: 16px; font-weight: bold;
             }}
-            QPushButton:hover {{ background-color: {_CLR_ACCENT_HOVER}; }}
-            QPushButton:disabled {{ background-color: #555; color: #888; }}
+            QPushButton:hover {{ background-color: {_ACCENT_HOVER}; }}
+            QPushButton:disabled {{ background-color: #444; color: #666; }}
         """)
-        input_row.addWidget(self._btn_connect)
-        wrap_layout.addLayout(input_row)
-
-        status_row = QHBoxLayout()
-        status_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_row.setSpacing(0)
+        lay.addWidget(self._btn_connect)
 
         self._addr_status_label = QLabel("Hazir")
-        self._addr_status_label.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 11px;")
-        status_row.addWidget(self._addr_status_label)
-        wrap_layout.addLayout(status_row)
+        self._addr_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
+        self._addr_status_label.setFixedWidth(50)
+        lay.addWidget(self._addr_status_label)
 
-        layout.addWidget(input_wrap)
+        return bar
 
-        return section
+    # ── 2b. Your Address hero (horizontal: address left + device info right) ─
+    def _build_your_address_hero(self) -> QWidget:
+        hero = QFrame()
+        hero.setStyleSheet(f"background-color: {_BG};")
+        outer = QHBoxLayout(hero)
+        outer.setContentsMargins(28, 24, 28, 20)
+        outer.setSpacing(20)
 
+        left = QVBoxLayout()
+        left.setSpacing(4)
+
+        lbl_title = QLabel("Senin Adresin")
+        lbl_title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 14px;")
+        left.addWidget(lbl_title)
+
+        formatted = _format_address_spaced(self._user_address) if self._user_address else "—"
+        self._hero_address = QLabel(formatted)
+        hero_font = QFont("Segoe UI", 36, QFont.Weight.Bold)
+        hero_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 3.0)
+        self._hero_address.setFont(hero_font)
+        self._hero_address.setStyleSheet(f"color: {_TEXT};")
+        left.addWidget(self._hero_address)
+        left.addStretch()
+
+        outer.addLayout(left, stretch=5)
+
+        sep = QFrame()
+        sep.setFixedWidth(1)
+        sep.setStyleSheet(f"background-color: {_BORDER_SUBTLE};")
+        outer.addWidget(sep)
+
+        right = QVBoxLayout()
+        right.setSpacing(10)
+
+        info_title = QLabel("Bu Bilgisayar")
+        info_title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 13px; font-weight: 600;")
+        right.addWidget(info_title)
+
+        pc_name = _desktop_device_name()
+        info_pc = QLabel(f"  {pc_name}")
+        info_pc.setStyleSheet(f"color: {_TEXT}; font-size: 14px; font-weight: 500;")
+        right.addWidget(info_pc)
+
+        info_user = QLabel(f"  {_display_username(self._username)}")
+        info_user.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 13px;")
+        right.addWidget(info_user)
+
+        self._hero_status_label = QLabel("  Baglanti bekleniyor")
+        self._hero_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
+        right.addWidget(self._hero_status_label)
+
+        right.addStretch()
+        outer.addLayout(right, stretch=3)
+
+        return hero
+
+    # ── 2c. Feature cards row (AnyDesk news-like tiles) ──────────────────────
+    def _build_feature_cards(self) -> QWidget:
+        wrapper = QFrame()
+        wrapper.setStyleSheet("background: transparent;")
+        lay = QHBoxLayout(wrapper)
+        lay.setContentsMargins(28, 0, 28, 16)
+        lay.setSpacing(12)
+
+        cards_data = [
+            ("Hizli Baglanti", "Telefonunuzun sabit\nadresini ust cubuga\nyazarak baglanin.", "#C84B31", "#A33B24"),
+            ("Nasil Calisir?", "1. Telefonda uygulamayi acin\n2. Sabit adresi buraya girin\n3. Baglan!", "#2D6A4F", "#1B4332"),
+            ("Gizlilik ve Guvenlik", "Tum baglantilar uctan\nuca sifrelidir. Cihaz\nsahipligi korunur.", "#4A3B8F", "#362C6B"),
+            ("Cihaz Yonetimi", "Eslesmis cihazlarinizi\nasagida gorebilir ve\nyonetebilirsiniz.", "#8B6914", "#6B5010"),
+        ]
+
+        for title, desc, bg_color, hover_color in cards_data:
+            card = QFrame()
+            card.setMinimumHeight(120)
+            card.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {bg_color}; border-radius: 8px;
+                    border: none;
+                }}
+                QFrame:hover {{ background-color: {hover_color}; }}
+            """)
+            card_lay = QVBoxLayout(card)
+            card_lay.setContentsMargins(14, 12, 14, 12)
+            card_lay.setSpacing(6)
+
+            lbl_title = QLabel(title)
+            lbl_title.setStyleSheet("color: white; font-size: 14px; font-weight: 700; background: transparent;")
+            card_lay.addWidget(lbl_title)
+
+            lbl_desc = QLabel(desc)
+            lbl_desc.setWordWrap(True)
+            lbl_desc.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 12px; background: transparent;")
+            card_lay.addWidget(lbl_desc)
+
+            card_lay.addStretch()
+            lay.addWidget(card, stretch=1)
+
+        return wrapper
+
+    # ── 2d. Tab strip ────────────────────────────────────────────────────────
     def _build_tab_strip(self) -> QWidget:
         strip = QFrame()
         strip.setFixedHeight(32)
-        strip.setStyleSheet(f"background-color: {_CLR_BODY}; border-bottom: 1px solid #333;")
-        layout = QHBoxLayout(strip)
-        layout.setContentsMargins(20, 0, 20, 0)
-        layout.setSpacing(20)
+        strip.setStyleSheet(f"background-color: {_BG}; border-bottom: 1px solid {_BORDER_SUBTLE};")
+        lay = QHBoxLayout(strip)
+        lay.setContentsMargins(28, 0, 28, 0)
+        lay.setSpacing(24)
 
-        tab_recent = QLabel("Recent Sessions")
-        tab_recent.setStyleSheet(f"color: {_CLR_TAB_ACTIVE}; font-size: 12px; font-weight: 600; border-bottom: 2px solid {_CLR_TAB_ACTIVE}; padding-bottom: 4px;")
-        layout.addWidget(tab_recent)
+        tab = QLabel("Recent Sessions")
+        tab.setStyleSheet(
+            f"color: {_ACCENT}; font-size: 13px; font-weight: 600;"
+            f" border-bottom: 2px solid {_ACCENT}; padding-bottom: 4px;"
+        )
+        lay.addWidget(tab)
 
-        layout.addStretch()
+        lay.addStretch()
 
         self._lbl_device_count = QLabel("")
         self._lbl_device_count.setStyleSheet(
-            f"background-color: {_CLR_SURFACE_ALT}; color: {_CLR_TEXT_MUTED}; "
-            f"border: 1px solid {_CLR_CARD_BORDER}; border-radius: 10px; font-size: 10px; padding: 4px 8px;"
+            f"color: {_TEXT_DIM}; font-size: 11px; padding: 0 4px;"
         )
-        layout.addWidget(self._lbl_device_count)
+        lay.addWidget(self._lbl_device_count)
+
         return strip
 
-    def _build_recent_sessions_section(self) -> QWidget:
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"background-color: {_CLR_BODY};")
-
-        container = QWidget()
-        container.setStyleSheet(f"background-color: {_CLR_BODY};")
-
-        inner = QVBoxLayout(container)
-        inner.setContentsMargins(20, 14, 20, 20)
+    # ── 2e. Recent sessions grid ─────────────────────────────────────────────
+    def _build_recent_sessions(self) -> QWidget:
+        section = QWidget()
+        section.setStyleSheet("background: transparent;")
+        inner = QVBoxLayout(section)
+        inner.setContentsMargins(28, 14, 28, 20)
         inner.setSpacing(10)
 
-        section_header = QHBoxLayout()
-        section_icon = QLabel("🖥  Recent Sessions")
-        section_icon.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 11px; font-weight: 600;")
-        section_header.addWidget(section_icon)
-        section_header.addStretch()
-        summary_hint = QLabel("Kayitli telefonlar")
-        summary_hint.setStyleSheet(
-            f"background-color: {_CLR_SURFACE_ALT}; color: {_CLR_TEXT_MUTED}; "
-            f"border: 1px solid {_CLR_CARD_BORDER}; border-radius: 10px; font-size: 10px; padding: 4px 8px;"
-        )
-        section_header.addWidget(summary_hint)
-        inner.addLayout(section_header)
+        header = QHBoxLayout()
+        icon_lbl = QLabel("Recent Sessions")
+        icon_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px; font-weight: 600;")
+        header.addWidget(icon_lbl)
+        header.addStretch()
+        hint = QLabel("Show all")
+        hint.setStyleSheet(f"color: {_ACCENT}; font-size: 12px;")
+        header.addWidget(hint)
+        inner.addLayout(header)
 
         self._recent_cards_container = QWidget()
         self._recent_cards_container.setStyleSheet("background: transparent;")
         self._recent_devices_layout = QGridLayout(self._recent_cards_container)
         self._recent_devices_layout.setContentsMargins(0, 0, 0, 0)
-        self._recent_devices_layout.setHorizontalSpacing(14)
-        self._recent_devices_layout.setVerticalSpacing(14)
+        self._recent_devices_layout.setHorizontalSpacing(12)
+        self._recent_devices_layout.setVerticalSpacing(12)
         self._recent_devices_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         inner.addWidget(self._recent_cards_container)
 
-        self._lbl_no_devices = QLabel("Henuz eslesmis cihaz yok.\nTelefondaki 12 haneli sabit adresi girerek baglanti kurun.")
-        self._lbl_no_devices.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._lbl_no_devices.setWordWrap(True)
-        self._lbl_no_devices.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 12px; padding: 40px 0;")
+        self._lbl_no_devices = QFrame()
+        self._lbl_no_devices.setStyleSheet(
+            f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 8px;"
+        )
+        no_dev_lay = QVBoxLayout(self._lbl_no_devices)
+        no_dev_lay.setContentsMargins(0, 30, 0, 30)
+        no_dev_lay.setSpacing(8)
+        no_dev_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        empty_icon = QLabel("📱")
+        empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_icon.setStyleSheet("font-size: 32px; background: transparent;")
+        no_dev_lay.addWidget(empty_icon)
+
+        empty_title = QLabel("Henuz eslesmis cihaz yok")
+        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 14px; font-weight: 600; background: transparent;")
+        no_dev_lay.addWidget(empty_title)
+
+        empty_desc = QLabel(
+            "Telefonunuzdaki uygulamayi acin ve 12 haneli sabit adresi\n"
+            "yukardaki adres cubuguna girerek ilk baglantiyi kurun."
+        )
+        empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_desc.setWordWrap(True)
+        empty_desc.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px; background: transparent;")
+        no_dev_lay.addWidget(empty_desc)
+
         inner.addWidget(self._lbl_no_devices)
         self._lbl_no_devices.hide()
 
-        inner.addStretch()
-        scroll.setWidget(container)
-        return scroll
+        return section
 
-    # ── 4. Remote (Live Control) Page ────────────────────────────────────────
+    # ── 3. Remote Page ───────────────────────────────────────────────────────
     def _build_remote_page(self) -> QWidget:
         page = QWidget()
-        page.setStyleSheet(f"background-color: {_CLR_BODY};")
+        page.setStyleSheet(f"background-color: {_BG};")
         layout = QHBoxLayout(page)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
@@ -608,24 +716,26 @@ class MainWindow(QMainWindow):
         left.setSpacing(8)
 
         top_bar = QFrame()
-        top_bar.setStyleSheet(f"background-color: {_CLR_CARD}; border: 1px solid {_CLR_CARD_BORDER}; border-radius: 6px;")
-        top_bar_layout = QHBoxLayout(top_bar)
-        top_bar_layout.setContentsMargins(14, 8, 14, 8)
-        top_bar_layout.setSpacing(10)
+        top_bar.setStyleSheet(
+            f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+        )
+        tbl = QHBoxLayout(top_bar)
+        tbl.setContentsMargins(14, 6, 14, 6)
+        tbl.setSpacing(10)
 
         btn_back = QPushButton("← Anasayfa")
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_back.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {_CLR_ACCENT}; border: none; font-size: 12px; font-weight: 600; }}
-            QPushButton:hover {{ color: {_CLR_TEXT}; }}
+            QPushButton {{ background: transparent; color: {_ACCENT}; border: none; font-size: 12px; font-weight: 600; }}
+            QPushButton:hover {{ color: {_TEXT}; }}
         """)
         btn_back.clicked.connect(lambda: self._switch_page(0))
-        top_bar_layout.addWidget(btn_back)
+        tbl.addWidget(btn_back)
 
         self._remote_device_badge = QLabel("Bagli cihaz yok")
-        self._remote_device_badge.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 11px;")
-        top_bar_layout.addStretch()
-        top_bar_layout.addWidget(self._remote_device_badge)
+        self._remote_device_badge.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px;")
+        tbl.addStretch()
+        tbl.addWidget(self._remote_device_badge)
 
         self._btn_disconnect = QPushButton("Baglantıyi Kes")
         self._btn_disconnect.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -633,26 +743,28 @@ class MainWindow(QMainWindow):
         self._btn_disconnect.setEnabled(False)
         self._btn_disconnect.setStyleSheet(f"""
             QPushButton {{
-                background-color: #442222; color: #FF8888; border: 1px solid #663333;
-                border-radius: 4px; font-size: 11px; padding: 2px 12px;
+                background-color: #3A2020; color: #FF8888; border: 1px solid #553333;
+                border-radius: 4px; font-size: 11px; font-weight: 600; padding: 0 12px;
             }}
-            QPushButton:hover {{ background-color: #553333; }}
-            QPushButton:disabled {{ background-color: #333; color: #666; border-color: #444; }}
+            QPushButton:hover {{ background-color: #4A2828; }}
+            QPushButton:disabled {{ background-color: {_BG_INPUT}; color: {_TEXT_DIM}; border-color: {_BORDER_SUBTLE}; }}
         """)
-        top_bar_layout.addWidget(self._btn_disconnect)
+        tbl.addWidget(self._btn_disconnect)
         left.addWidget(top_bar)
 
         screen_frame = QFrame()
-        screen_frame.setStyleSheet(f"background-color: #111; border: 1px solid {_CLR_CARD_BORDER}; border-radius: 6px;")
-        screen_layout = QVBoxLayout(screen_frame)
-        screen_layout.setContentsMargins(4, 4, 4, 4)
+        screen_frame.setStyleSheet(
+            f"background-color: #0E0E0E; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+        )
+        sl = QVBoxLayout(screen_frame)
+        sl.setContentsMargins(4, 4, 4, 4)
         self._screen = ScreenWidget()
-        screen_layout.addWidget(self._screen, stretch=1)
+        sl.addWidget(self._screen, stretch=1)
 
         self._lbl_coords = QLabel("")
-        self._lbl_coords.setStyleSheet(f"color: {_CLR_TEXT_DIM}; font-size: 10px;")
+        self._lbl_coords.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
         self._lbl_coords.setAlignment(Qt.AlignmentFlag.AlignRight)
-        screen_layout.addWidget(self._lbl_coords)
+        sl.addWidget(self._lbl_coords)
         left.addWidget(screen_frame, stretch=1)
 
         self._remote_summary_label = QLabel("")
@@ -668,67 +780,72 @@ class MainWindow(QMainWindow):
 
     def _build_controls_panel(self) -> QFrame:
         panel = QFrame()
-        panel.setStyleSheet(f"background-color: {_CLR_CARD}; border: 1px solid {_CLR_CARD_BORDER}; border-radius: 6px;")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        panel.setStyleSheet(
+            f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+        )
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(8)
 
         title = QLabel("Kontroller")
-        title.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 11px; font-weight: 600;")
-        layout.addWidget(title)
+        title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
+        lay.addWidget(title)
 
         self._btn_rotate = QPushButton("Yatay moda gec")
         self._btn_rotate.setFixedHeight(30)
         self._btn_rotate.setEnabled(False)
+        self._btn_rotate.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_rotate.setStyleSheet(f"""
             QPushButton {{
-                background-color: {_CLR_INPUT_BG}; color: {_CLR_TEXT_MUTED};
-                border: 1px solid {_CLR_CARD_BORDER}; border-radius: 4px;
-                font-size: 11px;
+                background-color: {_BG_INPUT}; color: {_TEXT_SEC};
+                border: 1px solid {_BORDER}; border-radius: 4px; font-size: 11px;
             }}
-            QPushButton:hover {{ background-color: #444; color: {_CLR_TEXT}; }}
-            QPushButton:disabled {{ color: #555; }}
+            QPushButton:hover {{ background-color: #383838; color: {_TEXT}; }}
+            QPushButton:disabled {{ color: {_TEXT_DIM}; }}
         """)
-        layout.addWidget(self._btn_rotate)
+        lay.addWidget(self._btn_rotate)
         return panel
 
     def _build_key_controls_panel(self) -> QFrame:
         panel = QFrame()
-        panel.setStyleSheet(f"background-color: {_CLR_CARD}; border: 1px solid {_CLR_CARD_BORDER}; border-radius: 6px;")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        panel.setStyleSheet(
+            f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+        )
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(8)
 
         title = QLabel("Tus Kontrolleri")
-        title.setStyleSheet(f"color: {_CLR_TEXT_MUTED}; font-size: 11px; font-weight: 600;")
-        layout.addWidget(title)
+        title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
+        lay.addWidget(title)
 
         grid = QGridLayout()
         grid.setSpacing(4)
         self._key_buttons = []
         key_codes = AndroidKeyCodes.as_mapping()
 
-        _key_btn_style = f"""
+        _btn_style = f"""
             QPushButton {{
-                background-color: {_CLR_INPUT_BG}; color: {_CLR_TEXT_MUTED};
-                border: 1px solid {_CLR_CARD_BORDER}; border-radius: 4px;
+                background-color: {_BG_INPUT}; color: {_TEXT_SEC};
+                border: 1px solid {_BORDER}; border-radius: 4px;
                 font-size: 10px; padding: 6px 2px;
             }}
-            QPushButton:hover {{ background-color: #444; color: {_CLR_TEXT}; }}
-            QPushButton:disabled {{ color: #555; }}
+            QPushButton:hover {{ background-color: #383838; color: {_TEXT}; }}
+            QPushButton:disabled {{ color: {_TEXT_DIM}; }}
         """
 
         for label, group, row, col, key_id in AndroidKeyCodes.button_specs():
             btn = QPushButton(label)
             btn.setEnabled(False)
-            btn.setStyleSheet(_key_btn_style)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(_btn_style)
             btn.clicked.connect(lambda _, code=key_codes[key_id]: self._ws_client.send_key_event(code))
             grid.addWidget(btn, row, col)
             self._key_buttons.append(btn)
-        layout.addLayout(grid)
+        lay.addLayout(grid)
         return panel
 
-    # ── signals ──────────────────────────────────────────────────────────────
+    # ── Signals ──────────────────────────────────────────────────────────────
     def _connect_signals(self):
         self._btn_connect.clicked.connect(self._on_connect)
         self._btn_disconnect.clicked.connect(self._on_disconnect)
@@ -751,7 +868,7 @@ class MainWindow(QMainWindow):
         self._current_page = index
         self._pages.setCurrentIndex(index)
 
-    # ── data loading ─────────────────────────────────────────────────────────
+    # ── Data loading ─────────────────────────────────────────────────────────
     @pyqtSlot()
     def _load_devices_from_db(self):
         if self._user_id:
@@ -772,8 +889,7 @@ class MainWindow(QMainWindow):
             return
 
         self._lbl_no_devices.hide()
-        cols = max(1, (self.width() - 80) // 220)
-        for index, device in enumerate(devices):
+        for device in devices:
             card = DeviceCard(
                 device["device_id"],
                 device.get("last_seen"),
@@ -782,19 +898,38 @@ class MainWindow(QMainWindow):
             )
             card.set_connect_callback(self._on_card_connect)
             card.set_forget_callback(self._on_card_forget)
-            row = index // cols
-            col = index % cols
-            self._recent_devices_layout.addWidget(card, row, col)
             self._device_cards[device["device_id"]] = card
 
         self._lbl_device_count.setText(f"{len(devices)} cihaz")
+        self._reflow_device_cards()
         self._refresh_home_summary()
+
+    def _reflow_device_cards(self):
+        while self._recent_devices_layout.count():
+            self._recent_devices_layout.takeAt(0)
+
+        ordered = sorted(
+            self._device_cards.items(),
+            key=lambda item: (item[0] not in self._online_paired_devices,),
+        )
+        cols = max(1, (self.width() - 60) // 236)
+        for idx, (_, card) in enumerate(ordered):
+            self._recent_devices_layout.addWidget(card, idx // cols, idx % cols)
 
     def _refresh_home_summary(self):
         if self._connected:
             self._addr_status_label.setText("Bagli")
+            self._hero_status_label.setText("  Aktif baglanti var")
+            self._hero_status_label.setStyleSheet(f"color: {_GREEN}; font-size: 12px;")
         else:
             self._addr_status_label.setText("Hazir")
+            online = len(self._online_paired_devices)
+            if online:
+                self._hero_status_label.setText(f"  {online} cihaz cevrimici")
+                self._hero_status_label.setStyleSheet(f"color: {_GREEN}; font-size: 12px;")
+            else:
+                self._hero_status_label.setText("  Baglanti bekleniyor")
+                self._hero_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
 
         if self._connected and self._paired_phone_id:
             card = self._device_cards.get(self._paired_phone_id)
@@ -809,7 +944,40 @@ class MainWindow(QMainWindow):
             if self._session_chip is not None:
                 self._session_chip.hide()
 
-    # ── card actions ─────────────────────────────────────────────────────────
+        if self._account_button is not None:
+            self._account_button.setText(f"{_display_username(self._username)}  ▾")
+
+    def _show_account_menu(self):
+        if self._account_button is None:
+            return
+
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {_BG_CARD}; color: {_TEXT}; border: 1px solid {_BORDER};
+                padding: 4px;
+            }}
+            QMenu::item {{ padding: 8px 20px; }}
+            QMenu::item:selected {{ background-color: #333; }}
+            QMenu::separator {{ height: 1px; background: {_BORDER_SUBTLE}; margin: 4px 8px; }}
+        """)
+        profile_action = menu.addAction("Profil")
+        menu.addSeparator()
+        logout_action = menu.addAction("Cikis Yap")
+        selected = menu.exec(self._account_button.mapToGlobal(self._account_button.rect().bottomLeft()))
+        if selected == profile_action:
+            self._show_profile_dialog()
+        elif selected == logout_action:
+            self._on_logout()
+
+    def _show_profile_dialog(self):
+        lines = [f"Kullanici:  {_display_username(self._username)}"]
+        if self._user_address:
+            lines.append(f"Hesap adresi:  {_format_address(self._user_address)}")
+        lines.append(f"Bilgisayar:  {_desktop_device_name()}")
+        QMessageBox.information(self, "Profil", "\n".join(lines))
+
+    # ── Card actions ─────────────────────────────────────────────────────────
     def _on_card_connect(self, device_id: str):
         card = self._device_cards.get(device_id)
         if not card:
@@ -854,23 +1022,32 @@ class MainWindow(QMainWindow):
         self._lbl_device_count.setText(f"{len(self._device_cards)} cihaz" if self._device_cards else "")
         self._set_status("Eslesme kaldirildi.")
 
-    # ── auto connect ─────────────────────────────────────────────────────────
+    def _connect_presence_channel(self, status_message: str | None = None):
+        if self._logging_out:
+            return
+        if not (self._device_cards or load_paired_phone_id()):
+            self._set_status(Ui.MSG_WAITING)
+            return
+        if status_message:
+            self._set_status(status_message)
+        self._manual_disconnect = True
+        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, auto_pair=False)
+
+    # ── Auto connect ─────────────────────────────────────────────────────────
     @pyqtSlot()
     def _try_auto_connect(self):
         paired_id = load_paired_phone_id()
         if paired_id or self._device_cards:
-            self._manual_disconnect = True
             self._paired_phone_id = paired_id
             self._refresh_home_summary()
-            self._set_status("Kayitli cihazlar kontrol ediliyor...")
-            self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, preferred_partner_id=paired_id)
+            self._connect_presence_channel("Kayitli cihazlar kontrol ediliyor...")
         else:
             self._set_status(Ui.MSG_WAITING)
 
-    # ── connect button ───────────────────────────────────────────────────────
+    # ── Connect button ───────────────────────────────────────────────────────
     @pyqtSlot()
     def _on_connect(self):
-        raw_value = self._inp_code.text().strip().replace(" ", "")
+        raw_value = "".join(ch for ch in self._inp_code.text() if ch.isdigit())
         if not raw_value:
             self._set_status("Adres girilmedi.", error=True)
             return
@@ -889,7 +1066,11 @@ class MainWindow(QMainWindow):
         self._btn_connect.setEnabled(False)
         self._set_status("Adres cozuldu, baglaniliyor...")
         self._paired_phone_id = partner_device_id
-        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, preferred_partner_id=partner_device_id)
+        self._ws_client.connect_with_device_id(
+            ServerDefaults.DEFAULT_URL,
+            preferred_partner_id=partner_device_id,
+            auto_pair=True,
+        )
         self._refresh_home_summary()
 
     @pyqtSlot(str)
@@ -897,11 +1078,13 @@ class MainWindow(QMainWindow):
         digits = "".join(ch for ch in text if ch.isdigit())[:12]
         formatted = _format_address(digits)
         if text != formatted:
-            cursor_pos = self._inp_code.cursorPosition()
+            old_cursor = self._inp_code.cursorPosition()
+            digit_pos = _digits_before_cursor(text, old_cursor)
             self._inp_code.blockSignals(True)
             self._inp_code.setText(formatted)
             self._inp_code.blockSignals(False)
-            self._inp_code.setCursorPosition(min(len(formatted), cursor_pos))
+            new_cursor = _cursor_for_digit_count(formatted, digit_pos)
+            self._inp_code.setCursorPosition(new_cursor)
 
     @pyqtSlot()
     def _on_disconnect(self):
@@ -913,6 +1096,7 @@ class MainWindow(QMainWindow):
         self._switch_page(0)
         for card in self._device_cards.values():
             card.set_online(False)
+        QTimer.singleShot(150, lambda: self._connect_presence_channel("Cihaz durumu izleniyor..."))
 
     @pyqtSlot()
     def _on_logout(self):
@@ -976,6 +1160,7 @@ class MainWindow(QMainWindow):
         else:
             self._set_status(f"Baglanti kesildi: {reason}", error=True)
         self._btn_connect.setEnabled(True)
+        QTimer.singleShot(1000, lambda: self._connect_presence_channel("Cihaz durumu yeniden baglaniyor..."))
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
@@ -1020,7 +1205,8 @@ class MainWindow(QMainWindow):
         for device_id, card in self._device_cards.items():
             card.set_online(device_id in self._online_paired_devices)
 
-        online_count = sum(1 for device_id in self._device_cards if device_id in self._online_paired_devices)
+        self._reflow_device_cards()
+        online_count = sum(1 for d in self._device_cards if d in self._online_paired_devices)
         self._lbl_device_count.setText(
             f"{online_count} aktif / {len(self._device_cards)} cihaz" if self._device_cards else ""
         )
@@ -1045,8 +1231,6 @@ class MainWindow(QMainWindow):
     @pyqtSlot(QPixmap)
     def _on_frame_received(self, pixmap: QPixmap):
         if not self._connected:
-            # Bazi akislarda paired/auto_paired olayi kacsa bile
-            # frame aliyorsak oturum fiilen hazirdir; kontrolleri ac.
             self._set_connected(True)
             self._switch_page(1)
             self._set_status(Ui.MSG_PAIRED_WS)
@@ -1087,7 +1271,7 @@ class MainWindow(QMainWindow):
         self._ws_client.send_swipe(x1, y1, x2, y2)
         self._lbl_coords.setText(f"({x1:.2f},{y1:.2f}) → ({x2:.2f},{y2:.2f})")
 
-    # ── state helpers ────────────────────────────────────────────────────────
+    # ── State helpers ────────────────────────────────────────────────────────
     def _set_connected(self, connected: bool):
         self._connected = connected
         self._btn_connect.setEnabled(not connected)
@@ -1097,16 +1281,17 @@ class MainWindow(QMainWindow):
             btn.setEnabled(connected)
         if connected:
             self._heartbeat.start()
-            self._header_status_dot.setStyleSheet(f"background-color: {_CLR_GREEN_DOT}; border-radius: 4px;")
+            self._header_status_dot.setStyleSheet(f"background-color: {_GREEN}; border-radius: 4px;")
         else:
             self._heartbeat.stop()
-            self._header_status_dot.setStyleSheet(f"background-color: {_CLR_TEXT_DIM}; border-radius: 4px;")
+            self._header_status_dot.setStyleSheet(f"background-color: {_TEXT_DIM}; border-radius: 4px;")
         self._refresh_home_summary()
 
     def _set_status(self, msg: str, error: bool = False):
-        color = "#FF6666" if error else _CLR_TEXT_MUTED
+        color = _RED if error else _TEXT_SEC
         self._status_bar.setStyleSheet(
-            f"QStatusBar {{ background-color: {_CLR_TITLEBAR}; border-top: 1px solid #333; color: {color}; font-size: 11px; }}"
+            f"QStatusBar {{ background-color: {_BG}; border-top: 1px solid {_BORDER_SUBTLE};"
+            f" color: {color}; font-size: 11px; padding: 2px 14px; }}"
         )
         self._status_bar.showMessage(msg)
 
