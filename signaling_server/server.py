@@ -63,14 +63,6 @@ async def _get_paired_partners_map(app: web.Application, device_ids: list[str]) 
     return await asyncio.to_thread(app["db"].get_paired_partners_map, device_ids)
 
 
-async def _get_account_partners(app: web.Application, device_id: str) -> list[str]:
-    return await asyncio.to_thread(app["db"].get_account_partner_devices, device_id)
-
-
-async def _get_account_partners_map(app: web.Application, device_ids: list[str]) -> dict[str, list[str]]:
-    return await asyncio.to_thread(app["db"].get_account_partner_devices_map, device_ids)
-
-
 async def _send_device_ack(
     app: web.Application,
     device_id: str,
@@ -84,7 +76,7 @@ async def _send_device_ack(
     paired_devices = (
         paired_partners_map.get(device_id, [])
         if paired_partners_map is not None
-        else await _get_account_partners(app, device_id)
+        else await _get_paired_partners(app, device_id)
     )
     online_paired_devices = [
         partner_id
@@ -109,7 +101,7 @@ async def _broadcast_presence_update(app: web.Application, *device_ids: str) -> 
     if not root_device_ids:
         return
 
-    direct_partners_map = await _get_account_partners_map(app, root_device_ids)
+    direct_partners_map = await _get_paired_partners_map(app, root_device_ids)
     impacted_device_ids: set[str] = set(root_device_ids)
     for partner_ids in direct_partners_map.values():
         impacted_device_ids.update(partner_ids)
@@ -117,7 +109,7 @@ async def _broadcast_presence_update(app: web.Application, *device_ids: str) -> 
     paired_partners_map = dict(direct_partners_map)
     missing_ids = [device_id for device_id in impacted_device_ids if device_id not in paired_partners_map]
     if missing_ids:
-        paired_partners_map.update(await _get_account_partners_map(app, missing_ids))
+        paired_partners_map.update(await _get_paired_partners_map(app, missing_ids))
 
     for impacted_device_id in impacted_device_ids:
         try:
@@ -158,7 +150,7 @@ async def _notify_paired(app: web.Application, code: str) -> None:
 
 
 async def _pick_online_partner(app: web.Application, device_id: str, role: str) -> str | None:
-    partners = await _get_account_partners(app, device_id)
+    partners = await _get_paired_partners(app, device_id)
     for partner_id in partners:
         partner_entry = app["online_devices"].get(partner_id)
         if partner_entry and partner_entry["role"] != role:

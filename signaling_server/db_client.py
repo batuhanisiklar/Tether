@@ -262,62 +262,6 @@ class ServerDbClient:
         except Exception as exc:
             logger.error("set_device_online hatasi: %s", exc)
 
-    def get_account_partner_devices(self, device_id: str) -> list[str]:
-        return self.get_account_partner_devices_map([device_id]).get(device_id, [])
-
-    def get_account_partner_devices_map(self, device_ids: list[str]) -> dict[str, list[str]]:
-        if not device_ids:
-            return {}
-
-        unique_ids = list(dict.fromkeys(device_ids))
-        result: dict[str, list[str]] = {device_id: [] for device_id in unique_ids}
-        try:
-            with self._get_conn() as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute(
-                        """
-                        SELECT device_id, user_id, device_type
-                        FROM devices
-                        WHERE device_id = ANY(%s)
-                        """,
-                        (unique_ids,),
-                    )
-                    owner_rows = [dict(row) for row in cur.fetchall()]
-                    owner_by_id = {row["device_id"]: row for row in owner_rows}
-                    user_ids = list({row["user_id"] for row in owner_rows if row.get("user_id") is not None})
-                    if not user_ids:
-                        return result
-
-                    cur.execute(
-                        """
-                        SELECT device_id, user_id, device_type, is_online
-                        FROM devices
-                        WHERE user_id = ANY(%s)
-                        ORDER BY is_online DESC, device_name ASC NULLS LAST, id DESC
-                        """,
-                        (user_ids,),
-                    )
-                    devices_by_user: dict[int, list[dict]] = {}
-                    for row in cur.fetchall():
-                        item = dict(row)
-                        devices_by_user.setdefault(item["user_id"], []).append(item)
-
-            for device_id in unique_ids:
-                owner = owner_by_id.get(device_id)
-                if not owner:
-                    continue
-                opposite_type = "phone" if owner["device_type"] == "pc" else "pc"
-                candidates = devices_by_user.get(owner["user_id"], [])
-                result[device_id] = [
-                    candidate["device_id"]
-                    for candidate in candidates
-                    if candidate["device_type"] == opposite_type and candidate["device_id"] != device_id
-                ]
-            return result
-        except Exception as exc:
-            logger.error("Hesap karsi cihazlari listeleme hatasi: %s", exc)
-            return result
-
     def get_paired_partners(self, device_id: str) -> list[str]:
         try:
             with self._get_conn() as conn:
