@@ -49,7 +49,7 @@ class ControlReceiver : AccessibilityService() {
     /**
      * Ekrana dokunma (normalize koordinatlar: 0.0–1.0)
      */
-    fun performTouch(normX: Float, normY: Float) {
+    fun performTouch(normX: Float, normY: Float): Boolean {
         val display = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
         val metrics = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             display.currentWindowMetrics.bounds
@@ -60,14 +60,14 @@ class ControlReceiver : AccessibilityService() {
             android.graphics.Rect(0, 0, dm.widthPixels, dm.heightPixels)
         }
 
-        val x = normX * metrics.width()
-        val y = normY * metrics.height()
+        val x = normX.coerceIn(0f, 1f) * metrics.width()
+        val y = normY.coerceIn(0f, 1f) * metrics.height()
 
         val path = Path().apply { moveTo(x, y) }
         val stroke = GestureDescription.StrokeDescription(path, 0L, 100L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
-        dispatchGesture(gesture, object : GestureResultCallback() {
+        val accepted = dispatchGesture(gesture, object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription) {
                 Log.d(TAG, "Touch at ($x, $y)")
             }
@@ -75,12 +75,16 @@ class ControlReceiver : AccessibilityService() {
                 Log.w(TAG, "Touch cancelled")
             }
         }, null)
+        if (!accepted) {
+            Log.w(TAG, "Touch gesture dispatch reddedildi")
+        }
+        return accepted
     }
 
     /**
      * Kaydırma (swipe) — normalize koordinatlar
      */
-    fun performSwipe(nx1: Float, ny1: Float, nx2: Float, ny2: Float) {
+    fun performSwipe(nx1: Float, ny1: Float, nx2: Float, ny2: Float): Boolean {
         val display = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
         val metrics = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             display.currentWindowMetrics.bounds
@@ -95,26 +99,34 @@ class ControlReceiver : AccessibilityService() {
         val h = metrics.height().toFloat()
 
         val path = Path().apply {
-            moveTo(nx1 * w, ny1 * h)
-            lineTo(nx2 * w, ny2 * h)
+            moveTo(nx1.coerceIn(0f, 1f) * w, ny1.coerceIn(0f, 1f) * h)
+            lineTo(nx2.coerceIn(0f, 1f) * w, ny2.coerceIn(0f, 1f) * h)
         }
         val stroke = GestureDescription.StrokeDescription(path, 0L, 400L)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        dispatchGesture(gesture, null, null)
+        val accepted = dispatchGesture(gesture, null, null)
+        if (!accepted) {
+            Log.w(TAG, "Swipe gesture dispatch reddedildi")
+        }
         Log.d(TAG, "Swipe ($nx1,$ny1)->($nx2,$ny2)")
+        return accepted
     }
 
     /**
      * Sistem tuşu (Back, Home, Recents, Volume, Power)
      */
-    fun performKeyEvent(keyCode: Int) {
-        when (keyCode) {
+    fun performKeyEvent(keyCode: Int): Boolean {
+        val handled = when (keyCode) {
             KeyEvent.KEYCODE_BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
             KeyEvent.KEYCODE_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
             KeyEvent.KEYCODE_APP_SWITCH -> performGlobalAction(GLOBAL_ACTION_RECENTS)
             KeyEvent.KEYCODE_POWER -> performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
-            else -> Log.w(TAG, "Unhandled key: $keyCode")
+            else -> {
+                Log.w(TAG, "Unhandled key: $keyCode")
+                false
+            }
         }
-        Log.d(TAG, "Key event: $keyCode")
+        Log.d(TAG, "Key event: $keyCode handled=$handled")
+        return handled
     }
 }

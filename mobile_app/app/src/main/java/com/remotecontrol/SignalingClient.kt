@@ -22,6 +22,7 @@ class SignalingClient(
     private val deviceId: String,
     private val preferredPartnerId: String? = null,
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
+    private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
     private val onDisconnected: () -> Unit,
 ) {
@@ -44,14 +45,17 @@ class SignalingClient(
 
     private var ws: WebSocket? = null
     private var disconnectNotified = false
+    private var manualClose = false
 
     fun connect() {
         instance = this
         disconnectNotified = false
+        manualClose = false
         val request = Request.Builder().url(serverUrl).build()
         ws = client.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (webSocket != ws) return
                 Log.i(TAG, "Connected to signaling server, device_id=$deviceId code=$sessionCode")
 
                 // Önce device_hello gönder (persistent identity)
@@ -78,6 +82,7 @@ class SignalingClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (webSocket != ws) return
                 Log.d(TAG, "Message: $text")
                 try {
                     val json = JSONObject(text)
@@ -87,7 +92,26 @@ class SignalingClient(
                         "device_ack" -> {
                             val pairedWith = json.optString("paired_with", "")
                             val partnerOnline = json.optBoolean("partner_online", false)
+                            val pairedDevices = json.optJSONArray("paired_devices")
+                                ?.let { array ->
+                                    buildList {
+                                        for (index in 0 until array.length()) {
+                                            add(array.optString(index))
+                                        }
+                                    }
+                                }
+                                ?: emptyList()
+                            val onlinePairedDevices = json.optJSONArray("online_paired_devices")
+                                ?.let { array ->
+                                    buildList {
+                                        for (index in 0 until array.length()) {
+                                            add(array.optString(index))
+                                        }
+                                    }
+                                }
+                                ?: emptyList()
                             Log.i(TAG, "Device ack: paired_with=$pairedWith online=$partnerOnline")
+                            onPairedDevicesStatus(pairedDevices, onlinePairedDevices)
                         }
 
                         "auto_paired" -> {
@@ -132,11 +156,13 @@ class SignalingClient(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (webSocket != ws) return
                 Log.e(TAG, "WS failure: $t")
                 notifyDisconnectedOnce()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (webSocket != ws) return
                 Log.i(TAG, "WS closed: $code $reason")
                 notifyDisconnectedOnce()
             }
@@ -200,12 +226,17 @@ class SignalingClient(
 
     fun disconnect() {
         instance = null
-        ws?.close(1000, "Client disconnect")
+        manualClose = true
+        disconnectNotified = true
+        val currentWs = ws
+        ws = null
+        currentWs?.close(1000, "Client disconnect")
         scope.cancel()
         client.dispatcher.executorService.shutdown()
     }
 
     private fun notifyDisconnectedOnce() {
+        if (manualClose) return
         if (disconnectNotified) return
         disconnectNotified = true
         onDisconnected()

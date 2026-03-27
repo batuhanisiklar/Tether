@@ -17,36 +17,49 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:padding="14dp"
+            android:background="@drawable/card_soft_bg"
+            android:orientation="vertical"
+            android:padding="16dp"
             android:layout_marginBottom="12dp">
 
-            <View
-                android:layout_width="8dp"
-                android:layout_height="8dp"
-                android:background="@color/success" />
-
             <TextView
-                android:id="@+id/tv_user"
-                android:layout_width="0dp"
+                style="@style/TextRemoteControlSectionLabel"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="@color/text_primary"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:layout_marginStart="10dp" />
+                android:text="@string/home_account_title"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <View
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:background="@color/success" />
+
+                <TextView
+                    android:id="@+id/tv_user"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginStart="10dp" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Sabit Adres -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
+            android:background="@drawable/card_accent_bg"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="24dp"
+            android:padding="26dp"
             android:layout_marginBottom="12dp">
 
             <TextView
@@ -61,11 +74,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/connection_code_placeholder"
-                android:textSize="32sp"
+                android:textSize="34sp"
                 android:textStyle="bold"
                 android:textColor="@color/primary"
                 android:fontFamily="monospace"
-                android:letterSpacing="0.15" />
+                android:letterSpacing="0.12" />
 
             <TextView
                 style="@style/TextRemoteControlCaption"
@@ -80,9 +93,9 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
+            android:background="@drawable/card_soft_bg"
             android:orientation="vertical"
-            android:padding="14dp"
+            android:padding="16dp"
             android:layout_marginBottom="12dp">
 
             <TextView
@@ -110,33 +123,47 @@
                 android:layout_marginTop="4dp" />
         </LinearLayout>
 
-        <!-- Butonlar -->
-        <Button
-            android:id="@+id/btn_connect"
-            style="@style/WidgetRemoteControlPrimaryButton"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:text="@string/retry_connect"
-            android:layout_marginBottom="8dp" />
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_soft_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
 
-        <Button
-            android:id="@+id/btn_stop_stream"
-            style="@style/WidgetRemoteControlDangerButton"
-            android:layout_width="match_parent"
-            android:text="@string/stop_stream"
-            android:layout_marginBottom="8dp" />
+            <TextView
+                style="@style/TextRemoteControlSectionLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/home_quick_actions_title"
+                android:layout_marginBottom="10dp" />
 
-        <Button
-            android:id="@+id/btn_accessibility"
-            style="@style/WidgetRemoteControlSecondaryButton"
-            android:layout_width="match_parent"
-            android:text="@string/open_accessibility_settings"
-            android:layout_marginBottom="8dp" />
+            <Button
+                android:id="@+id/btn_connect"
+                style="@style/WidgetRemoteControlPrimaryButton"
+                android:layout_width="match_parent"
+                android:text="@string/retry_connect"
+                android:layout_marginBottom="8dp" />
 
-        <Button
-            android:id="@+id/btn_logout"
-            style="@style/WidgetRemoteControlSecondaryButton"
-            android:layout_width="match_parent"
-            android:text="@string/logout" />
+            <Button
+                android:id="@+id/btn_stop_stream"
+                style="@style/WidgetRemoteControlDangerButton"
+                android:layout_width="match_parent"
+                android:text="@string/stop_stream"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btn_accessibility"
+                style="@style/WidgetRemoteControlSecondaryButton"
+                android:layout_width="match_parent"
+                android:text="@string/open_accessibility_settings"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btn_logout"
+                style="@style/WidgetRemoteControlSecondaryButton"
+                android:layout_width="match_parent"
+                android:text="@string/logout" />
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>

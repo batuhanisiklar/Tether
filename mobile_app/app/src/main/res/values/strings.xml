@@ -26,6 +26,8 @@
     <string name="connection_code_help">Bu 12 haneli adresi desktop uygulamasina girin</string>
     <string name="status_title">Durum</string>
     <string name="status_initializing">Başlatılıyor...</string>
+    <string name="home_account_title">Aktif Hesap</string>
+    <string name="home_quick_actions_title">Hizli Islemler</string>
     <string name="paired_devices_title">Eslesmis Bilgisayarlar</string>
     <string name="paired_devices_empty">Henuz eslesmis bilgisayar yok.</string>
     <string name="devices_page_subtitle">Cevrimici cihazlara dogrudan baglanabilir veya kullanmadiklarinizi unutabilirsiniz.</string>

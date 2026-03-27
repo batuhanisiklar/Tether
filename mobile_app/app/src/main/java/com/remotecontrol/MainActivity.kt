@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity() {
     private var currentPairings: List<DeviceSummary> = emptyList()
     private var streamRunning = false
     private var accessibilityEnabled = false
+    private var connectionGeneration = 0
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -108,6 +109,7 @@ class MainActivity : AppCompatActivity() {
         pairedPcId = deviceIdentityStore.pairedPcId()
         accessibilityEnabled = isAccessibilityServiceEnabled()
         currentAddress = sessionStore.address().ifBlank { "------------" }
+        updateAccessibilityHint()
 
         setupNavigation(savedInstanceState == null)
         requestNotificationPermission()
@@ -176,18 +178,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun openAccessibilitySettingsScreen() {
+        Toast.makeText(this, "Dokunma kontrolu icin erisilebilirlik servisini acin.", Toast.LENGTH_LONG).show()
         startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     fun logout() {
+        connectionGeneration += 1
         stopAllStreams()
+        deviceIdentityStore.clearPairedPcId()
+        pairedPcId = null
         signalingClient?.disconnect()
+        signalingClient = null
         sessionStore.clear()
         startActivity(Intent(this, LoginActivity::class.java))
         finish()
     }
 
     fun usernameText(): String = sessionStore.username().ifBlank { "Kullanici" }
+        .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 
     fun currentCodeText(): String = formatAddressForUi(currentAddress)
 
@@ -217,20 +225,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun autoConnect(preferredPartnerId: String?) {
+        val generation = ++connectionGeneration
         currentStatus = "Signaling sunucusuna baglaniyor"
         currentStatusDetail = preferredPartnerId?.let { "Tercihli bilgisayar: ...${it.takeLast(8)}" }.orEmpty()
         refreshFragments()
 
         signalingClient?.disconnect()
-        signalingClient = SignalingClient(
+        val clientRef = arrayOfNulls<SignalingClient>(1)
+        val client = SignalingClient(
             serverUrl = SIGNALING_URL,
             deviceId = deviceId,
             preferredPartnerId = preferredPartnerId,
             onPaired = { _, partnerDeviceId ->
                 runOnUiThread {
+                    if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
                     if (!partnerDeviceId.isNullOrBlank()) {
                         onFirstPairComplete(partnerDeviceId)
                     }
+                    updateAccessibilityHint()
                     streamRunning = true
                     scope.launch { refreshPairings() }
                     if (IS_EMULATOR) {
@@ -242,9 +254,16 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             },
+            onPairedDevicesStatus = { pairedDeviceIds, onlineDeviceIds ->
+                runOnUiThread {
+                    if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
+                    applyRealtimePairingStatus(pairedDeviceIds, onlineDeviceIds)
+                }
+            },
             onCommand = { action, params -> handleCommand(action, params) },
             onDisconnected = {
                 runOnUiThread {
+                    if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
                     streamRunning = false
                     stopAllStreams()
                     currentStatus = "Baglanti kesildi"
@@ -253,6 +272,8 @@ class MainActivity : AppCompatActivity() {
                 }
             },
         )
+        clientRef[0] = client
+        signalingClient = client
         signalingClient?.connect()
         currentStatus = if (preferredPartnerId != null) {
             "Kayitli bilgisayar bekleniyor"
@@ -273,23 +294,53 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "Pair confirmed with PC: $pcDeviceId")
     }
 
+    private fun applyRealtimePairingStatus(
+        pairedDeviceIds: List<String>,
+        onlineDeviceIds: List<String>,
+    ) {
+        val onlineSet = onlineDeviceIds.toSet()
+        val existingById = currentPairings.associateBy { it.deviceId }
+        currentPairings = pairedDeviceIds.map { deviceIdValue ->
+            existingById[deviceIdValue]?.copy(online = deviceIdValue in onlineSet)
+                ?: DeviceSummary(
+                    deviceId = deviceIdValue,
+                    deviceType = "pc",
+                    deviceName = null,
+                    address = null,
+                    lastSeen = null,
+                    online = deviceIdValue in onlineSet,
+                )
+        }
+        if (pairedPcId != null && currentPairings.none { it.deviceId == pairedPcId }) {
+            deviceIdentityStore.clearPairedPcId()
+            pairedPcId = null
+        }
+        refreshFragments()
+    }
+
     private fun handleCommand(action: String, params: Map<String, Any>) {
         when (action) {
             "touch" -> {
-                val x = (params["x"] as? Double)?.toFloat() ?: return
-                val y = (params["y"] as? Double)?.toFloat() ?: return
-                ControlReceiver.instance?.performTouch(x, y)
+                val x = (params["x"] as? Number)?.toFloat() ?: return
+                val y = (params["y"] as? Number)?.toFloat() ?: return
+                runOnUiThread {
+                    withControlReceiver("Dokunma komutu") { performTouch(x, y) }
+                }
             }
             "swipe" -> {
-                val x1 = (params["x1"] as? Double)?.toFloat() ?: return
-                val y1 = (params["y1"] as? Double)?.toFloat() ?: return
-                val x2 = (params["x2"] as? Double)?.toFloat() ?: return
-                val y2 = (params["y2"] as? Double)?.toFloat() ?: return
-                ControlReceiver.instance?.performSwipe(x1, y1, x2, y2)
+                val x1 = (params["x1"] as? Number)?.toFloat() ?: return
+                val y1 = (params["y1"] as? Number)?.toFloat() ?: return
+                val x2 = (params["x2"] as? Number)?.toFloat() ?: return
+                val y2 = (params["y2"] as? Number)?.toFloat() ?: return
+                runOnUiThread {
+                    withControlReceiver("Kaydirma komutu") { performSwipe(x1, y1, x2, y2) }
+                }
             }
             "key_event" -> {
                 val keyCode = (params["key_code"] as? Number)?.toInt() ?: return
-                ControlReceiver.instance?.performKeyEvent(keyCode)
+                runOnUiThread {
+                    withControlReceiver("Tus komutu") { performKeyEvent(keyCode) }
+                }
             }
             "rotate_screen" -> {
                 val landscape = params["landscape"] as? Boolean ?: false
@@ -472,6 +523,32 @@ class MainActivity : AppCompatActivity() {
         refreshFragments()
     }
 
+    private fun withControlReceiver(actionLabel: String, block: ControlReceiver.() -> Boolean) {
+        val receiver = ControlReceiver.instance
+        if (receiver == null) {
+            currentStatus = "$actionLabel uygulanamadi"
+            currentStatusDetail = "Erisilebilirlik servisini acin ve tekrar deneyin."
+            refreshFragments()
+            openAccessibilitySettingsScreen()
+            return
+        }
+        val success = receiver.block()
+        if (!success) {
+            currentStatus = "$actionLabel uygulanamadi"
+            currentStatusDetail = "Android erisilebilirlik servisi komutu reddetti."
+            refreshFragments()
+        }
+    }
+
+    private fun updateAccessibilityHint() {
+        accessibilityEnabled = isAccessibilityServiceEnabled()
+        if (!accessibilityEnabled) {
+            if (currentStatusDetail.isBlank() || currentStatusDetail.contains("Erisilebilirlik", ignoreCase = true)) {
+                currentStatusDetail = "Kontrol icin Erisilebilirlik ayarlarini acin."
+            }
+        }
+    }
+
     private fun formatAddressForUi(raw: String): String {
         val digits = raw.filter { it.isDigit() }.take(12)
         if (digits.isEmpty()) return "---- ---- ----"
@@ -480,6 +557,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        updateAccessibilityHint()
         if (sessionStore.isLoggedIn()) {
             scope.launch { refreshPairings() }
         }
@@ -487,8 +565,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        connectionGeneration += 1
         scope.cancel()
         signalingClient?.disconnect()
+        signalingClient = null
         super.onDestroy()
     }
 }
