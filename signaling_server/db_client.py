@@ -505,7 +505,8 @@ class ServerDbClient:
                         """
                         SELECT d.device_id, d.device_type, d.device_name,
                                d.device_id AS address,
-                               COALESCE(d.is_online, false) AS is_online
+                               COALESCE(d.is_online, false) AS is_online,
+                               d.install_id
                         FROM devices d
                         WHERE d.user_id = %s
                         ORDER BY d.device_type, d.device_name, d.device_id
@@ -692,7 +693,8 @@ class ServerDbClient:
                         cur.execute(
                             """
                             SELECT d.device_id, d.device_type, d.device_name,
-                                   d.device_id AS address, COALESCE(d.is_online, false) AS is_online
+                                   d.device_id AS address, COALESCE(d.is_online, false) AS is_online,
+                                   d.install_id
                             FROM devices d
                             WHERE d.device_id = %s AND d.device_type = %s
                             """,

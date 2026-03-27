@@ -23,6 +23,7 @@ def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
         "device_name": device.get("device_name"),
         "address": device.get("address"),
         "is_online": bool(device.get("is_online")),
+        "install_id": device.get("install_id"),
     }
 
 
@@ -641,6 +642,7 @@ async def auth_register(request: web.Request) -> web.Response:
             "user": {
                 "id": user_id,
                 "username": normalized_username,
+                "email": email.strip().lower(),
                 "device_id": resolved_device_id,
                 "address": resolved_device_id,
             },
@@ -688,6 +690,7 @@ async def auth_login(request: web.Request) -> web.Response:
             "user": {
                 "id": user_id,
                 "username": username,
+                "email": login_id.strip().lower(),
                 "device_id": resolved_device_id,
                 "address": resolved_device_id,
             },
