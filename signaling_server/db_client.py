@@ -88,6 +88,20 @@ class ServerDbClient:
                         FOR EACH ROW EXECUTE FUNCTION set_user_address();
                     """)
                     cur.execute("ALTER TABLE pairings ALTER COLUMN user_id DROP NOT NULL")
+                    cur.execute("""
+                        UPDATE pairings p
+                        SET user_id = d.user_id
+                        FROM devices d
+                        WHERE p.user_id IS NULL AND d.device_id = p.phone_device_id
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_pairings_user_phone
+                        ON pairings(user_id, phone_device_id)
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_pairings_user_pc
+                        ON pairings(user_id, pc_device_id)
+                    """)
                 conn.commit()
             return True
         except Exception as exc:
@@ -193,6 +207,20 @@ class ServerDbClient:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
+                        "SELECT user_id FROM devices WHERE device_id = %s",
+                        (device_id,),
+                    )
+                    existing_row = cur.fetchone()
+                    previous_user_id = existing_row[0] if existing_row else None
+                    if previous_user_id is not None and previous_user_id != user_id:
+                        cur.execute(
+                            """
+                            DELETE FROM pairings
+                            WHERE phone_device_id = %s OR pc_device_id = %s
+                            """,
+                            (device_id, device_id),
+                        )
+                    cur.execute(
                         """
                         INSERT INTO devices (user_id, device_id, device_type, device_name)
                         VALUES (%s, %s, %s, NULLIF(%s, ''))
@@ -200,14 +228,12 @@ class ServerDbClient:
                             SET user_id = EXCLUDED.user_id,
                                 device_type = EXCLUDED.device_type,
                                 device_name = COALESCE(EXCLUDED.device_name, devices.device_name)
-                        WHERE devices.user_id = EXCLUDED.user_id OR devices.user_id IS NULL
                         RETURNING device_id
                         """,
                         (user_id, device_id, device_type, device_name),
                     )
                     if cur.fetchone() is None:
                         conn.rollback()
-                        logger.warning("Baska kullaniciya ait cihaz claim edilmeye calisildi: %s", device_id)
                         return False
                 conn.commit()
             return True
@@ -236,21 +262,85 @@ class ServerDbClient:
         except Exception as exc:
             logger.error("set_device_online hatasi: %s", exc)
 
+    def get_account_partner_devices(self, device_id: str) -> list[str]:
+        return self.get_account_partner_devices_map([device_id]).get(device_id, [])
+
+    def get_account_partner_devices_map(self, device_ids: list[str]) -> dict[str, list[str]]:
+        if not device_ids:
+            return {}
+
+        unique_ids = list(dict.fromkeys(device_ids))
+        result: dict[str, list[str]] = {device_id: [] for device_id in unique_ids}
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT device_id, user_id, device_type
+                        FROM devices
+                        WHERE device_id = ANY(%s)
+                        """,
+                        (unique_ids,),
+                    )
+                    owner_rows = [dict(row) for row in cur.fetchall()]
+                    owner_by_id = {row["device_id"]: row for row in owner_rows}
+                    user_ids = list({row["user_id"] for row in owner_rows if row.get("user_id") is not None})
+                    if not user_ids:
+                        return result
+
+                    cur.execute(
+                        """
+                        SELECT device_id, user_id, device_type, is_online
+                        FROM devices
+                        WHERE user_id = ANY(%s)
+                        ORDER BY is_online DESC, device_name ASC NULLS LAST, id DESC
+                        """,
+                        (user_ids,),
+                    )
+                    devices_by_user: dict[int, list[dict]] = {}
+                    for row in cur.fetchall():
+                        item = dict(row)
+                        devices_by_user.setdefault(item["user_id"], []).append(item)
+
+            for device_id in unique_ids:
+                owner = owner_by_id.get(device_id)
+                if not owner:
+                    continue
+                opposite_type = "phone" if owner["device_type"] == "pc" else "pc"
+                candidates = devices_by_user.get(owner["user_id"], [])
+                result[device_id] = [
+                    candidate["device_id"]
+                    for candidate in candidates
+                    if candidate["device_type"] == opposite_type and candidate["device_id"] != device_id
+                ]
+            return result
+        except Exception as exc:
+            logger.error("Hesap karsi cihazlari listeleme hatasi: %s", exc)
+            return result
+
     def get_paired_partners(self, device_id: str) -> list[str]:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
+                        WITH owner AS (
+                            SELECT user_id
+                            FROM devices
+                            WHERE device_id = %s
+                            LIMIT 1
+                        )
                         SELECT pc_device_id AS partner_id
                         FROM pairings
                         WHERE phone_device_id = %s
+                          AND user_id = (SELECT user_id FROM owner)
                         UNION
                         SELECT phone_device_id AS partner_id
                         FROM pairings
                         WHERE pc_device_id = %s
+                          AND user_id = (SELECT user_id FROM owner)
                         """,
-                        (device_id, device_id),
+                        (device_id, device_id, device_id),
                     )
                     rows = cur.fetchall()
             return [row[0] for row in rows]
@@ -269,15 +359,20 @@ class ServerDbClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT phone_device_id AS device_id, pc_device_id AS partner_id
-                        FROM pairings
-                        WHERE phone_device_id = ANY(%s)
+                        WITH owners AS (
+                            SELECT device_id, user_id
+                            FROM devices
+                            WHERE device_id = ANY(%s)
+                        )
+                        SELECT p.phone_device_id AS device_id, p.pc_device_id AS partner_id
+                        FROM pairings p
+                        JOIN owners o ON o.device_id = p.phone_device_id AND o.user_id = p.user_id
                         UNION ALL
-                        SELECT pc_device_id AS device_id, phone_device_id AS partner_id
-                        FROM pairings
-                        WHERE pc_device_id = ANY(%s)
+                        SELECT p.pc_device_id AS device_id, p.phone_device_id AS partner_id
+                        FROM pairings p
+                        JOIN owners o ON o.device_id = p.pc_device_id AND o.user_id = p.user_id
                         """,
-                        (unique_ids, unique_ids),
+                        (unique_ids,),
                     )
                     for device_id, partner_id in cur.fetchall():
                         if partner_id not in result.setdefault(device_id, []):
@@ -321,15 +416,40 @@ class ServerDbClient:
 
                     first = rows.get(first_device_id)
                     second = rows.get(second_device_id)
+                    first_user_id = first.get("user_id") if first else None
+                    second_user_id = second.get("user_id") if second else None
+                    user_id = first_user_id or second_user_id
+                    if user_id is None:
+                        logger.warning("Pairing kaydedilemedi; cihaz sahipleri bulunamadi: %s %s", first_device_id, second_device_id)
+                        conn.rollback()
+                        return False
+                    if first_user_id and second_user_id and first_user_id != second_user_id:
+                        logger.warning(
+                            "Farkli hesap cihazlari eslestirilmeye calisildi: %s(%s) %s(%s)",
+                            first_device_id,
+                            first_user_id,
+                            second_device_id,
+                            second_user_id,
+                        )
+                        conn.rollback()
+                        return False
 
                     phone_device_id, pc_device_id = self._resolve_pair_ids(first_device_id, second_device_id, first, second)
                     cur.execute(
                         """
+                        DELETE FROM pairings
+                        WHERE phone_device_id = %s AND pc_device_id = %s AND COALESCE(user_id, -1) <> %s
+                        """,
+                        (phone_device_id, pc_device_id, user_id),
+                    )
+                    cur.execute(
+                        """
                         INSERT INTO pairings (user_id, phone_device_id, pc_device_id)
                         VALUES (%s, %s, %s)
-                        ON CONFLICT (phone_device_id, pc_device_id) DO NOTHING
+                        ON CONFLICT (phone_device_id, pc_device_id) DO UPDATE
+                            SET user_id = EXCLUDED.user_id
                         """,
-                        (None, phone_device_id, pc_device_id),
+                        (user_id, phone_device_id, pc_device_id),
                     )
                 conn.commit()
             return True
@@ -357,16 +477,23 @@ class ServerDbClient:
 
     def get_device_pairings(self, device_id: str) -> list[dict]:
         query = """
+            WITH current_owner AS (
+                SELECT user_id
+                FROM devices
+                WHERE device_id = %(device_id)s
+                LIMIT 1
+            )
             SELECT counterpart.device_id, counterpart.device_type, counterpart.device_name,
-                   counterpart.is_online, owner.address
+                   counterpart.is_online, owner_user.address
             FROM pairings p
             JOIN devices counterpart
               ON counterpart.device_id = CASE
                     WHEN p.phone_device_id = %(device_id)s THEN p.pc_device_id
                     ELSE p.phone_device_id
                  END
-            LEFT JOIN users owner ON owner.id = counterpart.user_id
-            WHERE p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s
+            LEFT JOIN users owner_user ON owner_user.id = counterpart.user_id
+            WHERE (p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s)
+              AND p.user_id = (SELECT user_id FROM current_owner)
             ORDER BY counterpart.is_online DESC, counterpart.device_name ASC NULLS LAST
         """
         try:
@@ -405,7 +532,7 @@ class ServerDbClient:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute(
                         """
-                        SELECT device_id, device_type
+                        SELECT device_id, device_type, user_id
                         FROM devices
                         WHERE device_id IN (%s, %s)
                         """,
@@ -414,13 +541,17 @@ class ServerDbClient:
                     rows = {row["device_id"]: row for row in cur.fetchall()}
                     first = rows.get(first_device_id)
                     second = rows.get(second_device_id)
+                    user_id = (first.get("user_id") if first else None) or (second.get("user_id") if second else None)
+                    if user_id is None:
+                        conn.rollback()
+                        return False
                     phone_device_id, pc_device_id = self._resolve_pair_ids(first_device_id, second_device_id, first, second)
                     cur.execute(
                         """
                         DELETE FROM pairings
-                        WHERE phone_device_id = %s AND pc_device_id = %s
+                        WHERE phone_device_id = %s AND pc_device_id = %s AND user_id = %s
                         """,
-                        (phone_device_id, pc_device_id),
+                        (phone_device_id, pc_device_id, user_id),
                     )
                 conn.commit()
             return True
