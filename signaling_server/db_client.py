@@ -32,13 +32,20 @@ CREATE TABLE IF NOT EXISTS devices (
     is_online   BOOLEAN DEFAULT false
 );
 
+CREATE TABLE IF NOT EXISTS user_devices (
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    device_id   TEXT REFERENCES devices(device_id) ON DELETE CASCADE,
+    is_online   BOOLEAN DEFAULT false,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (user_id, device_id)
+);
+
 CREATE TABLE IF NOT EXISTS pairings (
     id              SERIAL PRIMARY KEY,
     user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
     phone_device_id TEXT NOT NULL,
     pc_device_id    TEXT NOT NULL,
-    created_at      TIMESTAMPTZ DEFAULT now(),
-    UNIQUE(phone_device_id, pc_device_id)
+    created_at      TIMESTAMPTZ DEFAULT now()
 );
 """
 
@@ -68,6 +75,7 @@ class ServerDbClient:
                     cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_name TEXT")
                     cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT false")
                     cur.execute("ALTER TABLE devices DROP COLUMN IF EXISTS last_seen")
+                    cur.execute("ALTER TABLE user_devices ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT false")
                     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_address_unique_idx ON users(address)")
                     cur.execute("UPDATE users SET address = (111111111110 + id)::text WHERE address IS NULL")
                     cur.execute("""
@@ -88,6 +96,27 @@ class ServerDbClient:
                         FOR EACH ROW EXECUTE FUNCTION set_user_address();
                     """)
                     cur.execute("ALTER TABLE pairings ALTER COLUMN user_id DROP NOT NULL")
+                    cur.execute("ALTER TABLE pairings DROP CONSTRAINT IF EXISTS pairings_phone_device_id_pc_device_id_key")
+                    cur.execute("""
+                        INSERT INTO user_devices (user_id, device_id, is_online)
+                        SELECT d.user_id, d.device_id, COALESCE(d.is_online, false)
+                        FROM devices d
+                        WHERE d.user_id IS NOT NULL
+                        ON CONFLICT (user_id, device_id) DO UPDATE
+                            SET is_online = EXCLUDED.is_online
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_user_devices_device
+                        ON user_devices(device_id)
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_user_devices_user_online
+                        ON user_devices(user_id, is_online)
+                    """)
+                    cur.execute("""
+                        CREATE UNIQUE INDEX IF NOT EXISTS idx_pairings_user_device_pair
+                        ON pairings(user_id, phone_device_id, pc_device_id)
+                    """)
                     cur.execute("""
                         UPDATE pairings p
                         SET user_id = d.user_id
@@ -207,26 +236,11 @@ class ServerDbClient:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT user_id FROM devices WHERE device_id = %s",
-                        (device_id,),
-                    )
-                    existing_row = cur.fetchone()
-                    previous_user_id = existing_row[0] if existing_row else None
-                    if previous_user_id is not None and previous_user_id != user_id:
-                        cur.execute(
-                            """
-                            DELETE FROM pairings
-                            WHERE phone_device_id = %s OR pc_device_id = %s
-                            """,
-                            (device_id, device_id),
-                        )
-                    cur.execute(
                         """
-                        INSERT INTO devices (user_id, device_id, device_type, device_name)
-                        VALUES (%s, %s, %s, NULLIF(%s, ''))
+                        INSERT INTO devices (user_id, device_id, device_type, device_name, is_online)
+                        VALUES (%s, %s, %s, NULLIF(%s, ''), false)
                         ON CONFLICT (device_id) DO UPDATE
-                            SET user_id = EXCLUDED.user_id,
-                                device_type = EXCLUDED.device_type,
+                            SET device_type = EXCLUDED.device_type,
                                 device_name = COALESCE(EXCLUDED.device_name, devices.device_name)
                         RETURNING device_id
                         """,
@@ -235,6 +249,15 @@ class ServerDbClient:
                     if cur.fetchone() is None:
                         conn.rollback()
                         return False
+                    cur.execute(
+                        """
+                        INSERT INTO user_devices (user_id, device_id, is_online)
+                        VALUES (%s, %s, false)
+                        ON CONFLICT (user_id, device_id) DO UPDATE
+                            SET is_online = user_devices.is_online
+                        """,
+                        (user_id, device_id),
+                    )
                 conn.commit()
             return True
         except Exception as exc:
@@ -245,24 +268,52 @@ class ServerDbClient:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
+                    cur.execute("UPDATE user_devices SET is_online = false WHERE is_online = true")
                     cur.execute("UPDATE devices SET is_online = false WHERE is_online = true")
                 conn.commit()
         except Exception as exc:
             logger.error("reset_all_online hatasi: %s", exc)
 
-    def set_device_online(self, device_id: str, is_online: bool) -> None:
+    def set_device_online(self, user_id: int, device_id: str, is_online: bool) -> None:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "UPDATE devices SET is_online = %s WHERE device_id = %s",
-                        (is_online, device_id),
+                        """
+                        UPDATE user_devices
+                        SET is_online = %s
+                        WHERE user_id = %s AND device_id = %s
+                        """,
+                        (is_online, user_id, device_id),
+                    )
+                    cur.execute(
+                        """
+                        UPDATE devices
+                        SET is_online = EXISTS (
+                            SELECT 1
+                            FROM user_devices
+                            WHERE device_id = %s AND is_online = true
+                        )
+                        WHERE device_id = %s
+                        """,
+                        (device_id, device_id),
                     )
                 conn.commit()
         except Exception as exc:
             logger.error("set_device_online hatasi: %s", exc)
 
-    def get_paired_partners(self, device_id: str) -> list[str]:
+    def get_user_id_by_address(self, address: str) -> int | None:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM users WHERE address = %s", (address,))
+                    row = cur.fetchone()
+            return row[0] if row else None
+        except Exception as exc:
+            logger.error("Address ile user id bulma hatasi: %s", exc)
+            return None
+
+    def get_paired_partners(self, user_id: int, device_id: str) -> list[str]:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -270,13 +321,13 @@ class ServerDbClient:
                         """
                         SELECT pc_device_id AS partner_id
                         FROM pairings
-                        WHERE phone_device_id = %s
+                        WHERE user_id = %s AND phone_device_id = %s
                         UNION
                         SELECT phone_device_id AS partner_id
                         FROM pairings
-                        WHERE pc_device_id = %s
+                        WHERE user_id = %s AND pc_device_id = %s
                         """,
-                        (device_id, device_id),
+                        (user_id, device_id, user_id, device_id),
                     )
                     rows = cur.fetchall()
             return [row[0] for row in rows]
@@ -284,7 +335,7 @@ class ServerDbClient:
             logger.error("Partner listeleme hatasi: %s", exc)
             return []
 
-    def get_paired_partners_map(self, device_ids: list[str]) -> dict[str, list[str]]:
+    def get_paired_partners_map(self, user_id: int, device_ids: list[str]) -> dict[str, list[str]]:
         if not device_ids:
             return {}
 
@@ -297,13 +348,13 @@ class ServerDbClient:
                         """
                         SELECT p.phone_device_id AS device_id, p.pc_device_id AS partner_id
                         FROM pairings p
-                        WHERE p.phone_device_id = ANY(%s)
+                        WHERE p.user_id = %s AND p.phone_device_id = ANY(%s)
                         UNION ALL
                         SELECT p.pc_device_id AS device_id, p.phone_device_id AS partner_id
                         FROM pairings p
-                        WHERE p.pc_device_id = ANY(%s)
+                        WHERE p.user_id = %s AND p.pc_device_id = ANY(%s)
                         """,
-                        (unique_ids, unique_ids),
+                        (user_id, unique_ids, user_id, unique_ids),
                     )
                     for device_id, partner_id in cur.fetchall():
                         if partner_id not in result.setdefault(device_id, []):
@@ -320,7 +371,7 @@ class ServerDbClient:
                     cur.execute(
                         """
                         SELECT 1
-                        FROM devices
+                        FROM user_devices
                         WHERE user_id = %s AND device_id = %s
                         LIMIT 1
                         """,
@@ -331,7 +382,7 @@ class ServerDbClient:
             logger.error("Cihaz sahiplik kontrolu hatasi: %s", exc)
             return False
 
-    def save_pairing_by_device_ids(self, first_device_id: str, second_device_id: str) -> bool:
+    def save_pairing_by_device_ids(self, user_id: int, first_device_id: str, second_device_id: str) -> bool:
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -347,18 +398,15 @@ class ServerDbClient:
 
                     first = rows.get(first_device_id)
                     second = rows.get(second_device_id)
-                    first_user_id = first.get("user_id") if first else None
-                    second_user_id = second.get("user_id") if second else None
-
                     phone_device_id, pc_device_id = self._resolve_pair_ids(first_device_id, second_device_id, first, second)
                     cur.execute(
                         """
                         INSERT INTO pairings (user_id, phone_device_id, pc_device_id)
                         VALUES (%s, %s, %s)
-                        ON CONFLICT (phone_device_id, pc_device_id) DO UPDATE
+                        ON CONFLICT (user_id, phone_device_id, pc_device_id) DO UPDATE
                             SET user_id = EXCLUDED.user_id
                         """,
-                        (first_user_id or second_user_id, phone_device_id, pc_device_id),
+                        (user_id, phone_device_id, pc_device_id),
                     )
                 conn.commit()
             return True
@@ -372,11 +420,12 @@ class ServerDbClient:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute(
                         """
-                        SELECT d.device_id, d.device_type, d.device_name, d.is_online, u.address
-                        FROM devices d
-                        LEFT JOIN users u ON u.id = d.user_id
-                        WHERE d.user_id = %s
-                        ORDER BY is_online DESC, device_name ASC NULLS LAST
+                        SELECT d.device_id, d.device_type, d.device_name, ud.is_online, u.address
+                        FROM user_devices ud
+                        JOIN devices d ON d.device_id = ud.device_id
+                        JOIN users u ON u.id = ud.user_id
+                        WHERE ud.user_id = %s
+                        ORDER BY ud.is_online DESC, d.device_name ASC NULLS LAST
                         """,
                         (user_id,),
                     )
@@ -385,27 +434,60 @@ class ServerDbClient:
             logger.error("Cihaz listeleme hatasi: %s", exc)
             return []
 
-    def get_device_pairings(self, device_id: str) -> list[dict]:
+    def get_device_pairings(self, user_id: int, device_id: str) -> list[dict]:
         query = """
             SELECT counterpart.device_id, counterpart.device_type, counterpart.device_name,
-                   counterpart.is_online, owner_user.address
+                   counterpart_ud.is_online, owner_user.address
             FROM pairings p
             JOIN devices counterpart
               ON counterpart.device_id = CASE
                     WHEN p.phone_device_id = %(device_id)s THEN p.pc_device_id
                     ELSE p.phone_device_id
                  END
-            LEFT JOIN users owner_user ON owner_user.id = counterpart.user_id
-            WHERE (p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s)
-            ORDER BY counterpart.is_online DESC, counterpart.device_name ASC NULLS LAST
+            JOIN user_devices counterpart_ud
+              ON counterpart_ud.user_id = p.user_id AND counterpart_ud.device_id = counterpart.device_id
+            JOIN users owner_user ON owner_user.id = p.user_id
+            WHERE p.user_id = %(user_id)s
+              AND (p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s)
+            ORDER BY counterpart_ud.is_online DESC, counterpart.device_name ASC NULLS LAST
         """
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute(query, {"device_id": device_id})
+                    cur.execute(query, {"user_id": user_id, "device_id": device_id})
                     return [dict(row) for row in cur.fetchall()]
         except Exception as exc:
             logger.error("Pairings listeleme hatasi: %s", exc)
+            return []
+
+    def get_user_recent_partner_devices(self, user_id: int, partner_type: str) -> list[dict]:
+        query = """
+            SELECT DISTINCT ON (counterpart.device_id)
+                   counterpart.device_id,
+                   counterpart.device_type,
+                   counterpart.device_name,
+                   counterpart_ud.is_online,
+                   owner_user.address,
+                   p.created_at
+            FROM pairings p
+            JOIN devices counterpart
+              ON counterpart.device_id IN (p.phone_device_id, p.pc_device_id)
+            JOIN user_devices counterpart_ud
+              ON counterpart_ud.user_id = p.user_id AND counterpart_ud.device_id = counterpart.device_id
+            JOIN users owner_user ON owner_user.id = p.user_id
+            WHERE p.user_id = %(user_id)s
+              AND counterpart.device_type = %(partner_type)s
+            ORDER BY counterpart.device_id, p.created_at DESC
+        """
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(query, {"user_id": user_id, "partner_type": partner_type})
+                    rows = [dict(row) for row in cur.fetchall()]
+            rows.sort(key=lambda row: (not bool(row.get("is_online")), row.get("device_name") or "", row.get("address") or ""))
+            return rows
+        except Exception as exc:
+            logger.error("Recent cihazlari listeleme hatasi: %s", exc)
             return []
 
     def find_phone_device_by_address(self, address: str) -> str | None:
@@ -415,10 +497,11 @@ class ServerDbClient:
                     cur.execute(
                         """
                         SELECT d.device_id
-                        FROM devices d
-                        JOIN users u ON u.id = d.user_id
+                        FROM user_devices ud
+                        JOIN users u ON u.id = ud.user_id
+                        JOIN devices d ON d.device_id = ud.device_id
                         WHERE u.address = %s AND d.device_type = 'phone'
-                        ORDER BY d.is_online DESC, d.id DESC
+                        ORDER BY ud.is_online DESC, d.id DESC
                         LIMIT 1
                         """,
                         (address,),
@@ -429,7 +512,28 @@ class ServerDbClient:
             logger.error("Address ile phone cihaz bulma hatasi: %s", exc)
             return None
 
-    def delete_pairing_by_device_ids(self, first_device_id: str, second_device_id: str) -> bool:
+    def get_device_ids_by_address(self, address: str, device_type: str) -> list[str]:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT d.device_id
+                        FROM user_devices ud
+                        JOIN users u ON u.id = ud.user_id
+                        JOIN devices d ON d.device_id = ud.device_id
+                        WHERE u.address = %s AND d.device_type = %s
+                        ORDER BY ud.is_online DESC, d.id DESC
+                        """,
+                        (address, device_type),
+                    )
+                    rows = cur.fetchall()
+            return [row[0] for row in rows]
+        except Exception as exc:
+            logger.error("Address ile cihaz bulma hatasi: %s", exc)
+            return []
+
+    def delete_pairing_by_device_ids(self, user_id: int, first_device_id: str, second_device_id: str) -> bool:
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -448,9 +552,9 @@ class ServerDbClient:
                     cur.execute(
                         """
                         DELETE FROM pairings
-                        WHERE phone_device_id = %s AND pc_device_id = %s
+                        WHERE user_id = %s AND phone_device_id = %s AND pc_device_id = %s
                         """,
-                        (phone_device_id, pc_device_id),
+                        (user_id, phone_device_id, pc_device_id),
                     )
                 conn.commit()
             return True

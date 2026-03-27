@@ -17,13 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
-    is_online = device["device_id"] in online_devices
     return {
         "device_id": device["device_id"],
         "device_type": device["device_type"],
         "device_name": device.get("device_name"),
         "address": device.get("address"),
-        "is_online": is_online,
+        "is_online": bool(device.get("is_online")),
     }
 
 
@@ -55,20 +54,25 @@ def _session_entry(app: web.Application, code: str) -> dict:
     return app["sessions"][code]
 
 
-async def _get_paired_partners(app: web.Application, device_id: str) -> list[str]:
-    return await asyncio.to_thread(app["db"].get_paired_partners, device_id)
+def _online_key(user_id: int, device_id: str) -> str:
+    return f"{user_id}:{device_id}"
 
 
-async def _get_paired_partners_map(app: web.Application, device_ids: list[str]) -> dict[str, list[str]]:
-    return await asyncio.to_thread(app["db"].get_paired_partners_map, device_ids)
+async def _get_paired_partners(app: web.Application, user_id: int, device_id: str) -> list[str]:
+    return await asyncio.to_thread(app["db"].get_paired_partners, user_id, device_id)
+
+
+async def _get_paired_partners_map(app: web.Application, user_id: int, device_ids: list[str]) -> dict[str, list[str]]:
+    return await asyncio.to_thread(app["db"].get_paired_partners_map, user_id, device_ids)
 
 
 async def _send_device_ack(
     app: web.Application,
+    user_id: int,
     device_id: str,
     paired_partners_map: dict[str, list[str]] | None = None,
 ) -> None:
-    device_entry = app["online_devices"].get(device_id)
+    device_entry = app["online_devices"].get(_online_key(user_id, device_id))
     if not device_entry:
         return
 
@@ -76,12 +80,15 @@ async def _send_device_ack(
     paired_devices = (
         paired_partners_map.get(device_id, [])
         if paired_partners_map is not None
-        else await _get_paired_partners(app, device_id)
+        else await _get_paired_partners(app, user_id, device_id)
     )
     online_paired_devices = [
         partner_id
         for partner_id in paired_devices
-        if partner_id in app["online_devices"] and app["online_devices"][partner_id]["role"] != role
+        if (
+            _online_key(user_id, partner_id) in app["online_devices"]
+            and app["online_devices"][_online_key(user_id, partner_id)]["role"] != role
+        )
     ]
     await _send_json(
         device_entry["ws"],
@@ -96,12 +103,12 @@ async def _send_device_ack(
     )
 
 
-async def _broadcast_presence_update(app: web.Application, *device_ids: str) -> None:
+async def _broadcast_presence_update(app: web.Application, user_id: int, *device_ids: str) -> None:
     root_device_ids = list(dict.fromkeys(device_id for device_id in device_ids if device_id))
     if not root_device_ids:
         return
 
-    direct_partners_map = await _get_paired_partners_map(app, root_device_ids)
+    direct_partners_map = await _get_paired_partners_map(app, user_id, root_device_ids)
     impacted_device_ids: set[str] = set(root_device_ids)
     for partner_ids in direct_partners_map.values():
         impacted_device_ids.update(partner_ids)
@@ -109,19 +116,19 @@ async def _broadcast_presence_update(app: web.Application, *device_ids: str) -> 
     paired_partners_map = dict(direct_partners_map)
     missing_ids = [device_id for device_id in impacted_device_ids if device_id not in paired_partners_map]
     if missing_ids:
-        paired_partners_map.update(await _get_paired_partners_map(app, missing_ids))
+        paired_partners_map.update(await _get_paired_partners_map(app, user_id, missing_ids))
 
     for impacted_device_id in impacted_device_ids:
         try:
-            await _send_device_ack(app, impacted_device_id, paired_partners_map)
+            await _send_device_ack(app, user_id, impacted_device_id, paired_partners_map)
         except Exception:
             logger.exception("Presence update gonderilemedi: %s", impacted_device_id)
 
 
-async def _persist_pairing(app: web.Application, first_device_id: str, second_device_id: str) -> None:
+async def _persist_pairing(app: web.Application, user_id: int, first_device_id: str, second_device_id: str) -> None:
     if not first_device_id or not second_device_id:
         return
-    await asyncio.to_thread(app["db"].save_pairing_by_device_ids, first_device_id, second_device_id)
+    await asyncio.to_thread(app["db"].save_pairing_by_device_ids, user_id, first_device_id, second_device_id)
 
 
 async def _notify_paired(app: web.Application, code: str) -> None:
@@ -130,9 +137,17 @@ async def _notify_paired(app: web.Application, code: str) -> None:
     if "phone" not in session or "pc" not in session:
         return
 
+    phone_meta = app["ws_meta"].get(id(session["phone"])) or {}
+    pc_meta = app["ws_meta"].get(id(session["pc"])) or {}
+    user_id = phone_meta.get("user_id")
+    if not user_id or user_id != pc_meta.get("user_id"):
+        await _send_json(session["phone"], {"type": MessageTypes.ERROR, "message": "Baglanti icin iki cihaz da ayni hesaba bagli olmali."})
+        await _send_json(session["pc"], {"type": MessageTypes.ERROR, "message": "Baglanti icin iki cihaz da ayni hesaba bagli olmali."})
+        return
+
     phone_device_id = session_devices.get("phone", "")
     pc_device_id = session_devices.get("pc", "")
-    await _persist_pairing(app, phone_device_id, pc_device_id)
+    await _persist_pairing(app, user_id, phone_device_id, pc_device_id)
 
     logger.info("Paired session created: %s", code)
     for role, ws in session.items():
@@ -146,13 +161,13 @@ async def _notify_paired(app: web.Application, code: str) -> None:
                 "partner_device_id": session_devices.get(partner_role, ""),
             },
         )
-    await _broadcast_presence_update(app, phone_device_id, pc_device_id)
+    await _broadcast_presence_update(app, user_id, phone_device_id, pc_device_id)
 
 
-async def _pick_online_partner(app: web.Application, device_id: str, role: str) -> str | None:
-    partners = await _get_paired_partners(app, device_id)
+async def _pick_online_partner(app: web.Application, user_id: int, device_id: str, role: str) -> str | None:
+    partners = await _get_paired_partners(app, user_id, device_id)
     for partner_id in partners:
-        partner_entry = app["online_devices"].get(partner_id)
+        partner_entry = app["online_devices"].get(_online_key(user_id, partner_id))
         if partner_entry and partner_entry["role"] != role:
             return partner_id
     return None
@@ -160,15 +175,28 @@ async def _pick_online_partner(app: web.Application, device_id: str, role: str) 
 
 async def _pick_preferred_online_partner(
     app: web.Application,
+    user_id: int,
     device_id: str,
     role: str,
     preferred_partner_id: str | None,
+    preferred_partner_address: str | None,
 ) -> str | None:
+    if preferred_partner_address:
+        partner_type = "phone" if role == "pc" else "pc"
+        candidate_ids = await asyncio.to_thread(
+            app["db"].get_device_ids_by_address,
+            preferred_partner_address,
+            partner_type,
+        )
+        for candidate_id in candidate_ids:
+            partner_entry = app["online_devices"].get(_online_key(user_id, candidate_id))
+            if partner_entry and partner_entry["role"] != role:
+                return candidate_id
     if preferred_partner_id:
-        partner_entry = app["online_devices"].get(preferred_partner_id)
+        partner_entry = app["online_devices"].get(_online_key(user_id, preferred_partner_id))
         if partner_entry and partner_entry["role"] != role:
             return preferred_partner_id
-    return await _pick_online_partner(app, device_id, role)
+    return await _pick_online_partner(app, user_id, device_id, role)
 
 
 async def _handle_device_hello(
@@ -179,21 +207,36 @@ async def _handle_device_hello(
 ) -> None:
     device_id = str(message.get("device_id") or "").strip()
     role = message.get("role", "")
-    if not device_id or role not in {"phone", "pc"}:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id and role required"})
+    account_address = str(message.get("account_address") or "").strip()
+    if not device_id or role not in {"phone", "pc"} or not account_address:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id, role ve account_address gerekli"})
+        return
+
+    user_id = await asyncio.to_thread(app["db"].get_user_id_by_address, account_address)
+    if not user_id:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Hesap bulunamadi"})
         return
 
     meta["device_id"] = device_id
-    app["online_devices"][device_id] = {"ws": ws, "role": role}
-    await asyncio.to_thread(app["db"].set_device_online, device_id, True)
+    meta["user_id"] = user_id
+    app["online_devices"][_online_key(user_id, device_id)] = {"ws": ws, "role": role, "user_id": user_id, "device_id": device_id}
+    await asyncio.to_thread(app["db"].set_device_online, user_id, device_id, True)
 
     preferred_partner_id = str(message.get("preferred_partner_id") or "").strip() or None
+    preferred_partner_address = str(message.get("preferred_partner_address") or "").strip() or None
     allow_auto_pair = bool(message.get("auto_pair", False))
     partner_id = None
     if allow_auto_pair:
-        partner_id = await _pick_preferred_online_partner(app, device_id, role, preferred_partner_id)
+        partner_id = await _pick_preferred_online_partner(
+            app,
+            user_id,
+            device_id,
+            role,
+            preferred_partner_id,
+            preferred_partner_address,
+        )
     if allow_auto_pair and partner_id:
-        partner_entry = app["online_devices"][partner_id]
+        partner_entry = app["online_devices"][_online_key(user_id, partner_id)]
         partner_ws = partner_entry["ws"]
         partner_role = partner_entry["role"]
         session_code = f"__auto_{min(device_id, partner_id)}_{max(device_id, partner_id)}"
@@ -206,7 +249,7 @@ async def _handle_device_hello(
             partner_meta["peer_code"] = session_code
             partner_meta["peer_role"] = partner_role
 
-        await _persist_pairing(app, device_id, partner_id)
+        await _persist_pairing(app, user_id, device_id, partner_id)
         await _send_json(
             ws,
             {
@@ -223,18 +266,19 @@ async def _handle_device_hello(
                 "partner_device_id": device_id,
             },
         )
-        await _broadcast_presence_update(app, device_id, partner_id)
+        await _broadcast_presence_update(app, user_id, device_id, partner_id)
         return
 
-    await _broadcast_presence_update(app, device_id)
+    await _broadcast_presence_update(app, user_id, device_id)
 
 
-async def _handle_pair_confirm(app: web.Application, message: dict) -> None:
+async def _handle_pair_confirm(app: web.Application, meta: dict, message: dict) -> None:
     first_device_id = message.get("my_device_id", "").strip()
     second_device_id = message.get("paired_with", "").strip()
-    if first_device_id and second_device_id:
-        await _persist_pairing(app, first_device_id, second_device_id)
-        await _broadcast_presence_update(app, first_device_id, second_device_id)
+    user_id = meta.get("user_id")
+    if user_id and first_device_id and second_device_id:
+        await _persist_pairing(app, user_id, first_device_id, second_device_id)
+        await _broadcast_presence_update(app, user_id, first_device_id, second_device_id)
 
 
 async def _handle_register_or_join(
@@ -245,9 +289,20 @@ async def _handle_register_or_join(
 ) -> None:
     code = message.get("code", "").strip()
     role = message.get("role", "phone" if message.get("type") == MessageTypes.REGISTER else "pc")
+    account_address = str(message.get("account_address") or "").strip()
     if not code:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "code missing"})
         return
+
+    if meta.get("user_id") is None:
+        if not account_address:
+            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "account_address missing"})
+            return
+        user_id = await asyncio.to_thread(app["db"].get_user_id_by_address, account_address)
+        if not user_id:
+            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Hesap bulunamadi"})
+            return
+        meta["user_id"] = user_id
 
     current_peer_code = meta.get("peer_code") or ""
     if current_peer_code.startswith("__auto_"):
@@ -258,9 +313,16 @@ async def _handle_register_or_join(
 
     session = _session_entry(app, code)
     session[role] = ws
-    app["session_devices"][code][role] = message.get("device_id", "").strip() or meta.get("device_id")
+    device_id = message.get("device_id", "").strip() or meta.get("device_id")
+    app["session_devices"][code][role] = device_id
     meta["peer_code"] = code
     meta["peer_role"] = role
+    if meta.get("user_id") and device_id:
+        meta["device_id"] = device_id
+        online_key = _online_key(meta["user_id"], device_id)
+        if online_key not in app["online_devices"]:
+            app["online_devices"][online_key] = {"ws": ws, "role": role, "user_id": meta["user_id"], "device_id": device_id}
+            await asyncio.to_thread(app["db"].set_device_online, meta["user_id"], device_id, True)
 
     ack = MessageTypes.REGISTERED if message.get("type") == MessageTypes.REGISTER else MessageTypes.JOINED
     await _send_json(ws, {"type": ack, "code": code, "role": role})
@@ -324,7 +386,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     await ws.prepare(request)
 
     app = request.app
-    meta = {"peer_code": None, "peer_role": None, "device_id": None}
+    meta = {"peer_code": None, "peer_role": None, "device_id": None, "user_id": None}
     app["ws_meta"][id(ws)] = meta
 
     try:
@@ -348,13 +410,14 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
             if message_type == MessageTypes.DEVICE_HELLO:
                 await _handle_device_hello(app, ws, meta, message)
             elif message_type == MessageTypes.PAIR_CONFIRM:
-                await _handle_pair_confirm(app, message)
+                await _handle_pair_confirm(app, meta, message)
             elif message_type in {MessageTypes.REGISTER, MessageTypes.JOIN}:
                 await _handle_register_or_join(app, ws, meta, message)
             elif message_type in {MessageTypes.REQUEST_PRESENCE, MessageTypes.HEARTBEAT}:
                 device_id = meta.get("device_id")
-                if device_id:
-                    await _send_device_ack(app, device_id)
+                user_id = meta.get("user_id")
+                if device_id and user_id:
+                    await _send_device_ack(app, user_id, device_id)
                 if message_type == MessageTypes.HEARTBEAT:
                     peer_ws = await _resolve_peer_ws(app, ws, meta) if meta.get("peer_code") else None
                     if peer_ws:
@@ -365,9 +428,11 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 await _send_json(ws, {"type": MessageTypes.ERROR, "message": f"Unknown: {message_type}"})
     finally:
         device_id = meta.get("device_id")
-        if device_id and app["online_devices"].get(device_id, {}).get("ws") is ws:
-            app["online_devices"].pop(device_id, None)
-            await asyncio.to_thread(app["db"].set_device_online, device_id, False)
+        user_id = meta.get("user_id")
+        online_key = _online_key(user_id, device_id) if device_id and user_id else None
+        if online_key and app["online_devices"].get(online_key, {}).get("ws") is ws:
+            app["online_devices"].pop(online_key, None)
+            await asyncio.to_thread(app["db"].set_device_online, user_id, device_id, False)
 
         peer_code = meta.get("peer_code")
         peer_role = meta.get("peer_role")
@@ -388,8 +453,8 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 app["session_devices"].pop(peer_code, None)
 
         app["ws_meta"].pop(id(ws), None)
-        if device_id:
-            await _broadcast_presence_update(app, device_id)
+        if device_id and user_id:
+            await _broadcast_presence_update(app, user_id, device_id)
     return ws
 
 
@@ -504,9 +569,23 @@ async def list_pairings(request: web.Request) -> web.Response:
     owns_device = await asyncio.to_thread(request.app["db"].user_owns_device, user[0], device_id)
     if not owns_device:
         return web.json_response({"ok": False, "message": "Bu cihaza erisim yetkiniz yok."}, status=403)
-    pairings = await asyncio.to_thread(request.app["db"].get_device_pairings, device_id)
+    pairings = await asyncio.to_thread(request.app["db"].get_device_pairings, user[0], device_id)
     payload = [_device_payload(item, request.app["online_devices"]) for item in pairings]
     return web.json_response({"ok": True, "pairings": payload})
+
+
+async def list_recent_devices(request: web.Request) -> web.Response:
+    user = await _require_user(request)
+    if not user:
+        return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
+
+    device_type = (request.query.get("device_type") or "").strip()
+    if device_type not in {"phone", "pc"}:
+        return web.json_response({"ok": False, "message": "device_type gerekli."}, status=400)
+
+    devices = await asyncio.to_thread(request.app["db"].get_user_recent_partner_devices, user[0], device_type)
+    payload = [_device_payload(device, request.app["online_devices"]) for device in devices]
+    return web.json_response({"ok": True, "devices": payload})
 
 
 async def delete_pairing(request: web.Request) -> web.Response:
@@ -525,12 +604,13 @@ async def delete_pairing(request: web.Request) -> web.Response:
 
     success = await asyncio.to_thread(
         request.app["db"].delete_pairing_by_device_ids,
+        user[0],
         device_id,
         partner_device_id,
     )
     if not success:
         return web.json_response({"ok": False, "message": "Eslesme silinemedi."}, status=500)
-    await _broadcast_presence_update(request.app, device_id, partner_device_id)
+    await _broadcast_presence_update(request.app, user[0], device_id, partner_device_id)
     return web.json_response({"ok": True})
 
 
@@ -557,6 +637,7 @@ def create_app() -> web.Application:
             web.get("/auth/me", auth_me),
             web.post("/devices/upsert", upsert_device),
             web.get("/devices", list_devices),
+            web.get("/recent-devices", list_recent_devices),
             web.get("/pairings", list_pairings),
             web.post("/pairings/delete", delete_pairing),
         ]
