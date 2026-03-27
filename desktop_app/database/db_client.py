@@ -8,7 +8,6 @@ import bcrypt
 import psycopg2
 import psycopg2.extras
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from typing import Optional
 
 from desktop_app.config import Prefs
@@ -31,7 +30,7 @@ CREATE TABLE IF NOT EXISTS devices (
     device_id   TEXT UNIQUE NOT NULL,
     device_type TEXT NOT NULL,
     device_name TEXT,
-    last_seen   TIMESTAMPTZ DEFAULT now()
+    is_online   BOOLEAN DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS pairings (
@@ -106,6 +105,8 @@ class DbClient:
                     cur.execute(_SCHEMA_SQL)
                     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT")
                     cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_name TEXT")
+                    cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT false")
+                    cur.execute("ALTER TABLE devices DROP COLUMN IF EXISTS last_seen")
                     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_address_unique_idx ON users(address)")
                     cur.execute("UPDATE users SET address = (111111111110 + id)::text WHERE address IS NULL")
                     cur.execute("""
@@ -241,17 +242,16 @@ class DbClient:
     # ─── Cihaz yönetimi ───────────────────────────────────────────────────────
 
     def upsert_device(self, user_id: int, device_id: str, device_type: str, device_name: str | None = None) -> bool:
-        """Cihazı DB'ye ekler ya da last_seen günceller."""
+        """Cihazı DB'ye ekler veya günceller."""
         try:
             with self._get_conn() as conn:
                 try:
                     with conn.cursor() as cur:
                         cur.execute("""
-                            INSERT INTO devices (user_id, device_id, device_type, device_name, last_seen)
-                            VALUES (%s, %s, %s, NULLIF(%s, ''), now())
+                            INSERT INTO devices (user_id, device_id, device_type, device_name)
+                            VALUES (%s, %s, %s, NULLIF(%s, ''))
                             ON CONFLICT (device_id) DO UPDATE
-                                SET last_seen = now(),
-                                    user_id = EXCLUDED.user_id,
+                                SET user_id = EXCLUDED.user_id,
                                     device_type = EXCLUDED.device_type,
                                     device_name = COALESCE(EXCLUDED.device_name, devices.device_name)
                         """, (user_id, device_id, device_type, device_name))
@@ -267,7 +267,7 @@ class DbClient:
     def get_paired_devices(self, pc_device_id: str) -> list[dict]:
         """
         Bu PC ile daha once eşleşmiş tüm telefonları döner.
-        Dönüş: [{"device_id": str, "last_seen": datetime | None}]
+        Dönüş: [{"device_id": str, "device_name": str|None, "is_online": bool, "address": str|None}]
         """
         try:
             with self._get_conn() as conn:
@@ -275,13 +275,13 @@ class DbClient:
                     cur.execute("""
                         SELECT p.phone_device_id AS device_id,
                                d.device_name,
-                               d.last_seen,
+                               COALESCE(d.is_online, false) AS is_online,
                                u.address
                         FROM pairings p
                         LEFT JOIN devices d ON d.device_id = p.phone_device_id
                         LEFT JOIN users u ON u.id = d.user_id
                         WHERE p.pc_device_id = %s
-                        ORDER BY d.last_seen DESC NULLS LAST
+                        ORDER BY d.is_online DESC, d.device_name ASC NULLS LAST
                     """, (pc_device_id,))
                     rows = cur.fetchall()
             return [dict(r) for r in rows]
@@ -331,21 +331,6 @@ class DbClient:
             logger.error(f"delete_pairing hatası: {e}")
             return False
 
-    def get_device_last_seen(self, device_id: str) -> Optional[datetime]:
-        """Bir cihazın son görülme zamanını döner."""
-        try:
-            with self._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT last_seen FROM devices WHERE device_id = %s",
-                        (device_id,)
-                    )
-                    row = cur.fetchone()
-            return row[0] if row else None
-        except Exception as e:
-            logger.error(f"get_device_last_seen hatası: {e}")
-            return None
-
     def find_phone_device_by_address(self, address: str) -> Optional[str]:
         try:
             with self._get_conn() as conn:
@@ -356,7 +341,7 @@ class DbClient:
                         FROM devices d
                         JOIN users u ON u.id = d.user_id
                         WHERE u.address = %s AND d.device_type = 'phone'
-                        ORDER BY d.last_seen DESC NULLS LAST, d.id DESC
+                        ORDER BY d.is_online DESC, d.id DESC
                         LIMIT 1
                         """,
                         (address,),

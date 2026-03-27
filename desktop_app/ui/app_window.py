@@ -1,6 +1,5 @@
 import logging
 import os
-from datetime import datetime, timezone
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QFont, QPixmap
@@ -97,22 +96,6 @@ def _display_username(username: str | None) -> str:
     return value[:1].upper() + value[1:]
 
 
-def _relative_time(dt: datetime | None) -> str:
-    if dt is None:
-        return "Hic baglanmadi"
-    now = datetime.now(timezone.utc)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    diff = int((now - dt).total_seconds())
-    if diff < 60:
-        return "Az once"
-    if diff < 3600:
-        return f"{diff // 60} dk once"
-    if diff < 86400:
-        return f"{diff // 3600} sa once"
-    return f"{diff // 86400} gun once"
-
-
 def _digits_before_cursor(text: str, cursor: int) -> int:
     """Count how many digit characters appear before `cursor` in `text`."""
     return sum(1 for ch in text[:cursor] if ch.isdigit())
@@ -136,7 +119,6 @@ class DeviceCard(QFrame):
     def __init__(
         self,
         device_id: str,
-        last_seen: datetime | None,
         address: str | None = None,
         device_name: str | None = None,
         parent=None,
@@ -145,14 +127,13 @@ class DeviceCard(QFrame):
         self.device_id = device_id
         self.address = address
         self.device_name = device_name
-        self._last_seen = last_seen
         self._online = False
         self._connect_cb = None
         self._forget_cb = None
         self.setFixedSize(230, 125)
-        self._build(device_id, last_seen, address, device_name)
+        self._build(device_id, address, device_name)
 
-    def _build(self, device_id: str, last_seen: datetime | None, address: str | None, device_name: str | None):
+    def _build(self, device_id: str, address: str | None, device_name: str | None):
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(4)
@@ -192,9 +173,9 @@ class DeviceCard(QFrame):
         self._lbl_address.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 10px; background: transparent;")
         root.addWidget(self._lbl_address)
 
-        self._lbl_time = QLabel(_relative_time(last_seen))
-        self._lbl_time.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
-        root.addWidget(self._lbl_time)
+        self._lbl_status = QLabel("Cevrimdisi")
+        self._lbl_status.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
+        root.addWidget(self._lbl_status)
 
         self._apply_card_style()
 
@@ -237,24 +218,16 @@ class DeviceCard(QFrame):
         self._online = online
         if online:
             self._dot.setStyleSheet(f"background-color: {_GREEN}; border-radius: 4px;")
-            self._lbl_time.setText("Cevrimici")
-            self._lbl_time.setStyleSheet(f"color: {_GREEN}; font-size: 10px; font-weight: 600; background: transparent;")
+            self._lbl_status.setText("Cevrimici")
+            self._lbl_status.setStyleSheet(f"color: {_GREEN}; font-size: 10px; font-weight: 600; background: transparent;")
         else:
             self._dot.setStyleSheet(f"background-color: {_TEXT_DIM}; border-radius: 4px;")
-            self._lbl_time.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
-            self._lbl_time.setText(_relative_time(self._last_seen))
+            self._lbl_status.setText("Cevrimdisi")
+            self._lbl_status.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
         self._apply_card_style()
 
-    def set_last_seen(self, dt: datetime | None):
-        self._last_seen = dt
-        if not self._online:
-            self._lbl_time.setText(_relative_time(dt))
-
     def set_connecting(self):
-        self._lbl_time.setText("Baglaniyor...")
-
-    def reset_connect_label(self):
-        pass
+        self._lbl_status.setText("Baglaniyor...")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._online and self._connect_cb:
@@ -887,7 +860,6 @@ class MainWindow(QMainWindow):
         for device in devices:
             card = DeviceCard(
                 device["device_id"],
-                device.get("last_seen"),
                 device.get("address"),
                 device.get("device_name"),
             )
