@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime
 
 from aiohttp import WSMsgType, web
 
@@ -17,18 +16,14 @@ logging.basicConfig(level=logging.INFO, format=ServerConfig.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
-def _serialize_datetime(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
-
-
 def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
+    is_online = bool(device.get("is_online")) or device["device_id"] in online_devices
     return {
         "device_id": device["device_id"],
         "device_type": device["device_type"],
         "device_name": device.get("device_name"),
         "address": device.get("address"),
-        "last_seen": _serialize_datetime(device.get("last_seen")),
-        "online": device["device_id"] in online_devices,
+        "is_online": is_online,
     }
 
 
@@ -123,11 +118,21 @@ async def _broadcast_presence_update(app: web.Application, *device_ids: str) -> 
             logger.exception("Presence update gonderilemedi: %s", impacted_device_id)
 
 
+async def _persist_pairing(app: web.Application, first_device_id: str, second_device_id: str) -> None:
+    if not first_device_id or not second_device_id:
+        return
+    await asyncio.to_thread(app["db"].save_pairing_by_device_ids, first_device_id, second_device_id)
+
+
 async def _notify_paired(app: web.Application, code: str) -> None:
     session = app["sessions"].get(code, {})
     session_devices = app["session_devices"].get(code, {})
     if "phone" not in session or "pc" not in session:
         return
+
+    phone_device_id = session_devices.get("phone", "")
+    pc_device_id = session_devices.get("pc", "")
+    await _persist_pairing(app, phone_device_id, pc_device_id)
 
     logger.info("Paired session created: %s", code)
     for role, ws in session.items():
@@ -141,6 +146,7 @@ async def _notify_paired(app: web.Application, code: str) -> None:
                 "partner_device_id": session_devices.get(partner_role, ""),
             },
         )
+    await _broadcast_presence_update(app, phone_device_id, pc_device_id)
 
 
 async def _pick_online_partner(app: web.Application, device_id: str, role: str) -> str | None:
@@ -179,6 +185,7 @@ async def _handle_device_hello(
 
     meta["device_id"] = device_id
     app["online_devices"][device_id] = {"ws": ws, "role": role}
+    await asyncio.to_thread(app["db"].set_device_online, device_id, True)
 
     preferred_partner_id = str(message.get("preferred_partner_id") or "").strip() or None
     allow_auto_pair = bool(message.get("auto_pair", False))
@@ -199,6 +206,7 @@ async def _handle_device_hello(
             partner_meta["peer_code"] = session_code
             partner_meta["peer_role"] = partner_role
 
+        await _persist_pairing(app, device_id, partner_id)
         await _send_json(
             ws,
             {
@@ -225,7 +233,7 @@ async def _handle_pair_confirm(app: web.Application, message: dict) -> None:
     first_device_id = message.get("my_device_id", "").strip()
     second_device_id = message.get("paired_with", "").strip()
     if first_device_id and second_device_id:
-        await asyncio.to_thread(app["db"].save_pairing_by_device_ids, first_device_id, second_device_id)
+        await _persist_pairing(app, first_device_id, second_device_id)
         await _broadcast_presence_update(app, first_device_id, second_device_id)
 
 
@@ -359,6 +367,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         device_id = meta.get("device_id")
         if device_id and app["online_devices"].get(device_id, {}).get("ws") is ws:
             app["online_devices"].pop(device_id, None)
+            await asyncio.to_thread(app["db"].set_device_online, device_id, False)
 
         peer_code = meta.get("peer_code")
         peer_role = meta.get("peer_role")
@@ -521,6 +530,7 @@ async def delete_pairing(request: web.Request) -> web.Response:
     )
     if not success:
         return web.json_response({"ok": False, "message": "Eslesme silinemedi."}, status=500)
+    await _broadcast_presence_update(request.app, device_id, partner_device_id)
     return web.json_response({"ok": True})
 
 
@@ -531,6 +541,7 @@ async def on_cleanup(app: web.Application) -> None:
 def create_app() -> web.Application:
     db = ServerDbClient()
     db.init_schema()
+    db.reset_all_online()
 
     app = web.Application()
     app["db"] = db

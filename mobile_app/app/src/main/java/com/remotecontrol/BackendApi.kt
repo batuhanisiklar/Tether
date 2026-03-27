@@ -27,7 +27,6 @@ data class DeviceSummary(
     val deviceType: String,
     val deviceName: String?,
     val address: String?,
-    val lastSeen: String?,
     val online: Boolean,
 ) {
     fun displayName(): String = deviceName?.takeIf { it.isNotBlank() }
@@ -232,8 +231,7 @@ class BackendApi(
                         deviceType = item.optString("device_type"),
                         deviceName = item.optString("device_name").takeIf { it.isNotBlank() },
                         address = item.optString("address").takeIf { it.isNotBlank() },
-                        lastSeen = item.optString("last_seen").takeIf { it.isNotBlank() },
-                        online = item.optBoolean("online", false),
+                        online = item.optBoolean("is_online", false),
                     )
                 )
             }

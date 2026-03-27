@@ -313,7 +313,6 @@ class MainActivity : AppCompatActivity() {
                     deviceType = "pc",
                     deviceName = null,
                     address = null,
-                    lastSeen = null,
                     online = deviceIdValue in onlineSet,
                 )
         }

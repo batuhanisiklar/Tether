@@ -100,11 +100,8 @@ class DevicesFragment : Fragment(), DashboardFragment {
                 ?.take(12)
                 ?.chunked(4)
                 ?.joinToString(" ")
-            val lastSeenPart = device.lastSeen
-                ?.substringBefore("T")
-                ?.takeIf { it.isNotBlank() }
-                ?.let { "Son gorulme: $it" }
-            text = listOfNotNull(addressPart, lastSeenPart).joinToString("  •  ")
+            val statusPart = if (device.online) "Aktif" else "Cevrimdisi"
+            text = listOfNotNull(addressPart, statusPart).joinToString("  •  ")
             setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setPadding(dp(18), dp(4), 0, 0)

@@ -1,7 +1,6 @@
 import logging
 import os
 from contextlib import contextmanager
-from datetime import datetime
 
 import bcrypt
 import psycopg2
@@ -30,7 +29,7 @@ CREATE TABLE IF NOT EXISTS devices (
     device_id   TEXT UNIQUE NOT NULL,
     device_type TEXT NOT NULL,
     device_name TEXT,
-    last_seen   TIMESTAMPTZ DEFAULT now()
+    is_online   BOOLEAN DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS pairings (
@@ -67,6 +66,8 @@ class ServerDbClient:
                     cur.execute(SCHEMA_SQL)
                     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT")
                     cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_name TEXT")
+                    cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT false")
+                    cur.execute("ALTER TABLE devices DROP COLUMN IF EXISTS last_seen")
                     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_address_unique_idx ON users(address)")
                     cur.execute("UPDATE users SET address = (111111111110 + id)::text WHERE address IS NULL")
                     cur.execute("""
@@ -193,13 +194,12 @@ class ServerDbClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO devices (user_id, device_id, device_type, device_name, last_seen)
-                        VALUES (%s, %s, %s, NULLIF(%s, ''), now())
+                        INSERT INTO devices (user_id, device_id, device_type, device_name)
+                        VALUES (%s, %s, %s, NULLIF(%s, ''))
                         ON CONFLICT (device_id) DO UPDATE
                             SET user_id = EXCLUDED.user_id,
                                 device_type = EXCLUDED.device_type,
-                                device_name = COALESCE(EXCLUDED.device_name, devices.device_name),
-                                last_seen = now()
+                                device_name = COALESCE(EXCLUDED.device_name, devices.device_name)
                         WHERE devices.user_id = EXCLUDED.user_id OR devices.user_id IS NULL
                         RETURNING device_id
                         """,
@@ -214,6 +214,27 @@ class ServerDbClient:
         except Exception as exc:
             logger.error("Device upsert hatasi: %s", exc)
             return False
+
+    def reset_all_online(self) -> None:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE devices SET is_online = false WHERE is_online = true")
+                conn.commit()
+        except Exception as exc:
+            logger.error("reset_all_online hatasi: %s", exc)
+
+    def set_device_online(self, device_id: str, is_online: bool) -> None:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE devices SET is_online = %s WHERE device_id = %s",
+                        (is_online, device_id),
+                    )
+                conn.commit()
+        except Exception as exc:
+            logger.error("set_device_online hatasi: %s", exc)
 
     def get_paired_partners(self, device_id: str) -> list[str]:
         try:
@@ -322,10 +343,10 @@ class ServerDbClient:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute(
                         """
-                        SELECT device_id, device_type, device_name, last_seen
+                        SELECT device_id, device_type, device_name, is_online
                         FROM devices
                         WHERE user_id = %s
-                        ORDER BY last_seen DESC NULLS LAST
+                        ORDER BY is_online DESC, device_name ASC NULLS LAST
                         """,
                         (user_id,),
                     )
@@ -336,7 +357,8 @@ class ServerDbClient:
 
     def get_device_pairings(self, device_id: str) -> list[dict]:
         query = """
-            SELECT counterpart.device_id, counterpart.device_type, counterpart.device_name, counterpart.last_seen, owner.address
+            SELECT counterpart.device_id, counterpart.device_type, counterpart.device_name,
+                   counterpart.is_online, owner.address
             FROM pairings p
             JOIN devices counterpart
               ON counterpart.device_id = CASE
@@ -345,7 +367,7 @@ class ServerDbClient:
                  END
             LEFT JOIN users owner ON owner.id = counterpart.user_id
             WHERE p.phone_device_id = %(device_id)s OR p.pc_device_id = %(device_id)s
-            ORDER BY counterpart.last_seen DESC NULLS LAST
+            ORDER BY counterpart.is_online DESC, counterpart.device_name ASC NULLS LAST
         """
         try:
             with self._get_conn() as conn:
@@ -366,7 +388,7 @@ class ServerDbClient:
                         FROM devices d
                         JOIN users u ON u.id = d.user_id
                         WHERE u.address = %s AND d.device_type = 'phone'
-                        ORDER BY d.last_seen DESC NULLS LAST, d.id DESC
+                        ORDER BY d.is_online DESC, d.id DESC
                         LIMIT 1
                         """,
                         (address,),
