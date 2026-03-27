@@ -235,23 +235,23 @@ async def _pick_preferred_online_partner(
     preferred_partner_id: str | None,
     preferred_partner_address: str | None,
 ) -> tuple[int, str] | None:
-    if preferred_partner_address:
-        binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, preferred_partner_address)
+    lookup_partner_id = preferred_partner_id or preferred_partner_address
+    if lookup_partner_id:
+        binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, lookup_partner_id)
         if not binding:
-            return None
-        target_user_id = int(binding["user_id"])
-        candidate_id = str(binding["device_id"])
-        partner_entry = app["online_devices"].get(_online_key(target_user_id, candidate_id))
-        if partner_entry and partner_entry["role"] != role:
-            return target_user_id, candidate_id
-    if preferred_partner_id:
-        partner_refs = await _get_paired_partner_refs(app, user_id, device_id)
-        for partner_user_id, partner_id in partner_refs:
-            if partner_id != preferred_partner_id:
-                continue
-            partner_entry = app["online_devices"].get(_online_key(partner_user_id, partner_id))
+            partner_refs = await _get_paired_partner_refs(app, user_id, device_id)
+            for partner_user_id, partner_id in partner_refs:
+                if partner_id != lookup_partner_id:
+                    continue
+                partner_entry = app["online_devices"].get(_online_key(partner_user_id, partner_id))
+                if partner_entry and partner_entry["role"] != role:
+                    return partner_user_id, partner_id
+        else:
+            target_user_id = int(binding["user_id"])
+            candidate_id = str(binding["device_id"])
+            partner_entry = app["online_devices"].get(_online_key(target_user_id, candidate_id))
             if partner_entry and partner_entry["role"] != role:
-                return partner_user_id, partner_id
+                return target_user_id, candidate_id
     fallback_partner = await _pick_online_partner(app, user_id, device_id, role)
     if fallback_partner:
         return fallback_partner
@@ -266,14 +266,13 @@ async def _handle_device_hello(
 ) -> None:
     device_id = str(message.get("device_id") or "").strip()
     role = message.get("role", "")
-    device_address = str(message.get("device_address") or "").strip()
-    if not device_id or role not in {"phone", "pc"} or not device_address:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id, role ve device_address gerekli"})
+    if not device_id or role not in {"phone", "pc"}:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id ve role gerekli"})
         return
 
-    binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, device_address)
+    binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, device_id)
     if not binding:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz adresi bulunamadi"})
+        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz bulunamadi"})
         return
     user_id = int(binding["user_id"])
     if str(binding["device_id"]) != device_id or str(binding["device_type"]) != role:
@@ -383,22 +382,22 @@ async def _handle_register_or_join(
 ) -> None:
     code = message.get("code", "").strip()
     role = message.get("role", "phone" if message.get("type") == MessageTypes.REGISTER else "pc")
-    device_address = str(message.get("device_address") or "").strip()
     if not code:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "code missing"})
         return
 
     if meta.get("user_id") is None:
-        if not device_address:
-            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_address missing"})
+        device_id = message.get("device_id", "").strip() or meta.get("device_id")
+        if not device_id:
+            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id missing"})
             return
-        binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, device_address)
+        binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, device_id)
         if not binding:
-            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz adresi bulunamadi"})
+            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz bulunamadi"})
             return
         user_id = int(binding["user_id"])
-        if str(binding["device_id"]) != (message.get("device_id", "").strip() or meta.get("device_id")):
-            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz adresi bu oturumla eslesmiyor"})
+        if str(binding["device_id"]) != device_id:
+            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz kimligi bu oturumla eslesmiyor"})
             return
         meta["user_id"] = user_id
 
@@ -567,17 +566,16 @@ async def auth_register(request: web.Request) -> web.Response:
     auth_result = await asyncio.to_thread(request.app["db"].authenticate_user, username, password)
     if auth_result is None:
         return web.json_response({"ok": False, "message": "Kayit sonrasi giris yapilamadi."}, status=500)
-    user_id, normalized_username, address = auth_result
+    user_id, normalized_username = auth_result
 
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
-    device_address = ""
-    if device_id and device_type in {"phone", "pc"}:
-        updated = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
-        if not updated:
+    resolved_device_id = ""
+    if device_type in {"phone", "pc"}:
+        resolved_device_id = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name) or ""
+        if not resolved_device_id:
             return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
-        device_address = await asyncio.to_thread(request.app["db"].get_user_device_address, user_id, device_id) or ""
 
     token = issue_token(user_id, normalized_username)
     return web.json_response(
@@ -585,7 +583,12 @@ async def auth_register(request: web.Request) -> web.Response:
             "ok": True,
             "message": message,
             "token": token,
-            "user": {"id": user_id, "username": normalized_username, "address": device_address or address},
+            "user": {
+                "id": user_id,
+                "username": normalized_username,
+                "device_id": resolved_device_id,
+                "address": resolved_device_id,
+            },
         }
     )
 
@@ -600,23 +603,27 @@ async def auth_login(request: web.Request) -> web.Response:
     if auth_result is None:
         return web.json_response({"ok": False, "message": "Kullanici adi veya sifre hatali."}, status=401)
 
-    user_id, username, address = auth_result
+    user_id, username = auth_result
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
-    device_address = ""
-    if device_id and device_type in {"phone", "pc"}:
-        updated = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
-        if not updated:
+    resolved_device_id = ""
+    if device_type in {"phone", "pc"}:
+        resolved_device_id = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name) or ""
+        if not resolved_device_id:
             return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
-        device_address = await asyncio.to_thread(request.app["db"].get_user_device_address, user_id, device_id) or ""
 
     token = issue_token(user_id, username)
     return web.json_response(
         {
             "ok": True,
             "token": token,
-            "user": {"id": user_id, "username": username, "address": device_address or address},
+            "user": {
+                "id": user_id,
+                "username": username,
+                "device_id": resolved_device_id,
+                "address": resolved_device_id,
+            },
         }
     )
 
@@ -641,14 +648,13 @@ async def upsert_device(request: web.Request) -> web.Response:
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
-    if not device_id or device_type not in {"phone", "pc"}:
+    if device_type not in {"phone", "pc"}:
         return web.json_response({"ok": False, "message": "device_id ve device_type gerekli."}, status=400)
 
-    updated = await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type, device_name)
-    if not updated:
+    resolved_device_id = await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type, device_name) or ""
+    if not resolved_device_id:
         return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
-    device_address = await asyncio.to_thread(request.app["db"].get_user_device_address, user[0], device_id) or ""
-    return web.json_response({"ok": True, "address": device_address})
+    return web.json_response({"ok": True, "device_id": resolved_device_id, "address": resolved_device_id})
 
 
 async def list_devices(request: web.Request) -> web.Response:
@@ -710,7 +716,6 @@ async def delete_pairing(request: web.Request) -> web.Response:
         user[0],
         device_id,
         partner_device_id,
-        data.get("partner_address", "").strip() or None,
     )
     if not success:
         return web.json_response({"ok": False, "message": "Eslesme silinemedi."}, status=500)
