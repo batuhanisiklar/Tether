@@ -333,7 +333,7 @@ class MainWindow(QMainWindow):
         self._heartbeat.timeout.connect(self._ws_client.send_heartbeat)
 
         self._presence_timer = QTimer(self)
-        self._presence_timer.setInterval(15_000)
+        self._presence_timer.setInterval(4_000)
         self._presence_timer.timeout.connect(self._on_presence_tick)
 
         self._reconnect_timer = QTimer(self)
@@ -627,7 +627,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(dot)
 
         self._inp_code = QLineEdit()
-        self._inp_code.setPlaceholderText("Uzak adres girin")
+        self._inp_code.setPlaceholderText("Telefon sabit adresi (12 hane)")
         self._inp_code.setFixedHeight(28)
         self._inp_code.setMaxLength(14)
         font = QFont("Segoe UI", 12)
@@ -888,6 +888,47 @@ class MainWindow(QMainWindow):
         tbl.addWidget(self._btn_disconnect)
         left.addWidget(top_bar)
 
+        self._remote_pair_row = QFrame()
+        self._remote_pair_row.setStyleSheet(
+            f"background-color: {_BG_RAISED}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+        )
+        rpl = QHBoxLayout(self._remote_pair_row)
+        rpl.setContentsMargins(12, 8, 12, 8)
+        rpl.setSpacing(10)
+        rpl_lbl = QLabel("Telefon sabit adresi")
+        rpl_lbl.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
+        rpl.addWidget(rpl_lbl)
+        self._inp_remote_code = QLineEdit()
+        self._inp_remote_code.setPlaceholderText("Ornek: 4399-0314-5105")
+        self._inp_remote_code.setFixedHeight(28)
+        self._inp_remote_code.setMaxLength(14)
+        rfont = QFont("Segoe UI", 12)
+        self._inp_remote_code.setFont(rfont)
+        self._inp_remote_code.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {_BG_INPUT}; border: 1px solid {_BORDER};
+                border-radius: 4px; padding: 0 10px; color: {_TEXT};
+                selection-background-color: {_ACCENT};
+            }}
+            QLineEdit:focus {{ border-color: {_ACCENT}; }}
+        """)
+        self._inp_remote_code.returnPressed.connect(self._on_remote_connect)
+        self._inp_remote_code.textChanged.connect(self._on_remote_address_text_changed)
+        rpl.addWidget(self._inp_remote_code, stretch=1)
+        self._btn_remote_connect = QPushButton("Baglan")
+        self._btn_remote_connect.setFixedHeight(28)
+        self._btn_remote_connect.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_remote_connect.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {_ACCENT}; color: white; border: none;
+                border-radius: 4px; font-size: 11px; font-weight: 600; padding: 0 14px;
+            }}
+            QPushButton:hover {{ background-color: {_ACCENT_HOVER}; }}
+            QPushButton:disabled {{ background-color: #444; color: #666; }}
+        """)
+        rpl.addWidget(self._btn_remote_connect)
+        left.addWidget(self._remote_pair_row)
+
         screen_frame = QFrame()
         screen_frame.setStyleSheet(
             f"background-color: #0E0E0E; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
@@ -984,6 +1025,7 @@ class MainWindow(QMainWindow):
     # ── Signals ──────────────────────────────────────────────────────────────
     def _connect_signals(self):
         self._btn_connect.clicked.connect(self._on_connect)
+        self._btn_remote_connect.clicked.connect(self._on_remote_connect)
         self._btn_disconnect.clicked.connect(self._on_disconnect)
         self._btn_rotate.clicked.connect(self._on_rotate_toggle)
         self._ws_client.connected.connect(self._on_ws_connected)
@@ -1231,9 +1273,7 @@ class MainWindow(QMainWindow):
             self._set_status(Ui.MSG_WAITING)
 
     # ── Connect button ───────────────────────────────────────────────────────
-    @pyqtSlot()
-    def _on_connect(self):
-        raw_value = "".join(ch for ch in self._inp_code.text() if ch.isdigit())
+    def _submit_static_address(self, raw_value: str) -> None:
         if not raw_value:
             self._set_status("Adres girilmedi.", error=True)
             return
@@ -1246,6 +1286,7 @@ class MainWindow(QMainWindow):
 
         self._manual_disconnect = True
         self._btn_connect.setEnabled(False)
+        self._btn_remote_connect.setEnabled(False)
         self._set_status("Cihaz adresine baglaniliyor...")
         matching_card = next(
             (card for card in self._device_cards.values() if (card.connection_address() or "") == _format_address(raw_value)),
@@ -1268,6 +1309,14 @@ class MainWindow(QMainWindow):
         )
         self._refresh_home_summary()
 
+    @pyqtSlot()
+    def _on_connect(self):
+        self._submit_static_address("".join(ch for ch in self._inp_code.text() if ch.isdigit()))
+
+    @pyqtSlot()
+    def _on_remote_connect(self):
+        self._submit_static_address("".join(ch for ch in self._inp_remote_code.text() if ch.isdigit()))
+
     @pyqtSlot(str)
     def _on_address_text_changed(self, text: str):
         digits = "".join(ch for ch in text if ch.isdigit())[:12]
@@ -1280,6 +1329,19 @@ class MainWindow(QMainWindow):
             self._inp_code.blockSignals(False)
             new_cursor = _cursor_for_digit_count(formatted, digit_pos)
             self._inp_code.setCursorPosition(new_cursor)
+
+    @pyqtSlot(str)
+    def _on_remote_address_text_changed(self, text: str):
+        digits = "".join(ch for ch in text if ch.isdigit())[:12]
+        formatted = _format_address(digits)
+        if text != formatted:
+            old_cursor = self._inp_remote_code.cursorPosition()
+            digit_pos = _digits_before_cursor(text, old_cursor)
+            self._inp_remote_code.blockSignals(True)
+            self._inp_remote_code.setText(formatted)
+            self._inp_remote_code.blockSignals(False)
+            new_cursor = _cursor_for_digit_count(formatted, digit_pos)
+            self._inp_remote_code.setCursorPosition(new_cursor)
 
     @pyqtSlot()
     def _on_disconnect(self):
@@ -1350,6 +1412,7 @@ class MainWindow(QMainWindow):
         was_manual = self._manual_disconnect
         self._manual_disconnect = False
         self._btn_connect.setEnabled(True)
+        self._btn_remote_connect.setEnabled(True)
         if was_manual:
             return
         self._set_connected(False)
@@ -1540,6 +1603,8 @@ class MainWindow(QMainWindow):
     def _set_connected(self, connected: bool):
         self._connected = connected
         self._btn_connect.setEnabled(not connected)
+        self._btn_remote_connect.setEnabled(not connected)
+        self._remote_pair_row.setVisible(not connected)
         self._btn_disconnect.setEnabled(connected)
         self._btn_rotate.setEnabled(connected)
         for btn in self._key_buttons:

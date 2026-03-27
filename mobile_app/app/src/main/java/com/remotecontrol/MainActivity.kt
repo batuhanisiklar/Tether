@@ -342,12 +342,27 @@ class MainActivity : AppCompatActivity() {
         pairedDeviceIds: List<String>,
         onlineDeviceIds: List<String>,
     ) {
-        if (pairedDeviceIds.isEmpty() && onlineDeviceIds.isEmpty()) {
-            currentPairings = emptyList()
-            refreshFragments()
-            return
+        val pairedSet = pairedDeviceIds.toSet()
+        val onlineSet = onlineDeviceIds.toSet()
+        runOnUiThread {
+            if (pairedSet.isEmpty() && onlineSet.isEmpty()) {
+                scope.launch { refreshPairings() }
+                return@runOnUiThread
+            }
+            if (pairedSet.isNotEmpty() && currentPairings.isNotEmpty()) {
+                currentPairings = currentPairings
+                    .map { d ->
+                        if (d.deviceId in pairedSet) d.copy(online = d.deviceId in onlineSet) else d
+                    }
+                    .sortedWith(
+                        compareByDescending<DeviceSummary> { it.online }
+                            .thenBy { it.deviceName ?: "" }
+                            .thenBy { it.address ?: "" },
+                    )
+                refreshFragments()
+            }
+            scope.launch { refreshPairings() }
         }
-        scope.launch { refreshPairings() }
     }
 
     private fun handleCommand(action: String, params: Map<String, Any>) {

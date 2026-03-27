@@ -32,6 +32,7 @@ class SignalingClient(
     companion object {
         private const val TAG = "SignalingClient"
         private const val MAX_PENDING_FRAME_BYTES = 1_500_000L
+        private const val PRESENCE_POLL_MS = 3_500L
         fun generateCode(): String = (100_000..999_999).random().toString()
 
         /** Diğer servislerden frame göndermek için erişilebilir instance */
@@ -84,6 +85,20 @@ class SignalingClient(
                         put("device_id", deviceId)
                     }
                     webSocket.send(registerMsg.toString())
+                }
+
+                scope.launch {
+                    while (isActive) {
+                        delay(PRESENCE_POLL_MS)
+                        val sock = ws ?: break
+                        try {
+                            sock.send(
+                                JSONObject().apply { put("type", "request_presence") }.toString(),
+                            )
+                        } catch (_: Exception) {
+                            break
+                        }
+                    }
                 }
             }
 
