@@ -410,9 +410,9 @@ async def auth_register(request: web.Request) -> web.Response:
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
     if device_id and device_type in {"phone", "pc"}:
-        claimed = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
-        if not claimed:
-            return web.json_response({"ok": False, "message": "Bu cihaz baska bir hesapta kayitli."}, status=403)
+        updated = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
+        if not updated:
+            return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
 
     token = issue_token(user_id, normalized_username)
     return web.json_response(
@@ -440,9 +440,9 @@ async def auth_login(request: web.Request) -> web.Response:
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
     if device_id and device_type in {"phone", "pc"}:
-        claimed = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
-        if not claimed:
-            return web.json_response({"ok": False, "message": "Bu cihaz baska bir hesapta kayitli."}, status=403)
+        updated = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name)
+        if not updated:
+            return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
 
     token = issue_token(user_id, username)
     return web.json_response(
@@ -477,9 +477,9 @@ async def upsert_device(request: web.Request) -> web.Response:
     if not device_id or device_type not in {"phone", "pc"}:
         return web.json_response({"ok": False, "message": "device_id ve device_type gerekli."}, status=400)
 
-    claimed = await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type, device_name)
-    if not claimed:
-        return web.json_response({"ok": False, "message": "Bu cihaz baska bir hesapta kayitli."}, status=403)
+    updated = await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type, device_name)
+    if not updated:
+        return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
     return web.json_response({"ok": True})
 
 
