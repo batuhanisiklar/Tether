@@ -131,7 +131,7 @@ async def _broadcast_presence_update(app: web.Application, user_id: int, *device
 
 
 async def _broadcast_presence_change(app: web.Application, user_id: int, device_id: str) -> None:
-    await _broadcast_presence_change(app, user_id, device_id)
+    await _broadcast_presence_update(app, user_id, device_id)
     partner_refs = await _get_paired_partner_refs(app, user_id, device_id)
     cross_account_targets = {
         (partner_user_id, partner_id)
@@ -557,13 +557,23 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
 
 async def auth_register(request: web.Request) -> web.Response:
     data = await _json(request)
-    username = data.get("username", "")
+    email = (data.get("email") or data.get("username") or "").strip()
     password = data.get("password", "")
-    success, message = await asyncio.to_thread(request.app["db"].register_user, username, password)
+    first_name = (data.get("first_name") or "").strip()
+    last_name = (data.get("last_name") or "").strip()
+    phone = (data.get("phone") or "").strip() or None
+    success, message = await asyncio.to_thread(
+        request.app["db"].register_user,
+        email,
+        password,
+        first_name,
+        last_name,
+        phone,
+    )
     if not success:
         return web.json_response({"ok": False, "message": message}, status=400)
 
-    auth_result = await asyncio.to_thread(request.app["db"].authenticate_user, username, password)
+    auth_result = await asyncio.to_thread(request.app["db"].authenticate_user, email, password)
     if auth_result is None:
         return web.json_response({"ok": False, "message": "Kayit sonrasi giris yapilamadi."}, status=500)
     user_id, normalized_username = auth_result
@@ -595,9 +605,10 @@ async def auth_register(request: web.Request) -> web.Response:
 
 async def auth_login(request: web.Request) -> web.Response:
     data = await _json(request)
+    login_id = (data.get("email") or data.get("username") or "").strip()
     auth_result = await asyncio.to_thread(
         request.app["db"].authenticate_user,
-        data.get("username", ""),
+        login_id,
         data.get("password", ""),
     )
     if auth_result is None:
