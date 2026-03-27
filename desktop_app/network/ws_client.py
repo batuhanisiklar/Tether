@@ -106,8 +106,13 @@ class WsClient(QObject):
         )
         self._thread.start()
 
-    def disconnect(self):
-        """Bağlantıyı kapat."""
+    def disconnect(self, send_logout: bool = False):
+        """Bağlantıyı kapat. send_logout=True ise once sunucuya cevrimdisi bildirimi gonderilir."""
+        if self._ws and send_logout:
+            self._send_json(
+                {"type": "device_logout", "device_id": self.device_id},
+                silent=True,
+            )
         if self._ws:
             try:
                 self._ws.close()
@@ -208,7 +213,6 @@ class WsClient(QObject):
             "code": self._session_code,
             "role": "pc",
             "device_id": self.device_id,
-            "device_address": self._device_address or "",
         }, separators=(",", ":")))
 
     def _on_open_device_hello(self, ws):
@@ -224,10 +228,8 @@ class WsClient(QObject):
         }
         if self._preferred_partner_id:
             payload["preferred_partner_id"] = self._preferred_partner_id
-        if self._preferred_partner_address:
-            payload["preferred_partner_address"] = self._preferred_partner_address
-        if self._device_address:
-            payload["device_address"] = self._device_address
+        elif self._preferred_partner_address:
+            payload["preferred_partner_id"] = self._preferred_partner_address
         ws.send(json.dumps(payload, separators=(",", ":")))
 
     def _on_message(self, ws, raw):

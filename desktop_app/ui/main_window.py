@@ -707,7 +707,7 @@ class MainWindow(QMainWindow):
         self._logging_out = True
 
         self._mjpeg.stop()
-        self._ws_client.disconnect()
+        self._ws_client.disconnect(send_logout=True)
         self._heartbeat.stop()
         self._set_connected(False)
         self._screen.clear_frame()

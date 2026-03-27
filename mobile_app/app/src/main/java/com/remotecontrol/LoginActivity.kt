@@ -12,10 +12,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Login Aktivitesi
- * ================
- * Uygulamanin giris ve kayit ekranidir.
- * Basarili giriste backend token'i saklanir ve logout olana kadar korunur.
+ * Giris: e-posta + sifre. Kayit: ek alanlar + sifre tekrar (toggle ile).
  */
 class LoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityLoginBinding
@@ -23,6 +20,7 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var deviceIdentityStore: DeviceIdentityStore
     private lateinit var backendApi: BackendApi
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var registerMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,16 +37,38 @@ class LoginActivity : AppCompatActivity() {
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
         bindViews()
+        applyAuthModeUi()
     }
 
     private fun bindViews() {
         binding.btnLogin.setOnClickListener { attemptLogin() }
-        binding.btnRegister.setOnClickListener { attemptRegister() }
-
+        binding.btnRegister.setOnClickListener {
+            if (registerMode) attemptRegister() else {
+                registerMode = true
+                applyAuthModeUi()
+            }
+        }
+        binding.tvAuthSwitch.setOnClickListener {
+            registerMode = !registerMode
+            applyAuthModeUi()
+        }
         binding.etPassword.setOnEditorActionListener { _, _, _ ->
-            attemptLogin()
+            if (!registerMode) attemptLogin()
             true
         }
+    }
+
+    private fun applyAuthModeUi() {
+        val reg = registerMode
+        binding.registerFieldsBlock.visibility = if (reg) View.VISIBLE else View.GONE
+        binding.etPasswordConfirm.visibility = if (reg) View.VISIBLE else View.GONE
+        binding.labelPasswordConfirm.visibility = if (reg) View.VISIBLE else View.GONE
+        binding.btnLogin.visibility = if (reg) View.GONE else View.VISIBLE
+        binding.btnRegister.text = getString(if (reg) R.string.register_submit_button else R.string.register_button)
+        binding.tvAuthSwitch.text = getString(
+            if (reg) R.string.login_switch_to_login else R.string.login_switch_to_register,
+        )
+        hideError()
     }
 
     private fun attemptLogin() {
@@ -60,23 +80,56 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun submitAuth(isRegister: Boolean) {
-        val username = binding.etUsername.text.toString().trim()
+        val firstName = binding.etFirstName.text.toString().trim()
+        val lastName = binding.etLastName.text.toString().trim()
+        val email = binding.etEmail.text.toString().trim()
+        val phone = binding.etPhone.text.toString().trim()
         val password = binding.etPassword.text.toString()
+        val password2 = binding.etPasswordConfirm.text.toString()
         val deviceId = deviceIdentityStore.deviceId()
         val deviceName = MainActivity.buildDeviceName()
+        val macFp = HardwareFingerprint.macOrAndroidId(this)
 
-        if (username.isEmpty() || password.isEmpty()) {
-            showError("Lutfen tum alanlari doldurun.")
+        if (email.isEmpty() || password.isEmpty()) {
+            showError("E-posta ve sifre zorunludur.")
             return
+        }
+        if (isRegister) {
+            if (firstName.isEmpty() || lastName.isEmpty()) {
+                showError("Ad ve soyad zorunludur.")
+                return
+            }
+            if (!email.contains("@")) {
+                showError("Gecerli bir e-posta girin.")
+                return
+            }
+            if (password.length < 6) {
+                showError("Sifre en az 6 karakter olmali.")
+                return
+            }
+            if (password != password2) {
+                showError("Sifreler eslesmiyor.")
+                return
+            }
         }
 
         setLoading(true, isRegister)
         hideError()
         scope.launch {
             val result = if (isRegister) {
-                backendApi.register(username, password, deviceId, "phone", deviceName)
+                backendApi.register(
+                    firstName,
+                    lastName,
+                    email,
+                    phone,
+                    password,
+                    deviceId,
+                    "phone",
+                    deviceName,
+                    macFp,
+                )
             } else {
-                backendApi.login(username, password, deviceId, "phone", deviceName)
+                backendApi.login(email, password, deviceId, "phone", deviceName, macFp)
             }
             setLoading(false, isRegister)
 
@@ -90,6 +143,7 @@ class LoginActivity : AppCompatActivity() {
             }
 
             sessionStore.save(result.data)
+            deviceIdentityStore.saveDeviceId(result.data.address)
             hideError()
             goToMain()
         }
@@ -109,11 +163,22 @@ class LoginActivity : AppCompatActivity() {
         binding.tvLoginError.visibility = View.GONE
     }
 
-    private fun setLoading(loading: Boolean, isRegister: Boolean) {
+    private fun setLoading(loading: Boolean, isRegisterFlow: Boolean) {
         binding.btnLogin.isEnabled = !loading
         binding.btnRegister.isEnabled = !loading
-        binding.btnLogin.text = if (loading && !isRegister) "Giris yapiliyor..." else getString(R.string.login_button)
-        binding.btnRegister.text = if (loading && isRegister) "Kayit olusturuluyor..." else getString(R.string.register_button)
+        binding.tvAuthSwitch.isEnabled = !loading
+        if (registerMode) {
+            binding.btnRegister.text = when {
+                loading -> getString(R.string.register_loading)
+                else -> getString(R.string.register_submit_button)
+            }
+        } else {
+            binding.btnLogin.text = when {
+                loading && !isRegisterFlow -> getString(R.string.login_loading)
+                else -> getString(R.string.login_button)
+            }
+            binding.btnRegister.text = getString(R.string.register_button)
+        }
     }
 
     override fun onDestroy() {

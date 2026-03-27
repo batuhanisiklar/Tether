@@ -5,12 +5,24 @@
     <string name="login_icon">Bağlantı</string>
     <string name="login_title">Remote Control</string>
     <string name="login_subtitle">Telefonunuzu ve masaustunuzu ayni hesapta bulusturun</string>
-    <string name="login_username_label">Kullanıcı Adı</string>
-    <string name="login_username_hint">Kullanıcı adınızı girin</string>
+    <string name="login_first_name_label">Ad</string>
+    <string name="login_last_name_label">Soyad</string>
+    <string name="login_email_label">E-posta</string>
+    <string name="login_email_hint">ornek@eposta.com</string>
+    <string name="login_phone_label">Telefon (istege bagli)</string>
+    <string name="login_username_label">E-posta</string>
+    <string name="login_username_hint">ornek@eposta.com</string>
     <string name="login_password_label">Şifre</string>
     <string name="login_password_hint">Şifrenizi girin</string>
+    <string name="login_password_confirm_label">Şifre (tekrar)</string>
+    <string name="login_password_confirm_hint">Şifreyi tekrar girin</string>
+    <string name="login_switch_to_register">Hesabın yok mu? Kayıt ol</string>
+    <string name="login_switch_to_login">Zaten hesabın var mı? Giriş yap</string>
     <string name="login_button">Giriş Yap</string>
-    <string name="register_button">Kayit Ol</string>
+    <string name="login_loading">Giris yapiliyor...</string>
+    <string name="register_button">Kayit ekranina git</string>
+    <string name="register_submit_button">Kaydi tamamla</string>
+    <string name="register_loading">Kayit olusturuluyor...</string>
     <string name="login_helper">Ilk kullanimda kayit olun, sonraki acilislarda oturumunuz korunur.</string>
     <string name="login_footer">© 2026 Remote Phone Control</string>
 

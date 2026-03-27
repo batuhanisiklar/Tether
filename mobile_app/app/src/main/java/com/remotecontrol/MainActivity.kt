@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -57,6 +58,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var deviceId: String
     private val deviceName: String by lazy { buildDeviceName() }
     private var pairedPcId: String? = null
+    private var pairedPcAddress: String? = null
     private var currentStatus = "Baslatiliyor..."
     private var currentStatusDetail = ""
     private var currentAddress = "------------"
@@ -106,7 +108,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         deviceId = deviceIdentityStore.deviceId()
-        pairedPcId = deviceIdentityStore.pairedPcId()
+        pairedPcId = sessionStore.pairedPcId()
+        pairedPcAddress = sessionStore.pairedPcAddress()
         accessibilityEnabled = isAccessibilityServiceEnabled()
         currentAddress = sessionStore.address().ifBlank { "------------" }
         updateAccessibilityHint()
@@ -119,7 +122,7 @@ class MainActivity : AppCompatActivity() {
             syncDeviceState()
             refreshPairings()
         }
-        autoConnect(pairedPcId, allowAutoPair = false)
+        autoConnect(pairedPcId, pairedPcAddress, allowAutoPair = false)
     }
 
     private fun setupNavigation(initialSelect: Boolean) {
@@ -145,30 +148,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun reconnect() {
-        autoConnect(pairedPcId, allowAutoPair = pairedPcId != null)
+        autoConnect(pairedPcId, pairedPcAddress, allowAutoPair = pairedPcAddress != null || pairedPcId != null)
     }
 
-    fun connectToPairedDevice(partnerDeviceId: String) {
-        deviceIdentityStore.savePairedPcId(partnerDeviceId)
+    fun connectToPairedDevice(partnerDeviceId: String, partnerAddress: String?) {
+        if (!partnerAddress.isNullOrBlank()) {
+            sessionStore.savePairedPcAddress(partnerAddress)
+            pairedPcAddress = partnerAddress.filter(Char::isDigit).take(12)
+        }
+        sessionStore.savePairedPcId(partnerDeviceId)
         pairedPcId = partnerDeviceId
         updateStatus("Secilen bilgisayara baglaniliyor")
         refreshFragments()
-        autoConnect(partnerDeviceId, allowAutoPair = true)
+        autoConnect(partnerDeviceId, pairedPcAddress, allowAutoPair = true)
     }
 
     fun stopStreamsFromUi() {
         stopAllStreams()
     }
 
-    fun forgetPairingFromUi(partnerDeviceId: String) {
+    fun forgetPairingFromUi(partnerDeviceId: String, partnerAddress: String?) {
         scope.launch {
             val token = sessionStore.authToken()
             if (token.isBlank()) return@launch
-            val result = backendApi.deletePairing(token, deviceId, partnerDeviceId)
+            val result = backendApi.deletePairing(token, deviceId, partnerDeviceId, partnerAddress)
             if (result.error.isNullOrBlank()) {
-                if (pairedPcId == partnerDeviceId) {
-                    deviceIdentityStore.clearPairedPcId()
+                val normalizedPartnerAddress = partnerAddress?.filter(Char::isDigit)?.take(12)
+                if (pairedPcId == partnerDeviceId || (!normalizedPartnerAddress.isNullOrBlank() && pairedPcAddress == normalizedPartnerAddress)) {
+                    sessionStore.clearPairedPcId()
+                    sessionStore.clearPairedPcAddress()
                     pairedPcId = null
+                    pairedPcAddress = null
                 }
                 Toast.makeText(this@MainActivity, getString(R.string.forget_pairing_success), Toast.LENGTH_SHORT).show()
                 refreshPairings()
@@ -186,11 +196,14 @@ class MainActivity : AppCompatActivity() {
     fun logout() {
         connectionGeneration += 1
         stopAllStreams()
-        deviceIdentityStore.clearPairedPcId()
+        sessionStore.clearPairedPcId()
+        sessionStore.clearPairedPcAddress()
         pairedPcId = null
-        signalingClient?.disconnect()
+        pairedPcAddress = null
+        signalingClient?.disconnect(sendServerLogout = true)
         signalingClient = null
         sessionStore.clear()
+        deviceIdentityStore.clearDeviceId()
         startActivity(Intent(this, LoginActivity::class.java))
         finish()
     }
@@ -213,9 +226,14 @@ class MainActivity : AppCompatActivity() {
     fun deviceSummaryText(): String = "Bu cihaz: $deviceName"
 
     fun preferredPcText(): String {
-        val pairedId = pairedPcId ?: return "Tercihli bilgisayar yok"
-        val pairedDevice = currentPairings.firstOrNull { it.deviceId == pairedId }
-        val displayName = pairedDevice?.displayName() ?: "...${pairedId.takeLast(8)}"
+        val pairedDevice = currentPairings.firstOrNull {
+            (pairedPcId != null && it.deviceId == pairedPcId) ||
+                (!pairedPcAddress.isNullOrBlank() && it.address == pairedPcAddress)
+        }
+        val displayName = pairedDevice?.displayName()
+            ?: pairedPcAddress?.let { formatAddressForUi(it) }
+            ?: pairedPcId?.let { "...${it.takeLast(8)}" }
+            ?: return "Tercihli bilgisayar yok"
         return "Tercihli bilgisayar: $displayName"
     }
 
@@ -225,22 +243,28 @@ class MainActivity : AppCompatActivity() {
         "Dokunma kontrolu icin erisilebilirlik servisini acin"
     }
 
-    private fun autoConnect(preferredPartnerId: String?, allowAutoPair: Boolean) {
+    private fun autoConnect(preferredPartnerId: String?, preferredPartnerAddress: String?, allowAutoPair: Boolean) {
         val generation = ++connectionGeneration
         currentStatus = "Signaling sunucusuna baglaniyor"
-        currentStatusDetail = if (allowAutoPair && preferredPartnerId != null) {
-            "Tercihli bilgisayar: ...${preferredPartnerId.takeLast(8)}"
+        currentStatusDetail = if (allowAutoPair && (!preferredPartnerAddress.isNullOrBlank() || preferredPartnerId != null)) {
+            "Tercihli bilgisayar: ${
+                preferredPartnerAddress?.let { formatAddressForUi(it) }
+                    ?: preferredPartnerId?.let { "...${it.takeLast(8)}" }
+                    ?: ""
+            }"
         } else {
             ""
         }
         refreshFragments()
 
-        signalingClient?.disconnect()
+        signalingClient?.disconnect(sendServerLogout = false)
         val clientRef = arrayOfNulls<SignalingClient>(1)
         val client = SignalingClient(
             serverUrl = SIGNALING_URL,
             deviceId = deviceId,
+            deviceAddress = currentAddress.filter(Char::isDigit).take(12),
             preferredPartnerId = preferredPartnerId,
+            preferredPartnerAddress = preferredPartnerAddress,
             allowAutoPair = allowAutoPair,
             onPaired = { _, partnerDeviceId ->
                 runOnUiThread {
@@ -249,6 +273,14 @@ class MainActivity : AppCompatActivity() {
                         onFirstPairComplete(partnerDeviceId)
                     }
                     updateAccessibilityHint()
+                    if (!isAccessibilityServiceEnabled()) {
+                        streamRunning = false
+                        currentStatus = "Erisilebilirlik kapali"
+                        currentStatusDetail = "Kontrol icin erisilebilirlik servisini acin."
+                        refreshFragments()
+                        showAccessibilityRequiredDialog()
+                        return@runOnUiThread
+                    }
                     streamRunning = true
                     scope.launch { refreshPairings() }
                     if (IS_EMULATOR) {
@@ -281,20 +313,26 @@ class MainActivity : AppCompatActivity() {
         clientRef[0] = client
         signalingClient = client
         signalingClient?.connect()
-        currentStatus = if (allowAutoPair && preferredPartnerId != null) {
+        currentStatus = if (allowAutoPair && (!preferredPartnerAddress.isNullOrBlank() || preferredPartnerId != null)) {
             "Kayitli bilgisayar bekleniyor"
         } else {
             "Cihaz aktif, baglanti bekleniyor"
         }
         currentStatusDetail = "Adres: $currentAddress"
         refreshFragments()
-        Log.i(TAG, "Account address: $currentAddress")
+        Log.i(TAG, "Device address: $currentAddress")
     }
 
     private fun onFirstPairComplete(pcDeviceId: String) {
         if (pcDeviceId.isBlank()) return
-        deviceIdentityStore.savePairedPcId(pcDeviceId)
+        sessionStore.savePairedPcId(pcDeviceId)
         pairedPcId = pcDeviceId
+        currentPairings.firstOrNull {
+            (!pairedPcAddress.isNullOrBlank() && it.address == pairedPcAddress) || it.deviceId == pcDeviceId
+        }?.address?.let {
+            sessionStore.savePairedPcAddress(it)
+            pairedPcAddress = it
+        }
         signalingClient?.sendPairConfirm(pcDeviceId)
         refreshFragments()
         Log.i(TAG, "Pair confirmed with PC: $pcDeviceId")
@@ -304,23 +342,12 @@ class MainActivity : AppCompatActivity() {
         pairedDeviceIds: List<String>,
         onlineDeviceIds: List<String>,
     ) {
-        val onlineSet = onlineDeviceIds.toSet()
-        val existingById = currentPairings.associateBy { it.deviceId }
-        currentPairings = pairedDeviceIds.map { deviceIdValue ->
-            existingById[deviceIdValue]?.copy(online = deviceIdValue in onlineSet)
-                ?: DeviceSummary(
-                    deviceId = deviceIdValue,
-                    deviceType = "pc",
-                    deviceName = null,
-                    address = null,
-                    online = deviceIdValue in onlineSet,
-                )
+        if (pairedDeviceIds.isEmpty() && onlineDeviceIds.isEmpty()) {
+            currentPairings = emptyList()
+            refreshFragments()
+            return
         }
-        if (pairedPcId != null && currentPairings.none { it.deviceId == pairedPcId }) {
-            deviceIdentityStore.clearPairedPcId()
-            pairedPcId = null
-        }
-        refreshFragments()
+        scope.launch { refreshPairings() }
     }
 
     private fun handleCommand(action: String, params: Map<String, Any>) {
@@ -433,7 +460,26 @@ class MainActivity : AppCompatActivity() {
     private suspend fun syncDeviceState() {
         val token = sessionStore.authToken()
         if (token.isBlank()) return
-        backendApi.upsertDevice(token, deviceId, "phone", deviceName)
+        val result = backendApi.upsertDevice(
+            token,
+            deviceId,
+            "phone",
+            deviceName,
+            HardwareFingerprint.macOrAndroidId(this),
+        )
+        result.data
+            ?.filter(Char::isDigit)
+            ?.take(12)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { address ->
+                deviceId = address
+                deviceIdentityStore.saveDeviceId(address)
+                currentAddress = address
+                sessionStore.save(sessionStore.userId().let { currentUserId ->
+                    AuthSession(token, currentUserId, sessionStore.username(), address)
+                })
+                refreshFragments()
+            }
     }
 
     private suspend fun syncUserProfile() {
@@ -446,9 +492,11 @@ class MainActivity : AppCompatActivity() {
             refreshFragments()
         }
 
-        val result = backendApi.getMe(token)
+        val result = backendApi.getMe(token, deviceId)
         val session = result.data ?: return
         if (session.address.isNotBlank()) {
+            deviceId = session.address.filter(Char::isDigit).take(12)
+            deviceIdentityStore.saveDeviceId(deviceId)
             sessionStore.save(session)
             currentAddress = session.address
             refreshFragments()
@@ -458,19 +506,94 @@ class MainActivity : AppCompatActivity() {
     private suspend fun refreshPairings() {
         val token = sessionStore.authToken()
         if (token.isBlank()) return
-        val result = backendApi.getPairings(token, deviceId)
-        if (!result.error.isNullOrBlank()) {
+        val devicesResult = backendApi.getDevices(token)
+        val recentResult = backendApi.getRecentDevices(token, "pc")
+        val pairingsResult = backendApi.getPairings(token, deviceId)
+        if (!devicesResult.error.isNullOrBlank() && !recentResult.error.isNullOrBlank() && !pairingsResult.error.isNullOrBlank()) {
             currentPairings = emptyList()
-            currentStatusDetail = result.error
+            currentStatusDetail = pairingsResult.error.orEmpty()
             refreshFragments()
             return
         }
-        currentPairings = result.data ?: emptyList()
-        if (pairedPcId != null && currentPairings.none { it.deviceId == pairedPcId }) {
-            deviceIdentityStore.clearPairedPcId()
+
+        val merged = LinkedHashMap<String, DeviceSummary>()
+        (devicesResult.data ?: emptyList())
+            .filter { it.deviceId != deviceId }
+            .forEach {
+                val key = it.address?.filter(Char::isDigit)?.take(12).orEmpty().ifBlank { it.deviceId }
+                merged[key] = it.copy(address = it.address?.filter(Char::isDigit)?.take(12))
+            }
+        (recentResult.data ?: emptyList())
+            .filter { it.deviceId != deviceId }
+            .forEach { device ->
+                val normalizedAddress = device.address?.filter(Char::isDigit)?.take(12)
+                val key = normalizedAddress.orEmpty().ifBlank { device.deviceId }
+                val existing = merged[key]
+                merged[key] = if (existing == null) {
+                    device.copy(address = normalizedAddress)
+                } else {
+                    existing.copy(
+                        deviceName = existing.deviceName ?: device.deviceName,
+                        address = existing.address ?: normalizedAddress,
+                        online = existing.online || device.online,
+                    )
+                }
+            }
+        (pairingsResult.data ?: emptyList())
+            .filter { it.deviceId != deviceId }
+            .forEach { device ->
+                val normalizedAddress = device.address?.filter(Char::isDigit)?.take(12)
+                val key = normalizedAddress.orEmpty().ifBlank { device.deviceId }
+                val existing = merged[key]
+                merged[key] = if (existing == null) {
+                    device.copy(address = normalizedAddress)
+                } else {
+                    existing.copy(
+                        deviceName = existing.deviceName ?: device.deviceName,
+                        address = existing.address ?: normalizedAddress,
+                        online = existing.online || device.online,
+                    )
+                }
+            }
+
+        currentPairings = merged.values
+            .sortedWith(
+                compareByDescending<DeviceSummary> { it.online }
+                    .thenBy { it.deviceName ?: "" }
+                    .thenBy { it.address ?: "" }
+            )
+        if (pairedPcId != null && currentPairings.none { it.deviceId == pairedPcId && it.deviceType == "pc" }) {
+            sessionStore.clearPairedPcId()
             pairedPcId = null
         }
+        val matchedPreferred = currentPairings.firstOrNull {
+            it.deviceType == "pc" && (
+                (pairedPcId != null && it.deviceId == pairedPcId) ||
+                    (!pairedPcAddress.isNullOrBlank() && it.address == pairedPcAddress)
+            )
+        }
+        if (matchedPreferred?.address.isNullOrBlank()) {
+            if (!pairedPcAddress.isNullOrBlank() && currentPairings.none { it.address == pairedPcAddress && it.deviceType == "pc" }) {
+                sessionStore.clearPairedPcAddress()
+                pairedPcAddress = null
+            }
+        } else {
+            val normalizedAddress = matchedPreferred?.address?.filter(Char::isDigit)?.take(12).orEmpty()
+            sessionStore.savePairedPcAddress(normalizedAddress)
+            pairedPcAddress = normalizedAddress
+        }
         refreshFragments()
+    }
+
+    private fun showAccessibilityRequiredDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Erisilebilirlik gerekli")
+            .setMessage("Bilgisayardan kontrol edebilmek icin Erisilebilirlik servisini acman gerekiyor. Ayarlara gidelim mi?")
+            .setPositiveButton("Ayarlari ac") { _, _ ->
+                openAccessibilitySettingsScreen()
+            }
+            .setNegativeButton("Vazgec", null)
+            .show()
     }
 
     private fun refreshFragments() {
@@ -572,7 +695,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         connectionGeneration += 1
         scope.cancel()
-        signalingClient?.disconnect()
+        signalingClient?.disconnect(sendServerLogout = false)
         signalingClient = null
         super.onDestroy()
     }

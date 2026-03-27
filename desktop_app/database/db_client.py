@@ -19,7 +19,6 @@ _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
     id          SERIAL PRIMARY KEY,
     username    TEXT UNIQUE NOT NULL,
-    address     TEXT UNIQUE,
     password_h  TEXT NOT NULL,
     created_at  TIMESTAMPTZ DEFAULT now()
 );
@@ -103,29 +102,14 @@ class DbClient:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(_SCHEMA_SQL)
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT")
+                    # Sunucu migrasyonuyla uyum: users.address kaldirildi
+                    cur.execute("DROP TRIGGER IF EXISTS trg_set_user_address ON users")
+                    cur.execute("DROP FUNCTION IF EXISTS set_user_address() CASCADE")
+                    cur.execute("DROP INDEX IF EXISTS users_address_unique_idx")
+                    cur.execute("ALTER TABLE users DROP COLUMN IF EXISTS address")
                     cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_name TEXT")
                     cur.execute("ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT false")
                     cur.execute("ALTER TABLE devices DROP COLUMN IF EXISTS last_seen")
-                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_address_unique_idx ON users(address)")
-                    cur.execute("UPDATE users SET address = (111111111110 + id)::text WHERE address IS NULL")
-                    cur.execute("""
-                        CREATE OR REPLACE FUNCTION set_user_address()
-                        RETURNS TRIGGER AS $$
-                        BEGIN
-                            IF NEW.address IS NULL THEN
-                                NEW.address := (111111111110 + NEW.id)::text;
-                            END IF;
-                            RETURN NEW;
-                        END;
-                        $$ LANGUAGE plpgsql;
-                    """)
-                    cur.execute("""
-                        DROP TRIGGER IF EXISTS trg_set_user_address ON users;
-                        CREATE TRIGGER trg_set_user_address
-                        BEFORE INSERT ON users
-                        FOR EACH ROW EXECUTE FUNCTION set_user_address();
-                    """)
                     cur.execute("ALTER TABLE pairings ALTER COLUMN user_id DROP NOT NULL")
                 conn.commit()
             logger.info("DB schema geçerli")
@@ -154,20 +138,17 @@ class DbClient:
                         with conn.cursor() as cur:
                             cur.execute(
                                 """
-                                WITH new_row AS (
-                                    INSERT INTO users (username, password_h)
-                                    VALUES (%s, %s)
-                                    RETURNING id
-                                )
-                                UPDATE users
-                                SET address = (111111111110 + new_row.id)::text
-                                FROM new_row
-                                WHERE users.id = new_row.id
-                                RETURNING users.id
+                                INSERT INTO users (username, password_h)
+                                VALUES (%s, %s)
+                                RETURNING id
                                 """,
                                 (normalized_username, pw_hash),
                             )
-                            user_id = cur.fetchone()[0]
+                            row = cur.fetchone()
+                            if not row:
+                                conn.rollback()
+                                return False, "Kayıt oluşturulamadı (ID alınamadı)."
+                            user_id = row[0]
                         conn.commit()
                         logger.info(f"Kullanıcı kaydedildi: {username} (id={user_id})")
                         return True, "Kayıt başarılı! Giriş yapabilirsiniz."
@@ -192,13 +173,13 @@ class DbClient:
                 with self._get_conn() as conn:
                     with conn.cursor() as cur:
                         cur.execute(
-                            "SELECT id, username, address, password_h FROM users WHERE username = %s",
+                            "SELECT id, username, password_h FROM users WHERE username = %s",
                             (normalized_username,),
                         )
                         row = cur.fetchone()
                 if row is None:
                     return None
-                uid, uname, _address, pw_hash = row
+                uid, uname, pw_hash = row
                 if bcrypt.checkpw(password.encode(), pw_hash.encode()):
                     logger.info(f"Giriş başarılı: {uname} (id={uid})")
                     return uid, uname
@@ -221,13 +202,13 @@ class DbClient:
                 with self._get_conn() as conn:
                     with conn.cursor() as cur:
                         cur.execute(
-                            "SELECT id, username, address, password_h FROM users WHERE username = %s",
+                            "SELECT id, username, password_h FROM users WHERE username = %s",
                             (normalized_username,),
                         )
                         row = cur.fetchone()
                 if row is None:
                     return None, ""
-                uid, uname, _address, pw_hash = row
+                uid, uname, pw_hash = row
                 if bcrypt.checkpw(password.encode(), pw_hash.encode()):
                     logger.info(f"Giriş başarılı: {uname} (id={uid})")
                     return (uid, uname), ""
@@ -276,10 +257,9 @@ class DbClient:
                         SELECT p.phone_device_id AS device_id,
                                d.device_name,
                                COALESCE(d.is_online, false) AS is_online,
-                               u.address
+                               d.device_id AS address
                         FROM pairings p
                         LEFT JOIN devices d ON d.device_id = p.phone_device_id
-                        LEFT JOIN users u ON u.id = d.user_id
                         WHERE p.pc_device_id = %s
                         ORDER BY d.is_online DESC, d.device_name ASC NULLS LAST
                     """, (pc_device_id,))
@@ -339,8 +319,7 @@ class DbClient:
                         """
                         SELECT d.device_id
                         FROM devices d
-                        JOIN users u ON u.id = d.user_id
-                        WHERE u.address = %s AND d.device_type = 'phone'
+                        WHERE d.device_id = %s AND d.device_type = 'phone'
                         ORDER BY d.is_online DESC, d.id DESC
                         LIMIT 1
                         """,
@@ -353,22 +332,21 @@ class DbClient:
             return None
 
     def get_user_address(self, user_id: int) -> str | None:
+        """users.address yok; son kayıtlı cihazın device_id'sini döner (geriye uyumluluk)."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT address FROM users WHERE id = %s", (user_id,))
+                    cur.execute(
+                        """
+                        SELECT device_id FROM devices
+                        WHERE user_id = %s
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """,
+                        (user_id,),
+                    )
                     row = cur.fetchone()
-                    if not row:
-                        return None
-                    if row[0] is None:
-                        new_address = str(111111111110 + user_id)
-                        cur.execute(
-                            "UPDATE users SET address = %s WHERE id = %s AND address IS NULL",
-                            (new_address, user_id),
-                        )
-                        conn.commit()
-                        return new_address
-            return row[0]
+            return row[0] if row else None
         except Exception as e:
             logger.error(f"get_user_address hatası: {e}")
             return None

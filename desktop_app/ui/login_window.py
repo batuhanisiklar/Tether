@@ -17,13 +17,14 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
 from desktop_app.config import Colors, AppMeta
 from desktop_app.config.prefs_store import (
     load_or_create_device_id,
-    remembered_username,
+    remembered_login_email,
     save_auth_token,
-    save_remembered_username,
+    save_remembered_login_email,
     save_session,
 )
 from desktop_app.database.db_client import DbClient
 from desktop_app.network.backend_api import BackendApi
+from desktop_app.network.hardware_id import get_mac_fingerprint
 from desktop_app.ui.theme import (
     card_style,
     filled_button_style,
@@ -63,13 +64,13 @@ class LoginWindow(QDialog):
         self.db = db
         self._backend_api = BackendApi()
         self.setWindowTitle(AppMeta.NAME)
-        self.setFixedSize(420, 530)
+        self.setFixedSize(420, 720)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._drag_pos = None
         self._login_thread = None
         self._reg_thread = None
-        self._remembered_username = remembered_username()
+        self._remembered_email = remembered_login_email()
         self._pending_close = False
         self._build_ui()
 
@@ -219,11 +220,11 @@ class LoginWindow(QDialog):
         lay.setContentsMargins(32, 20, 32, 28)
         lay.setSpacing(0)
 
-        lay.addWidget(self._field_lbl("Kullanıcı Adı"))
+        lay.addWidget(self._field_lbl("E-posta"))
         lay.addSpacing(5)
-        self._inp_user = self._make_input("Kullanici adiniz")
-        if self._remembered_username:
-            self._inp_user.setText(self._remembered_username)
+        self._inp_user = self._make_input("ornek@eposta.com")
+        if self._remembered_email:
+            self._inp_user.setText(self._remembered_email)
         lay.addWidget(self._inp_user)
         lay.addSpacing(12)
 
@@ -250,7 +251,7 @@ class LoginWindow(QDialog):
 
         lay.addStretch()
 
-        helper = QLabel("Son giris yapan kullanici adi otomatik hatirlanir")
+        helper = QLabel("Son giris yapilan e-posta otomatik hatirlanir")
         helper.setAlignment(Qt.AlignmentFlag.AlignCenter)
         helper.setStyleSheet(text_style(c.TEXT_MUTED, size=10))
         lay.addWidget(helper)
@@ -272,10 +273,28 @@ class LoginWindow(QDialog):
         lay.setContentsMargins(32, 20, 32, 28)
         lay.setSpacing(0)
 
-        lay.addWidget(self._field_lbl("Kullanıcı Adı"))
+        lay.addWidget(self._field_lbl("Ad"))
         lay.addSpacing(5)
-        self._inp_reg_user = self._make_input("Kullanıcı adı seçin")
-        lay.addWidget(self._inp_reg_user)
+        self._inp_reg_first = self._make_input("Adiniz")
+        lay.addWidget(self._inp_reg_first)
+        lay.addSpacing(10)
+
+        lay.addWidget(self._field_lbl("Soyad"))
+        lay.addSpacing(5)
+        self._inp_reg_last = self._make_input("Soyadiniz")
+        lay.addWidget(self._inp_reg_last)
+        lay.addSpacing(10)
+
+        lay.addWidget(self._field_lbl("E-posta"))
+        lay.addSpacing(5)
+        self._inp_reg_email = self._make_input("ornek@eposta.com")
+        lay.addWidget(self._inp_reg_email)
+        lay.addSpacing(10)
+
+        lay.addWidget(self._field_lbl("Telefon (istege bagli)"))
+        lay.addSpacing(5)
+        self._inp_reg_phone = self._make_input("05xx xxx xx xx")
+        lay.addWidget(self._inp_reg_phone)
         lay.addSpacing(12)
 
         lay.addWidget(self._field_lbl("Şifre"))
@@ -384,30 +403,85 @@ class LoginWindow(QDialog):
     def _desktop_device_name(self) -> str:
         return os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "Bu Bilgisayar"
 
-    def _authenticate_login_session(self, username: str, password: str):
-        auth_result, auth_error = self.db.authenticate_user_with_error(username, password)
-        if auth_error or auth_result is None:
-            return {"auth_result": auth_result, "auth_error": auth_error, "token": ""}
-
+    def _authenticate_login_session(self, email: str, password: str):
         device_id = load_or_create_device_id()
+        mac_fp = get_mac_fingerprint()
         api_result, api_error = self._backend_api.login(
-            username=username,
+            email=email.strip().lower(),
             password=password,
             device_id=device_id,
             device_name=self._desktop_device_name(),
+            mac_address=mac_fp,
         )
-        token = ""
-        address = ""
-        if api_result:
-            token = str(api_result.get("token") or "")
-            address = str((api_result.get("user") or {}).get("address") or "")
+        if api_error:
+            return {
+                "auth_result": None,
+                "auth_error": api_error,
+                "token": "",
+                "address": "",
+            }
+        if not api_result or not api_result.get("ok"):
+            msg = (api_result or {}).get("message", "Giris basarisiz.")
+            return {
+                "auth_result": None,
+                "auth_error": msg,
+                "token": "",
+                "address": "",
+            }
+        token = str(api_result.get("token") or "")
+        user = api_result.get("user") or {}
+        uid = user.get("id")
+        if uid is None:
+            return {
+                "auth_result": None,
+                "auth_error": "Sunucu yaniti gecersiz.",
+                "token": "",
+                "address": "",
+            }
+        username = str(user.get("username") or email)
+        address = str(user.get("address") or "")
         return {
-            "auth_result": auth_result,
-            "auth_error": auth_error,
+            "auth_result": (int(uid), username),
+            "auth_error": "",
             "token": token,
             "address": address,
-            "api_error": api_error,
         }
+
+    def _register_via_api(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        phone: str,
+        password: str,
+        password2: str,
+    ) -> tuple[bool, str]:
+        if password != password2:
+            return False, "Sifreler eslesmiyor."
+        if len(password) < 6:
+            return False, "Sifre en az 6 karakter olmali."
+        em = email.strip().lower()
+        if "@" not in em or len(em) < 5:
+            return False, "Gecerli bir e-posta girin."
+        if not first_name.strip() or not last_name.strip():
+            return False, "Ad ve soyad zorunludur."
+        device_id = load_or_create_device_id()
+        mac_fp = get_mac_fingerprint()
+        data, err = self._backend_api.register(
+            email=em,
+            password=password,
+            first_name=first_name.strip(),
+            last_name=last_name.strip(),
+            phone=phone.strip(),
+            device_id=device_id,
+            device_name=self._desktop_device_name(),
+            mac_address=mac_fp,
+        )
+        if err:
+            return False, err
+        if not data or not data.get("ok"):
+            return False, (data or {}).get("message", "Kayit basarisiz.")
+        return True, "Kayit basarili! Giris yapabilirsiniz."
 
     def _start_auth_task(self, thread_attr: str, fn, done_handler, *args):
         thread = _AuthThread(fn, *args)
@@ -420,7 +494,7 @@ class LoginWindow(QDialog):
         uname = self._inp_user.text().strip()
         pwd   = self._inp_pass.text()
         if not uname or not pwd:
-            self._lbl_login_err.setText("Kullanıcı adı ve şifre boş olamaz.")
+            self._lbl_login_err.setText("E-posta ve sifre bos olamaz.")
             return
 
         self._lbl_login_err.setText("")
@@ -441,36 +515,47 @@ class LoginWindow(QDialog):
             self._lbl_login_err.setText(auth_error)
             return
         if auth_result is None:
-            self._lbl_login_err.setText("Kullanıcı adı veya şifre hatalı.")
+            self._lbl_login_err.setText(result.get("auth_error") or "E-posta veya sifre hatali.")
             return
 
         user_id, username = auth_result
-        save_remembered_username(uname := self._inp_user.text().strip() or username)
+        em = self._inp_user.text().strip().lower()
+        save_remembered_login_email(em)
         token = result.get("token", "")
         address = result.get("address", "")
         if token:
             save_auth_token(token)
-        self._save_session(user_id, username, address)
+        self._save_session(user_id, username, address, em)
         self.accept()
 
     def _on_register(self):
-        uname = self._inp_reg_user.text().strip()
-        pwd   = self._inp_reg_pass.text()
-        pwd2  = self._inp_reg_pass2.text()
+        first = self._inp_reg_first.text()
+        last = self._inp_reg_last.text()
+        em = self._inp_reg_email.text().strip()
+        phone = self._inp_reg_phone.text().strip()
+        pwd = self._inp_reg_pass.text()
+        pwd2 = self._inp_reg_pass2.text()
 
         self._lbl_reg_err.setText("")
         self._lbl_reg_ok.setText("")
 
-        if not uname or not pwd:
-            self._lbl_reg_err.setText("Tüm alanları doldurun.")
-            return
-        if pwd != pwd2:
-            self._lbl_reg_err.setText("Şifreler eşleşmiyor.")
+        if not em or not pwd:
+            self._lbl_reg_err.setText("E-posta ve sifre zorunludur.")
             return
 
         self._set_loading(True, self._btn_register)
         self._btn_register.setText("Kaydediliyor...")
-        self._start_auth_task("_reg_thread", self.db.register_user, self._on_register_done, uname, pwd)
+        self._start_auth_task(
+            "_reg_thread",
+            self._register_via_api,
+            self._on_register_done,
+            first,
+            last,
+            em,
+            phone,
+            pwd,
+            pwd2,
+        )
 
     def _on_register_done(self, result, err: str):
         self._set_loading(False, self._btn_register)
@@ -487,5 +572,5 @@ class LoginWindow(QDialog):
         else:
             self._lbl_reg_err.setText(msg)
 
-    def _save_session(self, user_id: int, username: str, address: str = ""):
-        save_session(user_id, username, address)
+    def _save_session(self, user_id: int, username: str, address: str = "", login_email: str = ""):
+        save_session(user_id, username, address, login_email)

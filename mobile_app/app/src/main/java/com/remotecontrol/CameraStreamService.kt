@@ -147,6 +147,14 @@ class CameraStreamService : LifecycleService() {
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Uygulama task'i kapatildiginda (swipe/close) offline'a dusur.
+        SignalingClient.instance?.disconnect()
+        SignalingClient.instance = null
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID, "Kamera Yayını", NotificationManager.IMPORTANCE_LOW

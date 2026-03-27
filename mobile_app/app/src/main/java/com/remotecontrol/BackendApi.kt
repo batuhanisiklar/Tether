@@ -34,7 +34,7 @@ data class DeviceSummary(
             ?.filter { it.isDigit() }
             ?.take(12)
             ?.chunked(4)
-            ?.joinToString(" ")
+            ?.joinToString("-")
             ?.takeIf { it.isNotBlank() }
         ?: "...${deviceId.takeLast(8)}"
 }
@@ -50,35 +50,49 @@ class BackendApi(
         .trimEnd('/')
 
     suspend fun login(
-        username: String,
+        email: String,
         password: String,
         deviceId: String,
         deviceType: String,
         deviceName: String,
+        macAddress: String,
     ): ApiResult<AuthSession> {
+        val em = email.trim().lowercase()
         val payload = JSONObject().apply {
-            put("username", username)
+            put("email", em)
+            put("username", em)
             put("password", password)
             put("device_id", deviceId)
             put("device_type", deviceType)
             put("device_name", deviceName)
+            if (macAddress.isNotBlank()) put("mac_address", macAddress)
         }
         return authRequest("/auth/login", payload)
     }
 
     suspend fun register(
-        username: String,
+        firstName: String,
+        lastName: String,
+        email: String,
+        phone: String,
         password: String,
         deviceId: String,
         deviceType: String,
         deviceName: String,
+        macAddress: String,
     ): ApiResult<AuthSession> {
+        val em = email.trim().lowercase()
         val payload = JSONObject().apply {
-            put("username", username)
+            put("email", em)
+            put("username", em)
             put("password", password)
+            put("first_name", firstName.trim())
+            put("last_name", lastName.trim())
+            if (phone.isNotBlank()) put("phone", phone.trim())
             put("device_id", deviceId)
             put("device_type", deviceType)
             put("device_name", deviceName)
+            if (macAddress.isNotBlank()) put("mac_address", macAddress)
         }
         return authRequest("/auth/register", payload)
     }
@@ -88,12 +102,14 @@ class BackendApi(
         deviceId: String,
         deviceType: String,
         deviceName: String,
-    ): ApiResult<Unit> = withContext(Dispatchers.IO) {
+        macAddress: String,
+    ): ApiResult<String> = withContext(Dispatchers.IO) {
         try {
             val payload = JSONObject().apply {
                 put("device_id", deviceId)
                 put("device_type", deviceType)
                 put("device_name", deviceName)
+                if (macAddress.isNotBlank()) put("mac_address", macAddress)
             }
             val request = Request.Builder()
                 .url("$baseHttpUrl/devices/upsert")
@@ -101,10 +117,12 @@ class BackendApi(
                 .post(payload.toString().toRequestBody(jsonType))
                 .build()
             client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     return@withContext ApiResult(error = "Cihaz kaydi guncellenemedi.")
                 }
-                ApiResult(data = Unit)
+                val address = runCatching { JSONObject(body).optString("address") }.getOrDefault("")
+                ApiResult(data = address)
             }
         } catch (_: IOException) {
             ApiResult(error = "Sunucuya ulasilamadi. Baglanti adresini kontrol edin.")
@@ -132,11 +150,59 @@ class BackendApi(
         }
     }
 
-    suspend fun deletePairing(token: String, deviceId: String, partnerDeviceId: String): ApiResult<Unit> = withContext(Dispatchers.IO) {
+    suspend fun getDevices(token: String): ApiResult<List<DeviceSummary>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$baseHttpUrl/devices")
+                .addHeader("Authorization", "Bearer $token")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext ApiResult(error = "Cihaz listesi alinmadi.")
+                }
+                val json = JSONObject(body)
+                val devices = parseDevices(json.optJSONArray("devices"))
+                ApiResult(data = devices)
+            }
+        } catch (_: IOException) {
+            ApiResult(error = "Cihaz listesi alinirken sunucuya ulasilamadi.")
+        }
+    }
+
+    suspend fun getRecentDevices(token: String, deviceType: String): ApiResult<List<DeviceSummary>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$baseHttpUrl/recent-devices?device_type=$deviceType")
+                .addHeader("Authorization", "Bearer $token")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext ApiResult(error = "Recent cihaz listesi alinmadi.")
+                }
+                val json = JSONObject(body)
+                val devices = parseDevices(json.optJSONArray("devices"))
+                ApiResult(data = devices)
+            }
+        } catch (_: IOException) {
+            ApiResult(error = "Recent cihaz listesi alinirken sunucuya ulasilamadi.")
+        }
+    }
+
+    suspend fun deletePairing(
+        token: String,
+        deviceId: String,
+        partnerDeviceId: String,
+        partnerAddress: String?,
+    ): ApiResult<Unit> = withContext(Dispatchers.IO) {
         try {
             val payload = JSONObject().apply {
                 put("device_id", deviceId)
                 put("partner_device_id", partnerDeviceId)
+                put("partner_address", partnerAddress.orEmpty())
             }
             val request = Request.Builder()
                 .url("$baseHttpUrl/pairings/delete")
@@ -156,10 +222,10 @@ class BackendApi(
         }
     }
 
-    suspend fun getMe(token: String): ApiResult<AuthSession> = withContext(Dispatchers.IO) {
+    suspend fun getMe(token: String, deviceId: String): ApiResult<AuthSession> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url("$baseHttpUrl/auth/me")
+                .url("$baseHttpUrl/auth/me?device_id=$deviceId")
                 .addHeader("Authorization", "Bearer $token")
                 .get()
                 .build()
@@ -168,16 +234,26 @@ class BackendApi(
                 if (!response.isSuccessful) {
                     return@withContext ApiResult(error = "Kullanici bilgisi alinamadi.")
                 }
-                val json = JSONObject(body)
-                val user = json.getJSONObject("user")
-                ApiResult(
-                    data = AuthSession(
-                        token = token,
-                        userId = user.getInt("id"),
-                        username = user.getString("username"),
-                        address = user.optString("address"),
+                return@withContext runCatching {
+                    val json = JSONObject(body)
+                    val user = json.getJSONObject("user")
+                    val uid = when {
+                        user.has("id") -> user.getInt("id")
+                        user.has("user_id") -> user.getInt("user_id")
+                        else -> -1
+                    }
+                    require(uid >= 0) { "missing user id" }
+                    ApiResult(
+                        data = AuthSession(
+                            token = token,
+                            userId = uid,
+                            username = user.optString("username"),
+                            address = user.optString("address"),
+                        )
                     )
-                )
+                }.getOrElse {
+                    ApiResult(error = "Sunucu yaniti gecersiz (me parse basarisiz).")
+                }
             }
         } catch (_: IOException) {
             ApiResult(error = "Kullanici bilgisi alinirken sunucuya ulasilamadi.")
@@ -203,17 +279,29 @@ class BackendApi(
                     }
                     return@withContext ApiResult(error = message)
                 }
-
-                val json = JSONObject(body)
-                val user = json.getJSONObject("user")
-                ApiResult(
-                    data = AuthSession(
-                        token = json.getString("token"),
-                        userId = user.getInt("id"),
-                        username = user.getString("username"),
-                        address = user.optString("address"),
+                // Sunucudan beklenmeyen JSON gelirse UYGULAMAYI cektirmesin diye korumalı parse.
+                val parsed = runCatching {
+                    val json = JSONObject(body)
+                    val user = json.getJSONObject("user")
+                    val authToken = json.getString("token")
+                    val uid = when {
+                        user.has("id") -> user.getInt("id")
+                        user.has("user_id") -> user.getInt("user_id")
+                        else -> -1
+                    }
+                    require(uid >= 0) { "missing user id" }
+                    ApiResult(
+                        data = AuthSession(
+                            token = authToken,
+                            userId = uid,
+                            username = user.optString("username"),
+                            address = user.optString("address"),
+                        )
                     )
-                )
+                }.getOrElse {
+                    ApiResult(error = "Sunucu yaniti gecersiz (auth parse basarisiz).")
+                }
+                return@withContext parsed
             }
         } catch (_: IOException) {
             ApiResult(error = "Sunucuya ulasilamadi. URL ve internet baglantisini kontrol edin.")

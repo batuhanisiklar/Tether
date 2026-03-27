@@ -17,14 +17,23 @@ class BackendApi:
         self._base_url = _base_http_url()
         self._timeout_sec = timeout_sec
 
-    def login(self, username: str, password: str, device_id: str, device_name: str) -> tuple[dict | None, str]:
+    def login(
+        self,
+        email: str,
+        password: str,
+        device_id: str,
+        device_name: str,
+        mac_address: str | None = None,
+    ) -> tuple[dict | None, str]:
         payload = {
-            "username": username,
+            "email": email.strip().lower(),
             "password": password,
             "device_id": device_id,
             "device_type": "pc",
             "device_name": device_name,
         }
+        if mac_address:
+            payload["mac_address"] = mac_address
         try:
             response = requests.post(
                 f"{self._base_url}/auth/login",
@@ -39,6 +48,45 @@ class BackendApi:
 
         if not response.ok:
             return None, data.get("message") or "Giris basarisiz."
+        return data, ""
+
+    def register(
+        self,
+        email: str,
+        password: str,
+        first_name: str,
+        last_name: str,
+        phone: str,
+        device_id: str,
+        device_name: str,
+        mac_address: str | None = None,
+    ) -> tuple[dict | None, str]:
+        payload = {
+            "email": email.strip().lower(),
+            "password": password,
+            "first_name": first_name.strip(),
+            "last_name": last_name.strip(),
+            "phone": (phone or "").strip(),
+            "device_id": device_id,
+            "device_type": "pc",
+            "device_name": device_name,
+        }
+        if mac_address:
+            payload["mac_address"] = mac_address
+        try:
+            response = requests.post(
+                f"{self._base_url}/auth/register",
+                json=payload,
+                timeout=self._timeout_sec,
+            )
+            data = response.json() if response.content else {}
+        except requests.RequestException:
+            return None, "Sunucuya ulasilamadi."
+        except ValueError:
+            return None, "Sunucudan gecersiz yanit alindi."
+
+        if not response.ok:
+            return None, data.get("message") or "Kayit basarisiz."
         return data, ""
 
     def get_devices(self, token: str) -> tuple[list[dict] | None, str]:

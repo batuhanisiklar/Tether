@@ -20,7 +20,9 @@ import java.util.concurrent.TimeUnit
 class SignalingClient(
     private val serverUrl: String,
     private val deviceId: String,
+    private val deviceAddress: String,
     private val preferredPartnerId: String? = null,
+    private val preferredPartnerAddress: String? = null,
     private val allowAutoPair: Boolean = false,
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>) -> Unit,
@@ -67,12 +69,14 @@ class SignalingClient(
                     put("auto_pair", allowAutoPair)
                     if (allowAutoPair && !preferredPartnerId.isNullOrBlank()) {
                         put("preferred_partner_id", preferredPartnerId)
+                    } else if (allowAutoPair && !preferredPartnerAddress.isNullOrBlank()) {
+                        put("preferred_partner_id", preferredPartnerAddress)
                     }
                 }
                 webSocket.send(helloMsg.toString())
 
                 // Kayıtlı bir PC hedeflenmiyorsa 6 haneli fallback kodu da aç.
-                if (preferredPartnerId.isNullOrBlank()) {
+                if (preferredPartnerId.isNullOrBlank() && preferredPartnerAddress.isNullOrBlank()) {
                     val registerMsg = JSONObject().apply {
                         put("type", "register")
                         put("code", sessionCode)
@@ -226,12 +230,22 @@ class SignalingClient(
         Log.i(TAG, "Sent stream_info: $publicUrl")
     }
 
-    fun disconnect() {
+    fun disconnect(sendServerLogout: Boolean = false) {
         instance = null
         manualClose = true
         disconnectNotified = true
         val currentWs = ws
         ws = null
+        if (sendServerLogout && currentWs != null) {
+            try {
+                val msg = JSONObject().apply {
+                    put("type", "device_logout")
+                    put("device_id", deviceId)
+                }
+                currentWs.send(msg.toString())
+            } catch (_: Exception) {
+            }
+        }
         currentWs?.close(1000, "Client disconnect")
         scope.cancel()
         client.dispatcher.executorService.shutdown()

@@ -99,7 +99,7 @@ class DevicesFragment : Fragment(), DashboardFragment {
                 ?.filter { it.isDigit() }
                 ?.take(12)
                 ?.chunked(4)
-                ?.joinToString(" ")
+                ?.joinToString("-")
             val statusPart = if (device.online) "Aktif" else "Cevrimdisi"
             text = listOfNotNull(addressPart, statusPart).joinToString("  •  ")
             setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
@@ -125,7 +125,7 @@ class DevicesFragment : Fragment(), DashboardFragment {
             ).apply {
                 text = getString(R.string.connect_device)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                setOnClickListener { host.connectToPairedDevice(device.deviceId) }
+                setOnClickListener { host.connectToPairedDevice(device.deviceId, device.address) }
             }
             actions.addView(connectButton)
         }
@@ -142,7 +142,7 @@ class DevicesFragment : Fragment(), DashboardFragment {
                 AlertDialog.Builder(requireContext())
                     .setMessage(getString(R.string.forget_pairing_confirm))
                     .setPositiveButton(R.string.forget_device) { _, _ ->
-                        host.forgetPairingFromUi(device.deviceId)
+                        host.forgetPairingFromUi(device.deviceId, device.address)
                     }
                     .setNegativeButton(android.R.string.cancel, null)
                     .show()

@@ -1,6 +1,6 @@
 import json
 import os
-import uuid
+import secrets
 from typing import Any
 
 from desktop_app.config.constants import Prefs
@@ -68,9 +68,9 @@ def clear_paired_phone_address() -> None:
 def load_or_create_device_id() -> str:
     prefs = read_prefs()
     device_id = prefs.get(Prefs.KEY_DEVICE_ID, "").strip()
-    if device_id:
+    if len(device_id) == 12 and device_id.isdigit():
         return device_id
-    device_id = f"pc-{uuid.uuid4().hex[:12]}"
+    device_id = "".join(str(secrets.randbelow(10)) for _ in range(12))
     prefs[Prefs.KEY_DEVICE_ID] = device_id
     write_prefs(prefs)
     return device_id
@@ -85,15 +85,22 @@ def save_user_address(user_address: str) -> None:
     update_prefs(**{Prefs.KEY_USER_ADDRESS: digits})
 
 
-def save_session(user_id: int, username: str, user_address: str = "") -> None:
+def save_session(
+    user_id: int,
+    username: str,
+    user_address: str = "",
+    login_email: str = "",
+) -> None:
     digits = "".join(ch for ch in user_address if ch.isdigit())[:12]
+    em = (login_email or "").strip().lower()
     update_prefs(
         **{
             Prefs.KEY_LOGGED_IN: True,
             Prefs.KEY_USER_ID: user_id,
             Prefs.KEY_USERNAME: username,
             Prefs.KEY_USER_ADDRESS: digits,
-            Prefs.KEY_REMEMBERED_USERNAME: username,
+            Prefs.KEY_DEVICE_ID: digits,
+            **({Prefs.KEY_USER_EMAIL: em} if em else {}),
         }
     )
 
@@ -111,13 +118,17 @@ def clear_logged_in() -> None:
     prefs[Prefs.KEY_LOGGED_IN] = False
     prefs.pop(Prefs.KEY_AUTH_TOKEN, None)
     prefs.pop(Prefs.KEY_USER_ADDRESS, None)
+    prefs.pop(Prefs.KEY_DEVICE_ID, None)
     prefs.pop(Prefs.KEY_PAIRED_PHONE_ADDRESS, None)
+    prefs.pop(Prefs.KEY_USER_EMAIL, None)
     write_prefs(prefs)
 
 
-def remembered_username() -> str:
-    return read_prefs().get(Prefs.KEY_REMEMBERED_USERNAME, "")
+def remembered_login_email() -> str:
+    p = read_prefs()
+    return (p.get(Prefs.KEY_REMEMBERED_EMAIL) or p.get(Prefs.KEY_REMEMBERED_USERNAME) or "").strip()
 
 
-def save_remembered_username(username: str) -> None:
-    update_prefs(**{Prefs.KEY_REMEMBERED_USERNAME: username.strip()})
+def save_remembered_login_email(email: str) -> None:
+    em = email.strip().lower()
+    update_prefs(**{Prefs.KEY_REMEMBERED_EMAIL: em})

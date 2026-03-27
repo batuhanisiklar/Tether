@@ -49,6 +49,14 @@ class ScreenStreamService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Uygulama task'i kapatildiginda (swipe/close) offline'a dusur.
+        SignalingClient.instance?.disconnect()
+        SignalingClient.instance = null
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()

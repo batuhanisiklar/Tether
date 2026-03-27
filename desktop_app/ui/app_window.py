@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from desktop_app.config import AppMeta, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
+from desktop_app.config.constants import Prefs
 from desktop_app.config.prefs_store import (
     clear_logged_in,
     load_auth_token,
@@ -35,6 +36,7 @@ from desktop_app.config.prefs_store import (
     save_paired_phone_address,
     save_user_address,
     read_prefs,
+    update_prefs,
 )
 from desktop_app.database.db_client import DbClient
 from desktop_app.network.backend_api import BackendApi
@@ -102,6 +104,37 @@ def _address_digits(value: str | None) -> str:
 
 def _device_card_key(device_id: str, address: str | None) -> str:
     return _address_digits(address) or device_id
+
+
+def _merge_phone_device_row(existing: dict, row: dict) -> dict:
+    addr = _address_digits(row.get("address")) or existing.get("address")
+    out = {**existing, **row, "address": addr}
+    if "is_online" in row:
+        out["is_online"] = bool(row["is_online"])
+    return out
+
+
+def _dedupe_phones_by_mac_address(devices: list[dict]) -> list[dict]:
+    """Ayni mac_address (aynı donanım) ile birden fazla satir: tek kart (tercihen cevrimici)."""
+    by_mac: dict[str, dict] = {}
+    loose: list[dict] = []
+    for d in devices:
+        mac = (d.get("mac_address") or "")
+        if isinstance(mac, str):
+            mac = mac.strip()
+        if not mac:
+            loose.append(d)
+            continue
+        cur = by_mac.get(mac)
+        if cur is None:
+            by_mac[mac] = d
+            continue
+        ao, bo = bool(cur.get("is_online")), bool(d.get("is_online"))
+        if ao != bo:
+            by_mac[mac] = cur if ao else d
+        else:
+            by_mac[mac] = cur if cur.get("device_id", "") >= d.get("device_id", "") else d
+    return loose + list(by_mac.values())
 
 
 def _display_username(username: str | None) -> str:
@@ -280,6 +313,7 @@ class MainWindow(QMainWindow):
         self._ws_mode = "idle"
         self._user_id: int | None = None
         self._username = "Kullanici"
+        self._user_email = ""
         self._user_address = ""
         self._auth_token = ""
         self._current_page = 0
@@ -312,6 +346,7 @@ class MainWindow(QMainWindow):
         prefs = read_prefs()
         self._user_id = prefs.get("user_id")
         self._username = prefs.get("username", "Kullanici")
+        self._user_email = (prefs.get(Prefs.KEY_USER_EMAIL) or "").strip()
         self._auth_token = load_auth_token()
         self._user_address = load_user_address()
         if self._auth_token:
@@ -320,8 +355,14 @@ class MainWindow(QMainWindow):
                 self._user_address = _address_digits(profile.get("address"))
                 if self._user_address:
                     save_user_address(self._user_address)
+                em = (profile.get("email") or "").strip()
+                if em:
+                    self._user_email = em
+                    update_prefs(**{Prefs.KEY_USER_EMAIL: em})
         if not self._user_address and self._user_id:
             self._user_address = self.db.get_user_address(self._user_id) or ""
+        if not self._user_email:
+            self._user_email = self._username
         self._ws_client.set_device_address(self._user_address)
 
     def _load_paired_devices(self) -> list[dict]:
@@ -332,7 +373,7 @@ class MainWindow(QMainWindow):
                 for device in devices:
                     if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
                         key = _device_card_key(device["device_id"], device.get("address"))
-                        merged[key] = {**dict(device), "address": _address_digits(device.get("address"))}
+                        merged[key] = _merge_phone_device_row(merged.get(key, {}), dict(device))
             else:
                 logger.warning("Server devices alinamadi: %s", devices_error)
 
@@ -342,12 +383,7 @@ class MainWindow(QMainWindow):
                     if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
                         key = _device_card_key(device["device_id"], device.get("address"))
                         existing = merged.get(key, {})
-                        merged[key] = {
-                            **existing,
-                            **dict(device),
-                            "address": _address_digits(device.get("address")) or existing.get("address"),
-                            "is_online": bool(device.get("is_online")) or bool(existing.get("is_online")),
-                        }
+                        merged[key] = _merge_phone_device_row(existing, dict(device))
             else:
                 logger.warning("Server recent devices alinamadi: %s", recent_error)
 
@@ -357,17 +393,12 @@ class MainWindow(QMainWindow):
                     if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
                         key = _device_card_key(device["device_id"], device.get("address"))
                         existing = merged.get(key, {})
-                        merged[key] = {
-                            **dict(device),
-                            **existing,
-                            "address": _address_digits(device.get("address")) or existing.get("address"),
-                            "is_online": bool(device.get("is_online")) or bool(existing.get("is_online")),
-                        }
+                        merged[key] = _merge_phone_device_row(existing, dict(device))
             else:
                 logger.warning("Server pairings alinamadi: %s", pairings_error)
 
             if merged:
-                return list(merged.values())
+                return _dedupe_phones_by_mac_address(list(merged.values()))
         return self.db.get_paired_devices(self._ws_client.device_id)
 
     def _connect_presence_mode(self, status_message: str | None = None):
@@ -536,7 +567,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._header_status_dot)
         lay.addSpacing(6)
 
-        self._account_button = QPushButton(f"{_display_username(self._username)}  ▾")
+        self._account_button = QPushButton(f"{self._user_email or self._username}  ▾")
         self._account_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._account_button.setFixedHeight(26)
         self._account_button.setStyleSheet(f"""
@@ -676,7 +707,7 @@ class MainWindow(QMainWindow):
         info_pc.setStyleSheet(f"color: {_TEXT}; font-size: 14px; font-weight: 500;")
         right.addWidget(info_pc)
 
-        info_user = QLabel(f"  {_display_username(self._username)}")
+        info_user = QLabel(f"  {self._user_email or _display_username(self._username)}")
         info_user.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 13px;")
         right.addWidget(info_user)
 
@@ -998,11 +1029,7 @@ class MainWindow(QMainWindow):
             for device in devices
             if bool(device.get("is_online"))
         }
-        known_device_ids = {_device_card_key(device["device_id"], device.get("address")) for device in devices}
-        if self._online_paired_devices:
-            self._online_paired_devices = (self._online_paired_devices & known_device_ids) | db_online_devices
-        else:
-            self._online_paired_devices = set(db_online_devices)
+        self._online_paired_devices = set(db_online_devices)
 
         if not devices:
             self._lbl_no_devices.show()
@@ -1017,7 +1044,7 @@ class MainWindow(QMainWindow):
                 device.get("device_name"),
             )
             card_key = card.card_key()
-            online_hint = card_key in self._online_paired_devices or bool(device.get("is_online"))
+            online_hint = card_key in self._online_paired_devices
             card.set_online(online_hint)
             card.set_connect_callback(self._on_card_connect)
             card.set_forget_callback(self._on_card_forget)
@@ -1079,7 +1106,8 @@ class MainWindow(QMainWindow):
             self._tab_session.hide()
 
         if self._account_button is not None:
-            self._account_button.setText(f"{_display_username(self._username)}  ▾")
+            acct = self._user_email or self._username
+            self._account_button.setText(f"{acct}  ▾")
 
     def _show_account_menu(self):
         if self._account_button is None:
@@ -1105,7 +1133,10 @@ class MainWindow(QMainWindow):
             self._on_logout()
 
     def _show_profile_dialog(self):
-        lines = [f"Kullanici:  {_display_username(self._username)}"]
+        lines = []
+        if self._user_email:
+            lines.append(f"E-posta:  {self._user_email}")
+        lines.append(f"Ad:  {_display_username(self._username)}")
         if self._user_address:
             lines.append(f"Bu bilgisayarin adresi:  {_format_address(self._user_address)}")
         lines.append(f"Bilgisayar:  {_desktop_device_name()}")
@@ -1274,7 +1305,7 @@ class MainWindow(QMainWindow):
         self._heartbeat.stop()
         self._presence_timer.stop()
         self._manual_disconnect = True
-        self._ws_client.disconnect()
+        self._ws_client.disconnect(send_logout=True)
         self._screen.clear_frame()
         clear_logged_in()
         clear_paired_phone_id()
@@ -1397,19 +1428,38 @@ class MainWindow(QMainWindow):
         if self._auth_token:
             devices = self._load_paired_devices()
             self._populate_device_cards(devices)
+            online_set = set(online_devices)
+            self._online_paired_devices.clear()
+            for d in devices:
+                key = _device_card_key(d["device_id"], d.get("address"))
+                on = d["device_id"] in online_set
+                c = self._device_cards.get(key)
+                if c:
+                    c.set_online(on)
+                if on:
+                    self._online_paired_devices.add(key)
+            self._reflow_device_cards()
+            online_count = len(self._online_paired_devices)
+            self._lbl_device_count.setText(
+                f"{online_count} aktif / {len(self._device_cards)} cihaz" if self._device_cards else ""
+            )
         else:
-            self._online_paired_devices = set(online_devices)
             current_ids = set(self._device_cards.keys())
             incoming_ids = set(paired_devices)
             if incoming_ids != current_ids:
                 devices = self._load_paired_devices()
                 self._populate_device_cards(devices)
 
-            for device_id, card in self._device_cards.items():
-                card.set_online(device_id in self._online_paired_devices)
+            online_set = set(online_devices)
+            self._online_paired_devices.clear()
+            for ck, card in self._device_cards.items():
+                on = card.device_id in online_set
+                card.set_online(on)
+                if on:
+                    self._online_paired_devices.add(ck)
 
             self._reflow_device_cards()
-            online_count = sum(1 for d in self._device_cards if d in self._online_paired_devices)
+            online_count = sum(1 for c in self._device_cards.values() if c.is_online())
             self._lbl_device_count.setText(
                 f"{online_count} aktif / {len(self._device_cards)} cihaz" if self._device_cards else ""
             )

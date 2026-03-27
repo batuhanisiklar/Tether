@@ -35,7 +35,9 @@ class Prefs:
     KEY_USERNAME: str      = "username"
     KEY_USER_ADDRESS: str  = "user_address"
     KEY_AUTH_TOKEN: str    = "auth_token"
-    KEY_REMEMBERED_USERNAME: str = "remembered_username"
+    KEY_REMEMBERED_USERNAME: str = "remembered_username"  # geriye uyumluluk (eski tercih)
+    KEY_REMEMBERED_EMAIL: str = "remembered_email"
+    KEY_USER_EMAIL: str = "user_email"  # oturum acikken baslikta gosterilen e-posta
     KEY_DEVICE_ID: str     = "device_id"
     KEY_PAIRED_PHONE: str  = "paired_phone_id"
     KEY_PAIRED_PHONE_ADDRESS: str = "paired_phone_address"
