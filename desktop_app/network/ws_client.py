@@ -173,6 +173,10 @@ class WsClient(QObject):
         """Keep-alive ping."""
         self._send_json({"type": "heartbeat"}, silent=True)
 
+    def send_request_presence(self):
+        """Sunucudan guncel device_ack iste."""
+        self._send_json({"type": "request_presence"}, silent=True)
+
     def forget_paired_phone(self):
         clear_paired_phone_id()
 

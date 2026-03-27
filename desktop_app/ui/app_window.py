@@ -1,15 +1,3 @@
-"""
-Remote Phone Control — Desktop Shell  (AnyDesk-inspired)
-=========================================================
-Layout (home page, top → bottom):
-  1. Title bar           (logo · session chip · account pill)
-  2. Address input bar   (full-width dark bar like AnyDesk)
-  3. Your Address hero   (large formatted number)
-  4. Tab strip           (Recent Sessions)
-  5. Device card grid    (paired phones)
-When a connection is active, page 1 shows live remote control.
-"""
-
 import logging
 import os
 from datetime import datetime, timezone
@@ -298,8 +286,6 @@ class MainWindow(QMainWindow):
         self._username = "Kullanici"
         self._user_address = ""
         self._current_page = 0
-        self._session_chip: QFrame | None = None
-        self._session_chip_btn: QPushButton | None = None
         self._account_button: QPushButton | None = None
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
@@ -313,6 +299,10 @@ class MainWindow(QMainWindow):
         self._heartbeat = QTimer(self)
         self._heartbeat.setInterval(Network.HEARTBEAT_INTERVAL_MS)
         self._heartbeat.timeout.connect(self._ws_client.send_heartbeat)
+
+        self._presence_timer = QTimer(self)
+        self._presence_timer.setInterval(15_000)
+        self._presence_timer.timeout.connect(self._on_presence_tick)
 
         QTimer.singleShot(250, self._load_devices_from_db)
 
@@ -365,6 +355,18 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self._status_bar)
 
     # ── 1. Title Bar ─────────────────────────────────────────────────────────
+    _TAB_STYLE_ACTIVE = (
+        f"QPushButton {{ background: transparent; color: {_TEXT}; border: none;"
+        f" border-bottom: 2px solid {_ACCENT}; font-size: 12px; font-weight: 600;"
+        f" padding: 6px 14px 4px 14px; }}"
+    )
+    _TAB_STYLE_INACTIVE = (
+        f"QPushButton {{ background: transparent; color: {_TEXT_SEC}; border: none;"
+        f" border-bottom: 2px solid transparent; font-size: 12px; font-weight: 500;"
+        f" padding: 6px 14px 4px 14px; }}"
+        f" QPushButton:hover {{ color: {_TEXT}; }}"
+    )
+
     def _build_title_bar(self) -> QWidget:
         bar = QFrame()
         bar.setFixedHeight(38)
@@ -377,42 +379,38 @@ class MainWindow(QMainWindow):
         logo.setFixedSize(10, 10)
         logo.setStyleSheet(f"background-color: {_ACCENT}; border-radius: 5px;")
         lay.addWidget(logo)
-        lay.addSpacing(8)
+        lay.addSpacing(10)
 
-        title = QLabel("Remote Phone Control")
-        title.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 700;")
-        lay.addWidget(title)
-        lay.addSpacing(16)
+        self._tab_home = QPushButton("Anasayfa")
+        self._tab_home.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tab_home.setStyleSheet(self._TAB_STYLE_ACTIVE)
+        self._tab_home.clicked.connect(lambda: self._switch_page(0))
+        lay.addWidget(self._tab_home)
 
-        self._session_chip = QFrame()
-        self._session_chip.setStyleSheet(
-            f"background-color: rgba(232,93,58,0.10); border: 1px solid rgba(232,93,58,0.25); border-radius: 12px;"
-        )
-        chip_lay = QHBoxLayout(self._session_chip)
-        chip_lay.setContentsMargins(0, 0, 0, 0)
-        chip_lay.setSpacing(0)
+        self._tab_session = QFrame()
+        tab_session_lay = QHBoxLayout(self._tab_session)
+        tab_session_lay.setContentsMargins(0, 0, 0, 0)
+        tab_session_lay.setSpacing(0)
 
-        self._session_chip_btn = QPushButton("Aktif Oturum")
-        self._session_chip_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._session_chip_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {_ACCENT}; border: none; font-size: 11px; font-weight: 600; padding: 4px 8px 4px 10px; }}
-            QPushButton:hover {{ color: {_TEXT}; }}
+        self._tab_session_btn = QPushButton("Oturum")
+        self._tab_session_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tab_session_btn.setStyleSheet(self._TAB_STYLE_INACTIVE)
+        self._tab_session_btn.clicked.connect(lambda: self._switch_page(1))
+        tab_session_lay.addWidget(self._tab_session_btn)
+
+        self._tab_session_close = QPushButton("×")
+        self._tab_session_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tab_session_close.setFixedSize(20, 20)
+        self._tab_session_close.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {_TEXT_DIM}; border: none; font-size: 13px; font-weight: 700; }}
+            QPushButton:hover {{ color: {_RED}; }}
         """)
-        self._session_chip_btn.clicked.connect(lambda: self._switch_page(1))
-        chip_lay.addWidget(self._session_chip_btn)
+        self._tab_session_close.setToolTip("Baglantıyi kes")
+        self._tab_session_close.clicked.connect(self._on_disconnect)
+        tab_session_lay.addWidget(self._tab_session_close)
 
-        chip_close = QPushButton("×")
-        chip_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        chip_close.setFixedSize(22, 22)
-        chip_close.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {_ACCENT}; border: none; font-size: 14px; font-weight: 700; }}
-            QPushButton:hover {{ color: {_TEXT}; }}
-        """)
-        chip_close.clicked.connect(self._on_disconnect)
-        chip_lay.addWidget(chip_close)
-
-        self._session_chip.hide()
-        lay.addWidget(self._session_chip)
+        self._tab_session.hide()
+        lay.addWidget(self._tab_session)
 
         lay.addStretch()
 
@@ -723,15 +721,6 @@ class MainWindow(QMainWindow):
         tbl.setContentsMargins(14, 6, 14, 6)
         tbl.setSpacing(10)
 
-        btn_back = QPushButton("← Anasayfa")
-        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_back.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {_ACCENT}; border: none; font-size: 12px; font-weight: 600; }}
-            QPushButton:hover {{ color: {_TEXT}; }}
-        """)
-        btn_back.clicked.connect(lambda: self._switch_page(0))
-        tbl.addWidget(btn_back)
-
         self._remote_device_badge = QLabel("Bagli cihaz yok")
         self._remote_device_badge.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px;")
         tbl.addStretch()
@@ -867,6 +856,12 @@ class MainWindow(QMainWindow):
     def _switch_page(self, index: int):
         self._current_page = index
         self._pages.setCurrentIndex(index)
+        if index == 0:
+            self._tab_home.setStyleSheet(self._TAB_STYLE_ACTIVE)
+            self._tab_session_btn.setStyleSheet(self._TAB_STYLE_INACTIVE)
+        else:
+            self._tab_home.setStyleSheet(self._TAB_STYLE_INACTIVE)
+            self._tab_session_btn.setStyleSheet(self._TAB_STYLE_ACTIVE)
 
     # ── Data loading ─────────────────────────────────────────────────────────
     @pyqtSlot()
@@ -936,13 +931,11 @@ class MainWindow(QMainWindow):
             display_name = card.display_name() if card else f"...{self._paired_phone_id[-8:]}"
             compact_name = _compact_label(display_name, 20)
             self._remote_device_badge.setText(f"Aktif: {compact_name}")
-            if self._session_chip is not None and self._session_chip_btn is not None:
-                self._session_chip_btn.setText(compact_name)
-                self._session_chip.show()
+            self._tab_session_btn.setText(f"  {compact_name}")
+            self._tab_session.show()
         else:
             self._remote_device_badge.setText("Bagli cihaz yok")
-            if self._session_chip is not None:
-                self._session_chip.hide()
+            self._tab_session.hide()
 
         if self._account_button is not None:
             self._account_button.setText(f"{_display_username(self._username)}  ▾")
@@ -1033,6 +1026,9 @@ class MainWindow(QMainWindow):
         self._manual_disconnect = True
         self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, auto_pair=False)
 
+    def _on_presence_tick(self):
+        self._ws_client.send_request_presence()
+
     # ── Auto connect ─────────────────────────────────────────────────────────
     @pyqtSlot()
     def _try_auto_connect(self):
@@ -1106,6 +1102,7 @@ class MainWindow(QMainWindow):
 
         self._mjpeg.stop()
         self._heartbeat.stop()
+        self._presence_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect()
         self._screen.clear_frame()
@@ -1139,28 +1136,30 @@ class MainWindow(QMainWindow):
         self._manual_disconnect = False
         self._set_status(Ui.MSG_SERVER_CONNECTED)
         self._btn_disconnect.setEnabled(True)
+        if not self._presence_timer.isActive():
+            self._presence_timer.start()
 
     @pyqtSlot(str)
     def _on_ws_disconnected(self, reason: str):
         self._set_connected(False)
         self._switch_page(0)
         self._screen.clear_frame()
+        self._presence_timer.stop()
         for card in self._device_cards.values():
             card.set_online(False)
         self._online_paired_devices.clear()
         self._refresh_home_summary()
-        if self._manual_disconnect:
-            self._manual_disconnect = False
-            self._btn_connect.setEnabled(True)
-            return
-        if "10060" in reason or "timed out" in reason.lower():
-            self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
-        elif "already closed" in reason.lower():
-            self._set_status("Baglanti kapandi.", error=True)
-        else:
-            self._set_status(f"Baglanti kesildi: {reason}", error=True)
+        was_manual = self._manual_disconnect
+        self._manual_disconnect = False
         self._btn_connect.setEnabled(True)
-        QTimer.singleShot(1000, lambda: self._connect_presence_channel("Cihaz durumu yeniden baglaniyor..."))
+        if not was_manual:
+            if "10060" in reason or "timed out" in reason.lower():
+                self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
+            elif "already closed" in reason.lower():
+                self._set_status("Baglanti kapandi.", error=True)
+            else:
+                self._set_status(f"Baglanti kesildi: {reason}", error=True)
+        QTimer.singleShot(1500, lambda: self._connect_presence_channel("Cihaz durumu yeniden baglaniyor..."))
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
@@ -1210,6 +1209,11 @@ class MainWindow(QMainWindow):
         self._lbl_device_count.setText(
             f"{online_count} aktif / {len(self._device_cards)} cihaz" if self._device_cards else ""
         )
+        if not self._connected:
+            if online_count:
+                self._set_status(f"Sunucuya baglandi  —  {online_count} cihaz cevrimici")
+            else:
+                self._set_status(Ui.MSG_SERVER_CONNECTED)
         self._refresh_home_summary()
 
     @pyqtSlot()
@@ -1298,6 +1302,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._mjpeg.stop()
         self._heartbeat.stop()
+        self._presence_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect()
         self.db.close()
