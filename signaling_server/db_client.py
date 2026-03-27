@@ -152,17 +152,24 @@ class ServerDbClient:
                     """)
                     cur.execute("""
                         UPDATE pairings p
-                        SET partner_user_id = counterpart_ud.user_id
-                        FROM user_devices own_ud
-                        JOIN user_devices counterpart_ud
-                          ON counterpart_ud.device_id = CASE
-                                WHEN own_ud.device_id = p.phone_device_id THEN p.pc_device_id
-                                ELSE p.phone_device_id
-                             END
-                         AND counterpart_ud.user_id <> p.user_id
+                        SET partner_user_id = COALESCE(
+                            (
+                                SELECT counterpart_ud.user_id
+                                FROM user_devices own_ud
+                                JOIN user_devices counterpart_ud
+                                  ON counterpart_ud.device_id = CASE
+                                        WHEN own_ud.device_id = p.phone_device_id THEN p.pc_device_id
+                                        ELSE p.phone_device_id
+                                     END
+                                WHERE own_ud.user_id = p.user_id
+                                  AND own_ud.device_id IN (p.phone_device_id, p.pc_device_id)
+                                  AND counterpart_ud.user_id <> p.user_id
+                                ORDER BY counterpart_ud.user_id
+                                LIMIT 1
+                            ),
+                            p.user_id
+                        )
                         WHERE p.partner_user_id IS NULL
-                          AND own_ud.user_id = p.user_id
-                          AND own_ud.device_id IN (p.phone_device_id, p.pc_device_id)
                     """)
                     cur.execute("""
                         UPDATE pairings
@@ -413,51 +420,69 @@ class ServerDbClient:
             return None
 
     def get_paired_partners(self, user_id: int, device_id: str) -> list[str]:
+        partner_refs = self.get_paired_partner_refs(user_id, device_id)
+        return [partner_id for _, partner_id in partner_refs]
+
+    def get_paired_partner_refs(self, user_id: int, device_id: str) -> list[tuple[int, str]]:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT pc_device_id AS partner_id
+                        SELECT COALESCE(partner_user_id, user_id) AS partner_user_id,
+                               pc_device_id AS partner_id
                         FROM pairings
                         WHERE user_id = %s AND phone_device_id = %s
                         UNION
-                        SELECT phone_device_id AS partner_id
+                        SELECT COALESCE(partner_user_id, user_id) AS partner_user_id,
+                               phone_device_id AS partner_id
                         FROM pairings
                         WHERE user_id = %s AND pc_device_id = %s
                         """,
                         (user_id, device_id, user_id, device_id),
                     )
                     rows = cur.fetchall()
-            return [row[0] for row in rows]
+            return [(int(row[0]), row[1]) for row in rows]
         except Exception as exc:
             logger.error("Partner listeleme hatasi: %s", exc)
             return []
 
     def get_paired_partners_map(self, user_id: int, device_ids: list[str]) -> dict[str, list[str]]:
+        partner_refs_map = self.get_paired_partner_refs_map(user_id, device_ids)
+        return {
+            device_id: [partner_id for _, partner_id in partner_refs]
+            for device_id, partner_refs in partner_refs_map.items()
+        }
+
+    def get_paired_partner_refs_map(self, user_id: int, device_ids: list[str]) -> dict[str, list[tuple[int, str]]]:
         if not device_ids:
             return {}
 
         unique_ids = list(dict.fromkeys(device_ids))
-        result: dict[str, list[str]] = {device_id: [] for device_id in unique_ids}
+        result: dict[str, list[tuple[int, str]]] = {device_id: [] for device_id in unique_ids}
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT p.phone_device_id AS device_id, p.pc_device_id AS partner_id
+                        SELECT p.phone_device_id AS device_id,
+                               COALESCE(p.partner_user_id, p.user_id) AS partner_user_id,
+                               p.pc_device_id AS partner_id
                         FROM pairings p
                         WHERE p.user_id = %s AND p.phone_device_id = ANY(%s)
                         UNION ALL
-                        SELECT p.pc_device_id AS device_id, p.phone_device_id AS partner_id
+                        SELECT p.pc_device_id AS device_id,
+                               COALESCE(p.partner_user_id, p.user_id) AS partner_user_id,
+                               p.phone_device_id AS partner_id
                         FROM pairings p
                         WHERE p.user_id = %s AND p.pc_device_id = ANY(%s)
                         """,
                         (user_id, unique_ids, user_id, unique_ids),
                     )
-                    for device_id, partner_id in cur.fetchall():
-                        if partner_id not in result.setdefault(device_id, []):
-                            result[device_id].append(partner_id)
+                    for device_id, partner_user_id, partner_id in cur.fetchall():
+                        partner_ref = (int(partner_user_id), partner_id)
+                        if partner_ref not in result.setdefault(device_id, []):
+                            result[device_id].append(partner_ref)
             return result
         except Exception as exc:
             logger.error("Toplu partner listeleme hatasi: %s", exc)

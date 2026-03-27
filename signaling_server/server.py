@@ -58,36 +58,41 @@ def _online_key(user_id: int, device_id: str) -> str:
     return f"{user_id}:{device_id}"
 
 
-async def _get_paired_partners(app: web.Application, user_id: int, device_id: str) -> list[str]:
-    return await asyncio.to_thread(app["db"].get_paired_partners, user_id, device_id)
+async def _get_paired_partner_refs(app: web.Application, user_id: int, device_id: str) -> list[tuple[int, str]]:
+    return await asyncio.to_thread(app["db"].get_paired_partner_refs, user_id, device_id)
 
 
-async def _get_paired_partners_map(app: web.Application, user_id: int, device_ids: list[str]) -> dict[str, list[str]]:
-    return await asyncio.to_thread(app["db"].get_paired_partners_map, user_id, device_ids)
+async def _get_paired_partner_refs_map(
+    app: web.Application,
+    user_id: int,
+    device_ids: list[str],
+) -> dict[str, list[tuple[int, str]]]:
+    return await asyncio.to_thread(app["db"].get_paired_partner_refs_map, user_id, device_ids)
 
 
 async def _send_device_ack(
     app: web.Application,
     user_id: int,
     device_id: str,
-    paired_partners_map: dict[str, list[str]] | None = None,
+    paired_partner_refs_map: dict[str, list[tuple[int, str]]] | None = None,
 ) -> None:
     device_entry = app["online_devices"].get(_online_key(user_id, device_id))
     if not device_entry:
         return
 
     role = device_entry["role"]
-    paired_devices = (
-        paired_partners_map.get(device_id, [])
-        if paired_partners_map is not None
-        else await _get_paired_partners(app, user_id, device_id)
+    partner_refs = (
+        paired_partner_refs_map.get(device_id, [])
+        if paired_partner_refs_map is not None
+        else await _get_paired_partner_refs(app, user_id, device_id)
     )
+    paired_devices = [partner_id for _, partner_id in partner_refs]
     online_paired_devices = [
         partner_id
-        for partner_id in paired_devices
+        for partner_user_id, partner_id in partner_refs
         if (
-            _online_key(user_id, partner_id) in app["online_devices"]
-            and app["online_devices"][_online_key(user_id, partner_id)]["role"] != role
+            _online_key(partner_user_id, partner_id) in app["online_devices"]
+            and app["online_devices"][_online_key(partner_user_id, partner_id)]["role"] != role
         )
     ]
     await _send_json(
@@ -108,21 +113,33 @@ async def _broadcast_presence_update(app: web.Application, user_id: int, *device
     if not root_device_ids:
         return
 
-    direct_partners_map = await _get_paired_partners_map(app, user_id, root_device_ids)
+    direct_partner_refs_map = await _get_paired_partner_refs_map(app, user_id, root_device_ids)
     impacted_device_ids: set[str] = set(root_device_ids)
-    for partner_ids in direct_partners_map.values():
-        impacted_device_ids.update(partner_ids)
+    for partner_refs in direct_partner_refs_map.values():
+        impacted_device_ids.update(partner_id for partner_user_id, partner_id in partner_refs if partner_user_id == user_id)
 
-    paired_partners_map = dict(direct_partners_map)
-    missing_ids = [device_id for device_id in impacted_device_ids if device_id not in paired_partners_map]
+    paired_partner_refs_map = dict(direct_partner_refs_map)
+    missing_ids = [device_id for device_id in impacted_device_ids if device_id not in paired_partner_refs_map]
     if missing_ids:
-        paired_partners_map.update(await _get_paired_partners_map(app, user_id, missing_ids))
+        paired_partner_refs_map.update(await _get_paired_partner_refs_map(app, user_id, missing_ids))
 
     for impacted_device_id in impacted_device_ids:
         try:
-            await _send_device_ack(app, user_id, impacted_device_id, paired_partners_map)
+            await _send_device_ack(app, user_id, impacted_device_id, paired_partner_refs_map)
         except Exception:
             logger.exception("Presence update gonderilemedi: %s", impacted_device_id)
+
+
+async def _broadcast_presence_change(app: web.Application, user_id: int, device_id: str) -> None:
+    await _broadcast_presence_change(app, user_id, device_id)
+    partner_refs = await _get_paired_partner_refs(app, user_id, device_id)
+    cross_account_targets = {
+        (partner_user_id, partner_id)
+        for partner_user_id, partner_id in partner_refs
+        if partner_user_id != user_id
+    }
+    for partner_user_id, partner_id in cross_account_targets:
+        await _broadcast_presence_update(app, partner_user_id, partner_id)
 
 
 async def _persist_pairing(app: web.Application, user_id: int, first_device_id: str, second_device_id: str) -> None:
@@ -201,12 +218,12 @@ async def _notify_paired(app: web.Application, code: str) -> None:
     await _broadcast_session_presence(app, phone_user_id, phone_device_id, pc_user_id, pc_device_id)
 
 
-async def _pick_online_partner(app: web.Application, user_id: int, device_id: str, role: str) -> str | None:
-    partners = await _get_paired_partners(app, user_id, device_id)
-    for partner_id in partners:
-        partner_entry = app["online_devices"].get(_online_key(user_id, partner_id))
+async def _pick_online_partner(app: web.Application, user_id: int, device_id: str, role: str) -> tuple[int, str] | None:
+    partners = await _get_paired_partner_refs(app, user_id, device_id)
+    for partner_user_id, partner_id in partners:
+        partner_entry = app["online_devices"].get(_online_key(partner_user_id, partner_id))
         if partner_entry and partner_entry["role"] != role:
-            return partner_id
+            return partner_user_id, partner_id
     return None
 
 
@@ -228,12 +245,16 @@ async def _pick_preferred_online_partner(
         if partner_entry and partner_entry["role"] != role:
             return target_user_id, candidate_id
     if preferred_partner_id:
-        partner_entry = app["online_devices"].get(_online_key(user_id, preferred_partner_id))
-        if partner_entry and partner_entry["role"] != role:
-            return user_id, preferred_partner_id
-    fallback_partner_id = await _pick_online_partner(app, user_id, device_id, role)
-    if fallback_partner_id:
-        return user_id, fallback_partner_id
+        partner_refs = await _get_paired_partner_refs(app, user_id, device_id)
+        for partner_user_id, partner_id in partner_refs:
+            if partner_id != preferred_partner_id:
+                continue
+            partner_entry = app["online_devices"].get(_online_key(partner_user_id, partner_id))
+            if partner_entry and partner_entry["role"] != role:
+                return partner_user_id, partner_id
+    fallback_partner = await _pick_online_partner(app, user_id, device_id, role)
+    if fallback_partner:
+        return fallback_partner
     return None
 
 
@@ -347,7 +368,11 @@ async def _handle_pair_confirm(app: web.Application, meta: dict, message: dict) 
             second_device_id,
             partner_user_id,
         )
-        await _broadcast_presence_update(app, user_id, first_device_id, second_device_id)
+        await _broadcast_presence_change(app, user_id, first_device_id)
+        if partner_user_id != user_id:
+            await _broadcast_presence_change(app, partner_user_id, second_device_id)
+        else:
+            await _broadcast_presence_update(app, user_id, second_device_id)
 
 
 async def _handle_register_or_join(
@@ -527,7 +552,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
 
         app["ws_meta"].pop(id(ws), None)
         if device_id and user_id:
-            await _broadcast_presence_update(app, user_id, device_id)
+            await _broadcast_presence_change(app, user_id, device_id)
     return ws
 
 
