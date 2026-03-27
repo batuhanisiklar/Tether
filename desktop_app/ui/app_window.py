@@ -850,6 +850,16 @@ class MainWindow(QMainWindow):
             self._recent_devices_layout.removeWidget(card)
             card.deleteLater()
         self._device_cards.clear()
+        db_online_devices = {
+            device["device_id"]
+            for device in devices
+            if bool(device.get("is_online"))
+        }
+        known_device_ids = {device["device_id"] for device in devices}
+        if self._online_paired_devices:
+            self._online_paired_devices = (self._online_paired_devices & known_device_ids) | db_online_devices
+        else:
+            self._online_paired_devices = set(db_online_devices)
 
         if not devices:
             self._lbl_no_devices.show()
@@ -863,11 +873,16 @@ class MainWindow(QMainWindow):
                 device.get("address"),
                 device.get("device_name"),
             )
+            online_hint = device["device_id"] in self._online_paired_devices or bool(device.get("is_online"))
+            card.set_online(online_hint)
             card.set_connect_callback(self._on_card_connect)
             card.set_forget_callback(self._on_card_forget)
             self._device_cards[device["device_id"]] = card
 
-        self._lbl_device_count.setText(f"{len(devices)} cihaz")
+        online_count = sum(1 for device in devices if device["device_id"] in self._online_paired_devices)
+        self._lbl_device_count.setText(
+            f"{online_count} aktif / {len(devices)} cihaz" if devices else ""
+        )
         self._reflow_device_cards()
         self._refresh_home_summary()
 
@@ -1135,9 +1150,19 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
+        paired_phone_id = load_paired_phone_id()
+        if paired_phone_id:
+            self._paired_phone_id = paired_phone_id
+            if paired_phone_id not in self._device_cards:
+                devices = self.db.get_paired_devices(self._ws_client.device_id)
+                self._populate_device_cards(devices)
+            card = self._device_cards.get(paired_phone_id)
+            if card:
+                card.set_online(True)
         self._set_connected(True)
         self._switch_page(1)
         self._set_status("Eslesme tamamlandi. Akis bekleniyor...")
+        self._refresh_home_summary()
         if stream_url and stream_url.startswith("http") and "0.0.0.0" not in stream_url and "10.0.2." not in stream_url:
             try:
                 self._mjpeg.start(stream_url)
