@@ -58,6 +58,45 @@ def _online_key(user_id: int, device_id: str) -> str:
     return f"{user_id}:{device_id}"
 
 
+async def _evict_superseded_sessions(app: web.Application, evicted: list[tuple[int, str]]) -> None:
+    """Ayni install_id uzerinden yeni oturum acilinca onceki WS baglantilarini kapat ve presence yayinla."""
+    for uid, did in evicted:
+        key = _online_key(uid, did)
+        entry = app["online_devices"].pop(key, None)
+        if entry and entry.get("ws"):
+            try:
+                await entry["ws"].close()
+            except Exception:
+                logger.exception("Superseded oturum kapatilamadi: %s", key)
+        try:
+            await _broadcast_presence_change(app, uid, did)
+        except Exception:
+            logger.exception("Superseded presence yayini basarisiz: %s", key)
+
+
+async def _upsert_device_and_evict(
+    app: web.Application,
+    user_id: int,
+    device_id: str,
+    device_type: str,
+    device_name: str,
+    install_id: str | None,
+) -> str | None:
+    result = await asyncio.to_thread(
+        app["db"].upsert_device,
+        user_id,
+        device_id,
+        device_type,
+        device_name,
+        install_id,
+    )
+    if not result or result[0] is None:
+        return None
+    resolved, evicted = result
+    await _evict_superseded_sessions(app, evicted)
+    return resolved
+
+
 async def _get_paired_partner_refs(app: web.Application, user_id: int, device_id: str) -> list[tuple[int, str]]:
     return await asyncio.to_thread(app["db"].get_paired_partner_refs, user_id, device_id)
 
@@ -142,34 +181,15 @@ async def _broadcast_presence_change(app: web.Application, user_id: int, device_
         await _broadcast_presence_update(app, partner_user_id, partner_id)
 
 
-async def _persist_pairing(app: web.Application, user_id: int, first_device_id: str, second_device_id: str) -> None:
-    if not first_device_id or not second_device_id:
-        return
-    await asyncio.to_thread(app["db"].save_pairing_by_device_ids, user_id, first_device_id, second_device_id, user_id)
-
-
 async def _persist_session_pairings(
     app: web.Application,
-    first_user_id: int,
-    first_device_id: str,
-    second_user_id: int,
-    second_device_id: str,
+    _phone_user_id: int,
+    phone_device_id: str,
+    _pc_user_id: int,
+    pc_device_id: str,
 ) -> None:
-    await asyncio.to_thread(
-        app["db"].save_pairing_by_device_ids,
-        first_user_id,
-        first_device_id,
-        second_device_id,
-        second_user_id,
-    )
-    if second_user_id != first_user_id:
-        await asyncio.to_thread(
-            app["db"].save_pairing_by_device_ids,
-            second_user_id,
-            first_device_id,
-            second_device_id,
-            first_user_id,
-        )
+    """Tek pairing satiri; kullanici id'leri DB'de cihazlardan okunur."""
+    await asyncio.to_thread(app["db"].save_pairing_by_device_ids, phone_device_id, pc_device_id)
 
 
 async def _broadcast_session_presence(
@@ -266,6 +286,7 @@ async def _handle_device_hello(
 ) -> None:
     device_id = str(message.get("device_id") or "").strip()
     role = message.get("role", "")
+    install_id = str(message.get("install_id") or message.get("installId") or "").strip() or None
     if not device_id or role not in {"phone", "pc"}:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id ve role gerekli"})
         return
@@ -278,6 +299,14 @@ async def _handle_device_hello(
     if str(binding["device_id"]) != device_id or str(binding["device_type"]) != role:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz adresi bu oturumla eslesmiyor"})
         return
+
+    evicted = await asyncio.to_thread(
+        app["db"].apply_install_and_supersede_sessions,
+        user_id,
+        device_id,
+        install_id,
+    )
+    await _evict_superseded_sessions(app, evicted)
 
     meta["device_id"] = device_id
     meta["user_id"] = user_id
@@ -312,7 +341,10 @@ async def _handle_device_hello(
             partner_meta["peer_code"] = session_code
             partner_meta["peer_role"] = partner_role
 
-        await _persist_session_pairings(app, user_id, device_id, partner_user_id, partner_id)
+        if role == "phone":
+            await _persist_session_pairings(app, user_id, device_id, partner_user_id, partner_id)
+        else:
+            await _persist_session_pairings(app, user_id, partner_id, partner_user_id, device_id)
         await _send_json(
             ws,
             {
@@ -360,13 +392,7 @@ async def _handle_pair_confirm(app: web.Application, meta: dict, message: dict) 
                 other_meta = app["ws_meta"].get(id(other_ws)) or {}
                 if other_meta.get("user_id"):
                     partner_user_id = other_meta["user_id"]
-        await asyncio.to_thread(
-            app["db"].save_pairing_by_device_ids,
-            user_id,
-            first_device_id,
-            second_device_id,
-            partner_user_id,
-        )
+        await asyncio.to_thread(app["db"].save_pairing_by_device_ids, first_device_id, second_device_id)
         await _broadcast_presence_change(app, user_id, first_device_id)
         if partner_user_id != user_id:
             await _broadcast_presence_change(app, partner_user_id, second_device_id)
@@ -416,6 +442,14 @@ async def _handle_register_or_join(
     meta["peer_role"] = role
     if meta.get("user_id") and device_id:
         meta["device_id"] = device_id
+        install_id = str(message.get("install_id") or message.get("installId") or "").strip() or None
+        evicted = await asyncio.to_thread(
+            app["db"].apply_install_and_supersede_sessions,
+            meta["user_id"],
+            device_id,
+            install_id,
+        )
+        await _evict_superseded_sessions(app, evicted)
         online_key = _online_key(meta["user_id"], device_id)
         if online_key not in app["online_devices"]:
             app["online_devices"][online_key] = {"ws": ws, "role": role, "user_id": meta["user_id"], "device_id": device_id}
@@ -581,9 +615,20 @@ async def auth_register(request: web.Request) -> web.Response:
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
+    install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
     resolved_device_id = ""
     if device_type in {"phone", "pc"}:
-        resolved_device_id = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name) or ""
+        resolved_device_id = (
+            await _upsert_device_and_evict(
+                request.app,
+                user_id,
+                device_id,
+                device_type,
+                device_name,
+                install_id,
+            )
+            or ""
+        )
         if not resolved_device_id:
             return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
 
@@ -618,9 +663,20 @@ async def auth_login(request: web.Request) -> web.Response:
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
+    install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
     resolved_device_id = ""
     if device_type in {"phone", "pc"}:
-        resolved_device_id = await asyncio.to_thread(request.app["db"].upsert_device, user_id, device_id, device_type, device_name) or ""
+        resolved_device_id = (
+            await _upsert_device_and_evict(
+                request.app,
+                user_id,
+                device_id,
+                device_type,
+                device_name,
+                install_id,
+            )
+            or ""
+        )
         if not resolved_device_id:
             return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
 
@@ -659,10 +715,21 @@ async def upsert_device(request: web.Request) -> web.Response:
     device_id = data.get("device_id", "").strip()
     device_type = data.get("device_type", "").strip()
     device_name = data.get("device_name", "").strip()
+    install_id = (data.get("install_id") or data.get("installId") or "").strip() or None
     if device_type not in {"phone", "pc"}:
         return web.json_response({"ok": False, "message": "device_id ve device_type gerekli."}, status=400)
 
-    resolved_device_id = await asyncio.to_thread(request.app["db"].upsert_device, user[0], device_id, device_type, device_name) or ""
+    resolved_device_id = (
+        await _upsert_device_and_evict(
+            request.app,
+            user[0],
+            device_id,
+            device_type,
+            device_name,
+            install_id,
+        )
+        or ""
+    )
     if not resolved_device_id:
         return web.json_response({"ok": False, "message": "Cihaz kaydi guncellenemedi."}, status=500)
     return web.json_response({"ok": True, "device_id": resolved_device_id, "address": resolved_device_id})

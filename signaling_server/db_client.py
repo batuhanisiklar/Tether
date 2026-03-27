@@ -106,13 +106,49 @@ class ServerDbClient:
                         "ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE"
                     )
                     cur.execute(
+                        "ALTER TABLE devices ADD COLUMN IF NOT EXISTS install_id TEXT"
+                    )
+                    cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_devices_install_id
+                        ON devices(install_id)
+                        WHERE install_id IS NOT NULL
+                        """
+                    )
+                    cur.execute(
                         "ALTER TABLE pairings ADD COLUMN IF NOT EXISTS partner_user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE"
                     )
+                    # Eski (user_id, partner, phone, pc) indeksi — cift satir uretiyordu; tek satir: (phone_device_id, pc_device_id)
                     cur.execute("DROP INDEX IF EXISTS idx_pairings_udpp")
                     cur.execute(
                         """
-                        CREATE UNIQUE INDEX IF NOT EXISTS idx_pairings_udpp
-                        ON pairings(user_id, partner_user_id, phone_device_id, pc_device_id)
+                        DELETE FROM pairings a
+                        USING pairings b
+                        WHERE a.phone_device_id = b.phone_device_id
+                          AND a.pc_device_id = b.pc_device_id
+                          AND a.id < b.id
+                        """
+                    )
+                    cur.execute(
+                        """
+                        CREATE UNIQUE INDEX IF NOT EXISTS idx_pairings_phone_pc
+                        ON pairings(phone_device_id, pc_device_id)
+                        """
+                    )
+                    # Baglanti yonu: her zaman bilgisayar (pc) -> telefon (phone)
+                    cur.execute(
+                        """
+                        UPDATE connections c
+                        SET device_id_from = c.device_id_to, device_id_to = c.device_id_from
+                        WHERE c.device_id_from IS NOT NULL AND c.device_id_to IS NOT NULL
+                          AND EXISTS (
+                              SELECT 1 FROM devices df
+                              WHERE df.device_id = c.device_id_from AND df.device_type = 'phone'
+                          )
+                          AND EXISTS (
+                              SELECT 1 FROM devices dt
+                              WHERE dt.device_id = c.device_id_to AND dt.device_type = 'pc'
+                          )
                         """
                     )
                 conn.commit()
@@ -141,6 +177,62 @@ class ServerDbClient:
         if len(digits) != 12:
             return None
         return digits
+
+    @staticmethod
+    def _normalize_install_id(raw: str | None) -> str | None:
+        """Ayni fiziksel kurulum (app install); hesap degisse bile kalir."""
+        if not raw:
+            return None
+        s = "".join(c for c in str(raw).strip() if c.isalnum() or c in "-_")
+        if len(s) < 16:
+            return None
+        return s[:64]
+
+    def _install_supersede_in_cursor(
+        self,
+        cur,
+        user_id: int,
+        device_id: str,
+        install_id: str | None,
+    ) -> list[tuple[int, str]]:
+        ins = self._normalize_install_id(install_id)
+        n = self._normalize_public_device_id(device_id)
+        if not ins or not n:
+            return []
+        cur.execute(
+            """
+            UPDATE devices SET install_id = %s
+            WHERE user_id = %s AND device_id = %s
+            """,
+            (ins, user_id, n),
+        )
+        cur.execute(
+            """
+            UPDATE devices SET is_online = false
+            WHERE install_id = %s
+              AND NOT (user_id = %s AND device_id = %s)
+            RETURNING user_id, device_id
+            """,
+            (ins, user_id, n),
+        )
+        return [(int(r[0]), str(r[1])) for r in cur.fetchall()]
+
+    def apply_install_and_supersede_sessions(
+        self,
+        user_id: int,
+        device_id: str,
+        install_id: str | None,
+    ) -> list[tuple[int, str]]:
+        """WebSocket device_hello: ayni install_id ile baska hesap/cihaz oturumlarini DB'de offline yap."""
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    evicted = self._install_supersede_in_cursor(cur, user_id, device_id, install_id)
+                conn.commit()
+            return evicted
+        except Exception as e:
+            logger.warning("apply_install_and_supersede_sessions: %s", e)
+            return []
 
     def _generate_unique_device_id(self, cur) -> str:
         for _ in range(80):
@@ -297,8 +389,10 @@ class ServerDbClient:
                             r = cur.fetchone()
                             if r:
                                 resolved = str(r["device_id"])
+                    uid = int(u["user_id"])
                     return {
-                        "user_id": u["user_id"],
+                        "id": uid,
+                        "user_id": uid,
                         "first_name": u["first_name"],
                         "last_name": u["last_name"],
                         "email": u["email"],
@@ -319,9 +413,14 @@ class ServerDbClient:
         device_id: str,
         device_type: str,
         device_name: str | None,
-    ) -> str | None:
+        install_id: str | None = None,
+    ) -> tuple[str | None, list[tuple[int, str]]]:
+        """
+        Cihaz kaydi. install_id verilirse ayni kurulumdaki diger device satirlari offline olur.
+        Donus: (resolved_device_id, evicted_sessions) — evicted WebSocket belleginden dusurulmeli.
+        """
         if device_type not in {"phone", "pc"}:
-            return None
+            return None, []
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -336,11 +435,12 @@ class ServerDbClient:
                         """,
                         (device_name or "", device_type, resolved, user_id),
                     )
+                    evicted = self._install_supersede_in_cursor(cur, user_id, resolved, install_id)
                 conn.commit()
-            return resolved
+            return resolved, evicted
         except Exception as e:
             logger.error("upsert_device: %s", e)
-            return None
+            return None, []
 
     def user_owns_device(self, user_id: int, device_id: str) -> bool:
         n = self._normalize_public_device_id(device_id)
@@ -427,13 +527,9 @@ class ServerDbClient:
         types = {r[0]: r[1] for r in cur.fetchall()}
         return types.get(a), types.get(b)
 
-    def save_pairing_by_device_ids(
-        self,
-        user_id: int,
-        first_device_id: str,
-        second_device_id: str,
-        partner_user_id: int,
-    ) -> None:
+    def save_pairing_by_device_ids(self, first_device_id: str, second_device_id: str) -> None:
+        """Iki cihaz (telefon+pc) arasinda tek pairing satiri; user_id=telefon sahibi, partner_user_id=pc sahibi.
+        connections: device_id_from=pc, device_id_to=phone (bilgisayardan telefona)."""
         a = self._normalize_public_device_id(first_device_id)
         b = self._normalize_public_device_id(second_device_id)
         if not a or not b:
@@ -449,32 +545,36 @@ class ServerDbClient:
                     else:
                         phone_id, pc_id = b, a
                     cur.execute(
+                        "SELECT user_id FROM devices WHERE device_id = %s",
+                        (phone_id,),
+                    )
+                    r_ph = cur.fetchone()
+                    cur.execute(
+                        "SELECT user_id FROM devices WHERE device_id = %s",
+                        (pc_id,),
+                    )
+                    r_pc = cur.fetchone()
+                    if not r_ph or not r_pc:
+                        return
+                    phone_user_id = int(r_ph[0])
+                    pc_user_id = int(r_pc[0])
+                    cur.execute(
                         """
                         INSERT INTO pairings (user_id, partner_user_id, phone_device_id, pc_device_id)
-                        SELECT %s, %s, %s, %s
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM pairings x
-                            WHERE x.user_id = %s AND x.partner_user_id = %s
-                              AND x.phone_device_id = %s AND x.pc_device_id = %s
-                        )
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (phone_device_id, pc_device_id)
+                        DO UPDATE SET
+                            user_id = EXCLUDED.user_id,
+                            partner_user_id = EXCLUDED.partner_user_id
                         """,
-                        (
-                            user_id,
-                            partner_user_id,
-                            phone_id,
-                            pc_id,
-                            user_id,
-                            partner_user_id,
-                            phone_id,
-                            pc_id,
-                        ),
+                        (phone_user_id, pc_user_id, phone_id, pc_id),
                     )
                     cur.execute(
                         """
                         INSERT INTO connections (device_id_from, device_id_to)
                         VALUES (%s, %s)
                         """,
-                        (a, b),
+                        (pc_id, phone_id),
                     )
                 conn.commit()
         except Exception as e:
@@ -619,26 +719,42 @@ class ServerDbClient:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        DELETE FROM pairings
-                        WHERE (user_id = %s OR partner_user_id = %s)
-                          AND (
-                            (phone_device_id = %s AND pc_device_id = %s)
-                            OR (phone_device_id = %s AND pc_device_id = %s)
-                          )
-                        """,
-                        (user_id, user_id, a, b, b, a),
-                    )
+                    ta, tb = self._device_types(cur, a, b)
+                    if ta and tb and ta != tb:
+                        if ta == "phone" and tb == "pc":
+                            ph, pc = a, b
+                        else:
+                            ph, pc = b, a
+                        cur.execute(
+                            """
+                            DELETE FROM pairings
+                            WHERE (user_id = %s OR partner_user_id = %s)
+                              AND phone_device_id = %s AND pc_device_id = %s
+                            """,
+                            (user_id, user_id, ph, pc),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            DELETE FROM pairings
+                            WHERE (user_id = %s OR partner_user_id = %s)
+                              AND (
+                                (phone_device_id = %s AND pc_device_id = %s)
+                                OR (phone_device_id = %s AND pc_device_id = %s)
+                              )
+                            """,
+                            (user_id, user_id, a, b, b, a),
+                        )
                 conn.commit()
             return True
         except Exception as e:
             logger.error("delete_pairing_by_device_ids: %s", e)
             return False
 
-    def record_connection(self, device_id_from: str, device_id_to: str) -> None:
-        a = self._normalize_public_device_id(device_id_from)
-        b = self._normalize_public_device_id(device_id_to)
+    def record_connection(self, pc_device_id: str, phone_device_id: str) -> None:
+        """Baglanti kaydi: her zaman pc -> phone."""
+        a = self._normalize_public_device_id(pc_device_id)
+        b = self._normalize_public_device_id(phone_device_id)
         if not a or not b:
             return
         try:
