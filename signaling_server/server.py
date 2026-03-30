@@ -20,6 +20,13 @@ def _online_key(user_id: int, device_id: str) -> str:
     return f"{user_id}:{device_id}"
 
 
+def _canon_device_id(raw: str | None) -> str | None:
+    """WS ve DB ile ayni 12 haneli anahtar (tire/bosluk tolere)."""
+    if not raw:
+        return None
+    return ServerDbClient._normalize_public_device_id(str(raw).strip())
+
+
 def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
     did = str(device.get("device_id") or "")
     ouid = device.get("owner_user_id")
@@ -142,30 +149,39 @@ async def _send_device_ack(
     device_id: str,
     paired_partner_refs_map: dict[str, list[tuple[int, str]]] | None = None,
 ) -> None:
-    device_entry = app["online_devices"].get(_online_key(user_id, device_id))
+    canon = _canon_device_id(device_id) or str(device_id).strip()
+    if not canon:
+        return
+    device_entry = app["online_devices"].get(_online_key(user_id, canon))
     if not device_entry:
         return
 
-    role = device_entry["role"]
-    partner_refs = (
-        paired_partner_refs_map.get(device_id, [])
-        if paired_partner_refs_map is not None
-        else await _get_paired_partner_refs(app, user_id, device_id)
-    )
-    paired_devices = [partner_id for _, partner_id in partner_refs]
-    online_paired_devices = [
-        partner_id
-        for partner_user_id, partner_id in partner_refs
-        if (
-            _online_key(partner_user_id, partner_id) in app["online_devices"]
-            and app["online_devices"][_online_key(partner_user_id, partner_id)]["role"] != role
-        )
-    ]
+    partner_refs: list[tuple[int, str]]
+    if paired_partner_refs_map is not None:
+        if canon in paired_partner_refs_map:
+            partner_refs = paired_partner_refs_map[canon]
+        elif str(device_id) in paired_partner_refs_map:
+            partner_refs = paired_partner_refs_map[str(device_id)]
+        else:
+            partner_refs = []
+    else:
+        partner_refs = await _get_paired_partner_refs(app, user_id, canon)
+    # Eslestirme ucunda WS varsa cevrimici say (role filtresi bazi capraz oturumlarda yanlis eslemeye yol acabiliyordu).
+    paired_devices = [str(pid) for _, pid in partner_refs]
+    online_paired_devices: list[str] = []
+    seen_online: set[str] = set()
+    for partner_user_id, partner_id in partner_refs:
+        pcanon = _canon_device_id(partner_id) or str(partner_id).strip()
+        if not pcanon or pcanon in seen_online:
+            continue
+        if _online_key(int(partner_user_id), pcanon) in app["online_devices"]:
+            online_paired_devices.append(pcanon)
+            seen_online.add(pcanon)
     await _send_json(
         device_entry["ws"],
         {
             "type": MessageTypes.DEVICE_ACK,
-            "device_id": device_id,
+            "device_id": canon,
             "paired_with": paired_devices[0] if paired_devices else "",
             "paired_devices": paired_devices,
             "online_paired_devices": online_paired_devices,
@@ -175,7 +191,13 @@ async def _send_device_ack(
 
 
 async def _broadcast_presence_update(app: web.Application, user_id: int, *device_ids: str) -> None:
-    root_device_ids = list(dict.fromkeys(device_id for device_id in device_ids if device_id))
+    root_device_ids: list[str] = []
+    for d in device_ids:
+        if not d:
+            continue
+        c = _canon_device_id(str(d)) or str(d).strip()
+        if c and c not in root_device_ids:
+            root_device_ids.append(c)
     if not root_device_ids:
         return
 
@@ -396,19 +418,20 @@ async def _handle_device_hello(
     meta: dict,
     message: dict,
 ) -> None:
-    device_id = str(message.get("device_id") or "").strip()
+    raw_addr = str(message.get("device_id") or "").strip()
     role = message.get("role", "")
-    if not device_id or role not in {"phone", "pc"}:
+    if not raw_addr or role not in {"phone", "pc"}:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id ve role gerekli"})
         return
 
-    binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, device_id)
+    binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, raw_addr)
     if not binding:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz bulunamadi"})
         return
     user_id = int(binding["user_id"])
-    if str(binding["device_id"]) != device_id or str(binding["device_type"]) != role:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz adresi bu oturumla eslesmiyor"})
+    device_id = str(binding["device_id"])
+    if str(binding["device_type"]) != role:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz tipi bu oturumla eslesmiyor"})
         return
 
     evicted = await asyncio.to_thread(app["db"].apply_mac_supersede_sessions, user_id, device_id)
@@ -543,19 +566,17 @@ async def _handle_register_or_join(
         return
 
     if meta.get("user_id") is None:
-        device_id = message.get("device_id", "").strip() or meta.get("device_id")
-        if not device_id:
+        raw_did = message.get("device_id", "").strip() or meta.get("device_id")
+        if not raw_did:
             await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id missing"})
             return
-        binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, device_id)
+        binding = await asyncio.to_thread(app["db"].get_device_binding_by_address, raw_did)
         if not binding:
             await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz bulunamadi"})
             return
         user_id = int(binding["user_id"])
-        if str(binding["device_id"]) != device_id:
-            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz kimligi bu oturumla eslesmiyor"})
-            return
         meta["user_id"] = user_id
+        meta["device_id"] = str(binding["device_id"])
 
     current_peer_code = meta.get("peer_code") or ""
     if current_peer_code.startswith("__auto_"):
@@ -566,7 +587,8 @@ async def _handle_register_or_join(
 
     session = _session_entry(app, code)
     session[role] = ws
-    device_id = message.get("device_id", "").strip() or meta.get("device_id")
+    merged_did = message.get("device_id", "").strip() or meta.get("device_id")
+    device_id = _canon_device_id(str(merged_did)) or str(merged_did or "").strip()
     app["session_devices"][code][role] = device_id
     meta["peer_code"] = code
     meta["peer_role"] = role
@@ -677,7 +699,12 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 device_id = meta.get("device_id")
                 user_id = meta.get("user_id")
                 if device_id and user_id:
-                    await _send_device_ack(app, user_id, device_id)
+                    await _send_device_ack(app, int(user_id), str(device_id))
+                    if message_type == MessageTypes.REQUEST_PRESENCE:
+                        cid = _canon_device_id(str(device_id)) or str(device_id).strip()
+                        ent = app["online_devices"].get(_online_key(int(user_id), cid))
+                        if ent and ent.get("role") == "pc":
+                            await _fanout_device_ack_to_pairing_parties(app, cid)
                 if message_type == MessageTypes.HEARTBEAT:
                     peer_ws = await _resolve_peer_ws(app, ws, meta) if meta.get("peer_code") else None
                     if peer_ws:

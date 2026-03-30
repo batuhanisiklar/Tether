@@ -716,7 +716,7 @@ class ServerDbClient:
                         """
                         SELECT DISTINCT d.user_id, d.device_id
                         FROM pairings p
-                        JOIN devices d ON d.device_id = p.phone_device_id OR d.device_id = p.pc_device_id
+                        JOIN devices d ON d.device_id IN (p.phone_device_id, p.pc_device_id)
                         WHERE p.phone_device_id = %s OR p.pc_device_id = %s
                         """,
                         (n, n),
