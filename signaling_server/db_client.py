@@ -704,6 +704,28 @@ class ServerDbClient:
             result[did] = self.get_paired_partner_refs(user_id, did)
         return result
 
+    def list_pairing_party_devices(self, device_id: str) -> list[tuple[int, str]]:
+        """Bu cihazin yer aldigi tum pairing satirlarindaki uclar (user_id, device_id)."""
+        n = self._normalize_public_device_id(device_id)
+        if not n:
+            return []
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT d.user_id, d.device_id
+                        FROM pairings p
+                        JOIN devices d ON d.device_id = p.phone_device_id OR d.device_id = p.pc_device_id
+                        WHERE p.phone_device_id = %s OR p.pc_device_id = %s
+                        """,
+                        (n, n),
+                    )
+                    return [(int(r[0]), str(r[1])) for r in cur.fetchall()]
+        except Exception as e:
+            logger.error("list_pairing_party_devices: %s", e)
+            return []
+
     def get_device_pairings(self, user_id: int, device_id: str) -> list[dict]:
         n = self._normalize_public_device_id(device_id)
         if not n:

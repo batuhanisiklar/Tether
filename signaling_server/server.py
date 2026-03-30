@@ -196,6 +196,25 @@ async def _broadcast_presence_update(app: web.Application, user_id: int, *device
             logger.exception("Presence update gonderilemedi: %s", impacted_device_id)
 
 
+async def _fanout_device_ack_to_pairing_parties(app: web.Application, touched_device_id: str) -> None:
+    """Eslestirme zincirindeki tum cevrimici uclara guncel device_ack (anlik presence)."""
+    parties = await asyncio.to_thread(app["db"].list_pairing_party_devices, touched_device_id)
+    if not parties:
+        return
+    seen: set[tuple[int, str]] = set()
+    for uid, did in parties:
+        t = (int(uid), str(did))
+        if t in seen:
+            continue
+        seen.add(t)
+        if _online_key(t[0], t[1]) not in app["online_devices"]:
+            continue
+        try:
+            await _send_device_ack(app, t[0], t[1], None)
+        except Exception:
+            logger.exception("Presence fan-out device_ack basarisiz: uid=%s did=%s", t[0], t[1])
+
+
 async def _broadcast_presence_change(app: web.Application, user_id: int, device_id: str) -> None:
     await _broadcast_presence_update(app, user_id, device_id)
     partner_refs = await _get_paired_partner_refs(app, user_id, device_id)
@@ -206,6 +225,7 @@ async def _broadcast_presence_change(app: web.Application, user_id: int, device_
     }
     for partner_user_id, partner_id in cross_account_targets:
         await _broadcast_presence_update(app, partner_user_id, partner_id)
+    await _fanout_device_ack_to_pairing_parties(app, device_id)
 
 
 def _mac_from_body(data: dict) -> str | None:
