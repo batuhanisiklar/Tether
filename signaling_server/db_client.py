@@ -270,6 +270,14 @@ class ServerDbClient:
         device_name: str | None,
         mac_n: str | None,
     ) -> str:
+        """
+        Telefon/PC kimligi:
+        - MAC (veya aid:...) varsa: (user_id + device_type + mac) ile tek sabit device_id.
+          Bu profilde bu MAC yoksa sunucu yeni 12 haneli numara uretir; istemci onerisi yeni cihazda kullanilmaz.
+        - MAC yoksa: eski istemciler icin istenen device_id veya sunucu uretimi.
+        """
+        normalized = self._normalize_public_device_id(requested)
+
         if mac_n:
             cur.execute(
                 """
@@ -282,7 +290,43 @@ class ServerDbClient:
             if row:
                 return str(row[0])
 
-        normalized = self._normalize_public_device_id(requested)
+            if normalized:
+                cur.execute(
+                    """
+                    SELECT device_id, mac_address FROM devices
+                    WHERE device_id = %s AND user_id = %s AND device_type = %s
+                    """,
+                    (normalized, user_id, device_type),
+                )
+                row = cur.fetchone()
+                if row:
+                    d_id = str(row[0])
+                    raw_mac = row[1]
+                    existing_mac = self._normalize_mac(raw_mac) if raw_mac else None
+                    empty_mac = raw_mac is None or str(raw_mac).strip() == ""
+                    if empty_mac:
+                        cur.execute(
+                            """
+                            UPDATE devices SET mac_address = %s
+                            WHERE device_id = %s AND user_id = %s
+                              AND (mac_address IS NULL OR BTRIM(mac_address) = '')
+                            """,
+                            (mac_n, d_id, user_id),
+                        )
+                        return d_id
+                    if existing_mac == mac_n:
+                        return d_id
+
+            new_id = self._generate_unique_device_id(cur)
+            cur.execute(
+                """
+                INSERT INTO devices (device_id, device_name, device_type, is_active, user_id, mac_address)
+                VALUES (%s, %s, %s, TRUE, %s, %s)
+                """,
+                (new_id, device_name or "", device_type, user_id, mac_n),
+            )
+            return new_id
+
         if normalized:
             cur.execute(
                 """
@@ -293,31 +337,27 @@ class ServerDbClient:
             )
             row = cur.fetchone()
             if row:
-                d_id = str(row[0])
-                if mac_n:
-                    cur.execute(
-                        """
-                        UPDATE devices SET mac_address = %s
-                        WHERE device_id = %s AND user_id = %s AND (mac_address IS NULL OR mac_address = '')
-                        """,
-                        (mac_n, d_id, user_id),
-                    )
-                return d_id
+                return str(row[0])
             cur.execute(
-                """
-                INSERT INTO devices (device_id, device_name, device_type, is_active, user_id, mac_address)
-                VALUES (%s, %s, %s, TRUE, %s, %s)
-                """,
-                (normalized, device_name or "", device_type, user_id, mac_n),
+                "SELECT 1 FROM devices WHERE device_id = %s AND user_id <> %s",
+                (normalized, user_id),
             )
-            return normalized
+            if cur.fetchone() is None:
+                cur.execute(
+                    """
+                    INSERT INTO devices (device_id, device_name, device_type, is_active, user_id, mac_address)
+                    VALUES (%s, %s, %s, TRUE, %s, %s)
+                    """,
+                    (normalized, device_name or "", device_type, user_id, None),
+                )
+                return normalized
         new_id = self._generate_unique_device_id(cur)
         cur.execute(
             """
             INSERT INTO devices (device_id, device_name, device_type, is_active, user_id, mac_address)
             VALUES (%s, %s, %s, TRUE, %s, %s)
             """,
-            (new_id, device_name or "", device_type, user_id, mac_n),
+            (new_id, device_name or "", device_type, user_id, None),
         )
         return new_id
 
@@ -457,7 +497,8 @@ class ServerDbClient:
         mac_address: str | None = None,
     ) -> tuple[str | None, list[tuple[int, str]]]:
         """
-        Cihaz kaydi. mac_address ayni kullanici+cihaz tipinde eslesirse mevcut device_id doner.
+        Cihaz kaydi. Telefonda mac_address varsa: (user_id + device_type + mac) ile DB'deki sabit
+        device_id doner; bu MAC icin satir yoksa sunucu yeni 12 haneli numara uretir.
         Ayni MAC baska satirda (baska hesap) ise o satirlar cevrimdisi yapilir.
         """
         if device_type not in {"phone", "pc"}:

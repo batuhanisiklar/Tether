@@ -718,6 +718,11 @@ async def auth_register(request: web.Request) -> web.Response:
     mac_address = _mac_from_body(data)
     resolved_device_id = ""
     if device_type in {"phone", "pc"}:
+        if device_type == "phone" and not mac_address:
+            return web.json_response(
+                {"ok": False, "message": "Telefon kaydi icin mac_address (cihaz parmak izi) gerekli."},
+                status=400,
+            )
         resolved_device_id = (
             await _upsert_device_and_evict(
                 request.app,
@@ -767,6 +772,11 @@ async def auth_login(request: web.Request) -> web.Response:
     mac_address = _mac_from_body(data)
     resolved_device_id = ""
     if device_type in {"phone", "pc"}:
+        if device_type == "phone" and not mac_address:
+            return web.json_response(
+                {"ok": False, "message": "Telefon girisi icin mac_address (cihaz parmak izi) gerekli."},
+                status=400,
+            )
         resolved_device_id = (
             await _upsert_device_and_evict(
                 request.app,
@@ -820,6 +830,11 @@ async def upsert_device(request: web.Request) -> web.Response:
     mac_address = _mac_from_body(data)
     if device_type not in {"phone", "pc"}:
         return web.json_response({"ok": False, "message": "device_id ve device_type gerekli."}, status=400)
+    if device_type == "phone" and not mac_address:
+        return web.json_response(
+            {"ok": False, "message": "Telefon icin mac_address gerekli."},
+            status=400,
+        )
 
     resolved_device_id = (
         await _upsert_device_and_evict(
