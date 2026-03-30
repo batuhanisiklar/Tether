@@ -556,6 +556,7 @@ class ServerDbClient:
                                d.device_id AS address,
                                COALESCE(d.is_online, false) AS is_online,
                                d.mac_address,
+                               d.user_id AS owner_user_id,
                                (NULLIF(BTRIM(u.first_name || ' ' || u.last_name), '')) AS owner_name,
                                COALESCE(NULLIF(BTRIM(u.phone), ''), '') AS owner_phone,
                                COALESCE(NULLIF(BTRIM(u.email), ''), '') AS owner_email
@@ -691,6 +692,7 @@ class ServerDbClient:
                             SELECT d.device_id, d.device_type, d.device_name,
                                    d.device_id AS address, COALESCE(d.is_online, false) AS is_online,
                                    d.mac_address,
+                                   d.user_id AS owner_user_id,
                                    (NULLIF(BTRIM(u.first_name || ' ' || u.last_name), '')) AS owner_name,
                                    COALESCE(NULLIF(BTRIM(u.phone), ''), '') AS owner_phone,
                                    COALESCE(NULLIF(BTRIM(u.email), ''), '') AS owner_email
@@ -746,6 +748,7 @@ class ServerDbClient:
                             SELECT d.device_id, d.device_type, d.device_name,
                                    d.device_id AS address, COALESCE(d.is_online, false) AS is_online,
                                    d.mac_address,
+                                   d.user_id AS owner_user_id,
                                    (NULLIF(BTRIM(u.first_name || ' ' || u.last_name), '')) AS owner_name,
                                    COALESCE(NULLIF(BTRIM(u.phone), ''), '') AS owner_phone,
                                    COALESCE(NULLIF(BTRIM(u.email), ''), '') AS owner_email

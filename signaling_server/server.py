@@ -34,6 +34,12 @@ def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
         payload["owner_phone"] = owner_phone
     if owner_email:
         payload["owner_email"] = owner_email
+    ouid = device.get("owner_user_id")
+    if ouid is not None:
+        try:
+            payload["owner_user_id"] = int(ouid)
+        except (TypeError, ValueError):
+            pass
     return payload
 
 
@@ -262,6 +268,7 @@ async def _notify_paired(app: web.Application, code: str) -> None:
             session["pc"],
             {
                 "type": MessageTypes.ERROR,
+                "code": "accessibility_required",
                 "message": "Telefonda Erisilebilirlik servisi kapali. Telefonda uygulamayi acip Erisilebilirlik'i etkinlestirin.",
             },
         )
@@ -269,6 +276,7 @@ async def _notify_paired(app: web.Application, code: str) -> None:
             session["phone"],
             {
                 "type": MessageTypes.ERROR,
+                "code": "accessibility_required",
                 "message": "Erisilebilirlik kapali. Bilgisayardan kontrol icin Erisilebilirlik servisini acin ve yeniden baglanin.",
             },
         )
@@ -410,6 +418,7 @@ async def _handle_device_hello(
                 ws,
                 {
                     "type": MessageTypes.ERROR,
+                    "code": "accessibility_required",
                     "message": "Telefonda Erisilebilirlik servisi kapali. Baglanti baslatilamadi.",
                 },
             )
@@ -417,6 +426,7 @@ async def _handle_device_hello(
                 partner_ws,
                 {
                     "type": MessageTypes.ERROR,
+                    "code": "accessibility_required",
                     "message": "Telefonda Erisilebilirlik servisi kapali. Baglanti baslatilamadi.",
                 },
             )
