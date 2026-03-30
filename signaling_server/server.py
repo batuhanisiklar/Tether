@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
-    return {
+    payload = {
         "device_id": device["device_id"],
         "device_type": device["device_type"],
         "device_name": device.get("device_name"),
@@ -25,6 +25,16 @@ def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
         "is_online": bool(device.get("is_online")),
         "mac_address": device.get("mac_address"),
     }
+    owner_name = (device.get("owner_name") or "").strip()
+    owner_phone = (device.get("owner_phone") or "").strip()
+    owner_email = (device.get("owner_email") or "").strip()
+    if owner_name:
+        payload["owner_name"] = owner_name
+    if owner_phone:
+        payload["owner_phone"] = owner_phone
+    if owner_email:
+        payload["owner_email"] = owner_email
+    return payload
 
 
 async def _json(request: web.Request) -> dict:
@@ -247,6 +257,22 @@ async def _notify_paired(app: web.Application, code: str) -> None:
 
     phone_meta = app["ws_meta"].get(id(session["phone"])) or {}
     pc_meta = app["ws_meta"].get(id(session["pc"])) or {}
+    if phone_meta.get("accessibility_enabled") is False:
+        await _send_json(
+            session["pc"],
+            {
+                "type": MessageTypes.ERROR,
+                "message": "Telefonda Erisilebilirlik servisi kapali. Telefonda uygulamayi acip Erisilebilirlik'i etkinlestirin.",
+            },
+        )
+        await _send_json(
+            session["phone"],
+            {
+                "type": MessageTypes.ERROR,
+                "message": "Erisilebilirlik kapali. Bilgisayardan kontrol icin Erisilebilirlik servisini acin ve yeniden baglanin.",
+            },
+        )
+        return
     phone_user_id = phone_meta.get("user_id")
     pc_user_id = pc_meta.get("user_id")
     if not phone_user_id or not pc_user_id:
@@ -352,6 +378,9 @@ async def _handle_device_hello(
 
     meta["device_id"] = device_id
     meta["user_id"] = user_id
+    # Telefon kontrol komutlari icin Accessibility zorunlu: client bunu bildirir.
+    if role == "phone":
+        meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", False))
     app["online_devices"][_online_key(user_id, device_id)] = {"ws": ws, "role": role, "user_id": user_id, "device_id": device_id}
     await asyncio.to_thread(app["db"].set_device_online, user_id, device_id, True)
 
@@ -373,6 +402,25 @@ async def _handle_device_hello(
         partner_entry = app["online_devices"][_online_key(partner_user_id, partner_id)]
         partner_ws = partner_entry["ws"]
         partner_role = partner_entry["role"]
+        # Eslesmede telefon tarafinda Accessibility acik degilse session'a gecme.
+        phone_ws = ws if role == "phone" else partner_ws
+        phone_meta = app["ws_meta"].get(id(phone_ws)) or {}
+        if phone_meta.get("accessibility_enabled") is False:
+            await _send_json(
+                ws,
+                {
+                    "type": MessageTypes.ERROR,
+                    "message": "Telefonda Erisilebilirlik servisi kapali. Baglanti baslatilamadi.",
+                },
+            )
+            await _send_json(
+                partner_ws,
+                {
+                    "type": MessageTypes.ERROR,
+                    "message": "Telefonda Erisilebilirlik servisi kapali. Baglanti baslatilamadi.",
+                },
+            )
+            return
         session_code = f"__auto_{min(device_id, partner_id)}_{max(device_id, partner_id)}"
         app["sessions"][session_code] = {role: ws, partner_role: partner_ws}
         app["session_devices"][session_code] = {role: device_id, partner_role: partner_id}
@@ -482,6 +530,8 @@ async def _handle_register_or_join(
     app["session_devices"][code][role] = device_id
     meta["peer_code"] = code
     meta["peer_role"] = role
+    if role == "phone":
+        meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", False))
     if meta.get("user_id") and device_id:
         meta["device_id"] = device_id
         evicted = await asyncio.to_thread(app["db"].apply_mac_supersede_sessions, meta["user_id"], device_id)

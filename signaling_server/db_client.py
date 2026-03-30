@@ -555,8 +555,12 @@ class ServerDbClient:
                         SELECT d.device_id, d.device_type, d.device_name,
                                d.device_id AS address,
                                COALESCE(d.is_online, false) AS is_online,
-                               d.mac_address
+                               d.mac_address,
+                               (NULLIF(BTRIM(u.first_name || ' ' || u.last_name), '')) AS owner_name,
+                               COALESCE(NULLIF(BTRIM(u.phone), ''), '') AS owner_phone,
+                               COALESCE(NULLIF(BTRIM(u.email), ''), '') AS owner_email
                         FROM devices d
+                        JOIN users u ON u.user_id = d.user_id
                         WHERE d.user_id = %s
                         ORDER BY d.device_type, d.device_name, d.device_id
                         """,
@@ -686,8 +690,13 @@ class ServerDbClient:
                             """
                             SELECT d.device_id, d.device_type, d.device_name,
                                    d.device_id AS address, COALESCE(d.is_online, false) AS is_online,
-                                   d.mac_address
-                            FROM devices d WHERE d.device_id = %s
+                                   d.mac_address,
+                                   (NULLIF(BTRIM(u.first_name || ' ' || u.last_name), '')) AS owner_name,
+                                   COALESCE(NULLIF(BTRIM(u.phone), ''), '') AS owner_phone,
+                                   COALESCE(NULLIF(BTRIM(u.email), ''), '') AS owner_email
+                            FROM devices d
+                            JOIN users u ON u.user_id = d.user_id
+                            WHERE d.device_id = %s
                             """,
                             (oid,),
                         )
@@ -736,8 +745,12 @@ class ServerDbClient:
                             """
                             SELECT d.device_id, d.device_type, d.device_name,
                                    d.device_id AS address, COALESCE(d.is_online, false) AS is_online,
-                                   d.mac_address
+                                   d.mac_address,
+                                   (NULLIF(BTRIM(u.first_name || ' ' || u.last_name), '')) AS owner_name,
+                                   COALESCE(NULLIF(BTRIM(u.phone), ''), '') AS owner_phone,
+                                   COALESCE(NULLIF(BTRIM(u.email), ''), '') AS owner_email
                             FROM devices d
+                            JOIN users u ON u.user_id = d.user_id
                             WHERE d.device_id = %s AND d.device_type = %s
                             """,
                             (oid, device_type),
