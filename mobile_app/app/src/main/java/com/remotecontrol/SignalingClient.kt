@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString.Companion.toByteString
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -24,6 +25,7 @@ class SignalingClient(
     private val preferredPartnerId: String? = null,
     private val preferredPartnerAddress: String? = null,
     private val allowAutoPair: Boolean = false,
+    private val accessibilityEnabled: Boolean = true,
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
@@ -68,6 +70,7 @@ class SignalingClient(
                     put("device_id", deviceId)
                     put("role", "phone")
                     put("auto_pair", allowAutoPair)
+                    put("accessibility_enabled", accessibilityEnabled)
                     if (allowAutoPair && !preferredPartnerId.isNullOrBlank()) {
                         put("preferred_partner_id", preferredPartnerId)
                     } else if (allowAutoPair && !preferredPartnerAddress.isNullOrBlank()) {
@@ -83,6 +86,7 @@ class SignalingClient(
                         put("code", sessionCode)
                         put("role", "phone")
                         put("device_id", deviceId)
+                        put("accessibility_enabled", accessibilityEnabled)
                     }
                     webSocket.send(registerMsg.toString())
                 }
@@ -113,24 +117,20 @@ class SignalingClient(
                         "device_ack" -> {
                             val pairedWith = json.optString("paired_with", "")
                             val partnerOnline = json.optBoolean("partner_online", false)
-                            val pairedDevices = json.optJSONArray("paired_devices")
-                                ?.let { array ->
-                                    buildList {
-                                        for (index in 0 until array.length()) {
-                                            add(array.optString(index))
-                                        }
-                                    }
+                            fun jsonArrayToDeviceIds(array: JSONArray): List<String> = buildList {
+                                for (index in 0 until array.length()) {
+                                    val el = array.opt(index)
+                                    val s = when (el) {
+                                        is String -> el
+                                        is Number -> el.toString()
+                                        null -> ""
+                                        else -> el.toString()
+                                    }.filter { it.isDigit() }.take(12)
+                                    if (s.length == 12) add(s)
                                 }
-                                ?: emptyList()
-                            val onlinePairedDevices = json.optJSONArray("online_paired_devices")
-                                ?.let { array ->
-                                    buildList {
-                                        for (index in 0 until array.length()) {
-                                            add(array.optString(index))
-                                        }
-                                    }
-                                }
-                                ?: emptyList()
+                            }
+                            val pairedDevices = json.optJSONArray("paired_devices")?.let(::jsonArrayToDeviceIds) ?: emptyList()
+                            val onlinePairedDevices = json.optJSONArray("online_paired_devices")?.let(::jsonArrayToDeviceIds) ?: emptyList()
                             Log.i(TAG, "Device ack: paired_with=$pairedWith online=$partnerOnline")
                             onPairedDevicesStatus(pairedDevices, onlinePairedDevices)
                         }

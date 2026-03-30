@@ -25,7 +25,7 @@ class WsClient(QObject):
     auto_paired = pyqtSignal(str)               # Kayıtlı telefon otomatik bağlandı (partner device_id)
     peer_disconnected = pyqtSignal()            # Telefon bağlantısı kesildi
     command_received = pyqtSignal(dict)         # Telefondan komut geldi
-    error_occurred = pyqtSignal(str)            # Hata mesajı
+    error_occurred = pyqtSignal(str, str)       # mesaj, kod (ornegin accessibility_required)
     frame_received = pyqtSignal(QPixmap)        # WebSocket üzerinden JPEG frame
     paired_devices_status = pyqtSignal(list, list)  # tum paired ids, online olanlar
 
@@ -184,7 +184,7 @@ class WsClient(QObject):
         current_ws = self._ws
         if current_ws is None:
             if not silent:
-                self.error_occurred.emit("Baglanti acik degil.")
+                self.error_occurred.emit("Baglanti acik degil.", "")
             return False
         try:
             current_ws.send(json.dumps(payload, separators=(",", ":")))
@@ -198,7 +198,7 @@ class WsClient(QObject):
         except Exception as exc:
             logger.error("WebSocket gonderim hatasi: %s", exc)
             if not silent:
-                self.error_occurred.emit(str(exc))
+                self.error_occurred.emit(str(exc), "")
             return False
 
     # ─── WEBSOCKET CALLBACKS ───────────────────────────────────────────────────
@@ -285,7 +285,8 @@ class WsClient(QObject):
             self.command_received.emit(msg)
 
         elif msg_type == "error":
-            self.error_occurred.emit(msg.get("message", "Bilinmeyen hata"))
+            code = str(msg.get("code") or "").strip()
+            self.error_occurred.emit(msg.get("message", "Bilinmeyen hata"), code)
 
     def _on_error(self, ws, error):
         if ws is not self._ws:
@@ -296,7 +297,7 @@ class WsClient(QObject):
             self._disconnect_emitted = True
             self.disconnected.emit("socket is already closed")
             return
-        self.error_occurred.emit(str(error))
+        self.error_occurred.emit(str(error), "")
 
     def _on_close(self, ws, code, msg):
         if ws is not self._ws:

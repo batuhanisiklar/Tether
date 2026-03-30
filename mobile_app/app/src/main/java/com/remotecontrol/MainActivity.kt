@@ -107,7 +107,8 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        deviceId = deviceIdentityStore.deviceId()
+        val sessionDigits = sessionStore.address().filter(Char::isDigit).take(12)
+        deviceId = sessionDigits.ifBlank { deviceIdentityStore.deviceId() }
         pairedPcId = sessionStore.pairedPcId()
         pairedPcAddress = sessionStore.pairedPcAddress()
         accessibilityEnabled = isAccessibilityServiceEnabled()
@@ -203,7 +204,7 @@ class MainActivity : AppCompatActivity() {
         signalingClient?.disconnect(sendServerLogout = true)
         signalingClient = null
         sessionStore.clear()
-        deviceIdentityStore.clearDeviceId()
+        // device_id cihaza sabittir (MAC gibi); cikista silinmez.
         startActivity(Intent(this, LoginActivity::class.java))
         finish()
     }
@@ -266,6 +267,7 @@ class MainActivity : AppCompatActivity() {
             preferredPartnerId = preferredPartnerId,
             preferredPartnerAddress = preferredPartnerAddress,
             allowAutoPair = allowAutoPair,
+            accessibilityEnabled = isAccessibilityServiceEnabled(),
             onPaired = { _, partnerDeviceId ->
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread

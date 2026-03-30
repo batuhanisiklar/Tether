@@ -102,39 +102,36 @@ def _address_digits(value: str | None) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())[:12]
 
 
-def _device_card_key(device_id: str, address: str | None) -> str:
-    return _address_digits(address) or device_id
+def _phone_row_key(device: dict) -> str:
+    """Recent kartlari: ayni emülatörde farkli hesaplar ayri device_id ile listelenir; MAC ile birlestirme yapilmaz."""
+    return str(device.get("device_id") or "").strip()
+
+
+def _is_accessibility_ws_error(message: str, code: str) -> bool:
+    if (code or "").strip() == "accessibility_required":
+        return True
+    folded = (message or "").translate(str.maketrans("ıİşŞğĞüÜöÖçÇ", "iIsSgGuUoOcC")).lower()
+    return "erisilebilirlik" in folded or "accessibility" in folded
 
 
 def _merge_phone_device_row(existing: dict, row: dict) -> dict:
-    addr = _address_digits(row.get("address")) or existing.get("address")
-    out = {**existing, **row, "address": addr}
+    did = str(row.get("device_id") or existing.get("device_id") or "").strip()
+    dd = _address_digits(did)
+    ra = _address_digits(row.get("address"))
+    ea = _address_digits(existing.get("address"))
+    if ra == dd and dd:
+        addr = dd
+    elif ea == dd and dd:
+        addr = dd
+    else:
+        addr = ra or ea or dd
+    out = {**existing, **row, "address": addr, "device_id": did}
     if "is_online" in row:
         out["is_online"] = bool(row["is_online"])
+    for key in ("owner_name", "owner_phone", "owner_email", "owner_user_id"):
+        if key in row and row.get(key) is not None:
+            out[key] = row.get(key)
     return out
-
-
-def _dedupe_phones_by_mac_address(devices: list[dict]) -> list[dict]:
-    """Ayni mac_address (aynı donanım) ile birden fazla satir: tek kart (tercihen cevrimici)."""
-    by_mac: dict[str, dict] = {}
-    loose: list[dict] = []
-    for d in devices:
-        mac = (d.get("mac_address") or "")
-        if isinstance(mac, str):
-            mac = mac.strip()
-        if not mac:
-            loose.append(d)
-            continue
-        cur = by_mac.get(mac)
-        if cur is None:
-            by_mac[mac] = d
-            continue
-        ao, bo = bool(cur.get("is_online")), bool(d.get("is_online"))
-        if ao != bo:
-            by_mac[mac] = cur if ao else d
-        else:
-            by_mac[mac] = cur if cur.get("device_id", "") >= d.get("device_id", "") else d
-    return loose + list(by_mac.values())
 
 
 def _display_username(username: str | None) -> str:
@@ -169,12 +166,18 @@ class DeviceCard(QFrame):
         device_id: str,
         address: str | None = None,
         device_name: str | None = None,
+        owner_name: str | None = None,
+        owner_phone: str | None = None,
+        owner_email: str | None = None,
         parent=None,
     ):
         super().__init__(parent)
         self.device_id = device_id
         self.address = _address_digits(address)
         self.device_name = device_name
+        self.owner_name = (owner_name or "").strip() or None
+        self.owner_phone = (owner_phone or "").strip() or None
+        self.owner_email = (owner_email or "").strip() or None
         self._online = False
         self._connect_cb = None
         self._forget_cb = None
@@ -212,12 +215,21 @@ class DeviceCard(QFrame):
         root.addStretch()
 
         formatted = _display_device_name(device_name, address, device_id)
-        self._title = QLabel(_compact_label(formatted, 24))
+        title_text = self.owner_name or formatted
+        self._title = QLabel(_compact_label(title_text, 24))
         self._title.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 600; background: transparent;")
         root.addWidget(self._title)
 
         address_text = _format_address(address or "") if address else ""
-        self._lbl_address = QLabel(address_text if address_text and address_text != formatted else "Eslesmis cihaz")
+        phone_text = (self.owner_phone or "").strip()
+        if phone_text:
+            subtitle = phone_text
+            # Adres de varsa ikisini göster (kısa ve tanıdık)
+            if address_text:
+                subtitle = f"{phone_text}  •  {address_text}"
+        else:
+            subtitle = address_text if address_text and address_text != formatted else "Eslesmis cihaz"
+        self._lbl_address = QLabel(subtitle)
         self._lbl_address.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 10px; background: transparent;")
         root.addWidget(self._lbl_address)
 
@@ -235,7 +247,7 @@ class DeviceCard(QFrame):
         return _format_address(digits) if digits else None
 
     def card_key(self) -> str:
-        return _device_card_key(self.device_id, self.address)
+        return str(self.device_id)
 
     def set_connect_callback(self, cb):
         self._connect_cb = cb
@@ -372,7 +384,9 @@ class MainWindow(QMainWindow):
             if devices is not None:
                 for device in devices:
                     if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
-                        key = _device_card_key(device["device_id"], device.get("address"))
+                        key = _phone_row_key(device)
+                        if not key:
+                            continue
                         merged[key] = _merge_phone_device_row(merged.get(key, {}), dict(device))
             else:
                 logger.warning("Server devices alinamadi: %s", devices_error)
@@ -381,7 +395,9 @@ class MainWindow(QMainWindow):
             if recent_devices is not None:
                 for device in recent_devices:
                     if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
-                        key = _device_card_key(device["device_id"], device.get("address"))
+                        key = _phone_row_key(device)
+                        if not key:
+                            continue
                         existing = merged.get(key, {})
                         merged[key] = _merge_phone_device_row(existing, dict(device))
             else:
@@ -391,14 +407,16 @@ class MainWindow(QMainWindow):
             if pairings is not None:
                 for device in pairings:
                     if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
-                        key = _device_card_key(device["device_id"], device.get("address"))
+                        key = _phone_row_key(device)
+                        if not key:
+                            continue
                         existing = merged.get(key, {})
                         merged[key] = _merge_phone_device_row(existing, dict(device))
             else:
                 logger.warning("Server pairings alinamadi: %s", pairings_error)
 
             if merged:
-                return _dedupe_phones_by_mac_address(list(merged.values()))
+                return list(merged.values())
         return self.db.get_paired_devices(self._ws_client.device_id)
 
     def _connect_presence_mode(self, status_message: str | None = None):
@@ -599,6 +617,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._build_address_input_bar())
         layout.addWidget(self._build_your_address_hero())
+        layout.addWidget(self._build_warning_banner())
         layout.addWidget(self._build_feature_cards())
         layout.addWidget(self._build_tab_strip())
         layout.addWidget(self._build_recent_sessions())
@@ -611,6 +630,83 @@ class MainWindow(QMainWindow):
         outer.setSpacing(0)
         outer.addWidget(scroll)
         return page
+
+    def _build_warning_banner(self) -> QWidget:
+        banner = QFrame()
+        banner.setStyleSheet(
+            "background: transparent;"
+        )
+        lay = QHBoxLayout(banner)
+        lay.setContentsMargins(28, 0, 28, 10)
+        lay.setSpacing(10)
+
+        card = QFrame()
+        card.setStyleSheet(
+            "QFrame {"
+            f"  background-color: rgba(248,113,113,0.10);"
+            f"  border: 1px solid rgba(248,113,113,0.35);"
+            "  border-radius: 8px;"
+            "}"
+        )
+        cl = QHBoxLayout(card)
+        cl.setContentsMargins(14, 10, 14, 10)
+        cl.setSpacing(10)
+
+        icon = QLabel("!")
+        icon.setFixedSize(18, 18)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setStyleSheet(
+            f"background-color: {_RED}; color: #1A1A1A; border-radius: 9px; font-weight: 800;"
+        )
+        cl.addWidget(icon)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+        self._warning_title = QLabel("Uyari")
+        self._warning_title.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 700;")
+        text_col.addWidget(self._warning_title)
+
+        self._warning_text = QLabel("")
+        self._warning_text.setWordWrap(True)
+        self._warning_text.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px;")
+        text_col.addWidget(self._warning_text)
+        cl.addLayout(text_col, stretch=1)
+
+        self._warning_close = QPushButton("Kapat")
+        self._warning_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._warning_close.setFixedHeight(28)
+        self._warning_close.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba(248,113,113,0.14);
+                color: {_RED};
+                border: 1px solid rgba(248,113,113,0.30);
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 0 12px;
+            }}
+            QPushButton:hover {{ background-color: rgba(248,113,113,0.20); }}
+        """)
+        self._warning_close.clicked.connect(self._hide_warning_banner)
+        cl.addWidget(self._warning_close)
+
+        lay.addWidget(card)
+        banner.hide()
+        self._warning_banner = banner
+        return banner
+
+    def _show_warning_banner(self, title: str, message: str) -> None:
+        banner = getattr(self, "_warning_banner", None)
+        if banner is None:
+            return
+        self._warning_title.setText(title)
+        self._warning_text.setText(message)
+        banner.show()
+
+    def _hide_warning_banner(self) -> None:
+        banner = getattr(self, "_warning_banner", None)
+        if banner is not None:
+            banner.hide()
 
     # ── 2a. Full-width address input bar ─────────────────────────────────────
     def _build_address_input_bar(self) -> QWidget:
@@ -1034,7 +1130,10 @@ class MainWindow(QMainWindow):
         self._ws_client.auto_paired.connect(self._on_auto_paired)
         self._ws_client.peer_disconnected.connect(self._on_peer_disconnected)
         self._ws_client.error_occurred.connect(self._on_error)
-        self._ws_client.paired_devices_status.connect(self._on_paired_devices_status)
+        self._ws_client.paired_devices_status.connect(
+            self._on_paired_devices_status,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self._ws_client.frame_received.connect(self._on_frame_received)
         self._mjpeg.frame_ready.connect(self._screen.set_frame)
         self._mjpeg.error_occurred.connect(self._on_mjpeg_error)
@@ -1067,7 +1166,7 @@ class MainWindow(QMainWindow):
             card.deleteLater()
         self._device_cards.clear()
         db_online_devices = {
-            _device_card_key(device["device_id"], device.get("address"))
+            str(device["device_id"])
             for device in devices
             if bool(device.get("is_online"))
         }
@@ -1084,6 +1183,9 @@ class MainWindow(QMainWindow):
                 device["device_id"],
                 device.get("address"),
                 device.get("device_name"),
+                device.get("owner_name"),
+                device.get("owner_phone"),
+                device.get("owner_email"),
             )
             card_key = card.card_key()
             online_hint = card_key in self._online_paired_devices
@@ -1092,7 +1194,7 @@ class MainWindow(QMainWindow):
             card.set_forget_callback(self._on_card_forget)
             self._device_cards[card_key] = card
 
-        online_count = sum(1 for device in devices if _device_card_key(device["device_id"], device.get("address")) in self._online_paired_devices)
+        online_count = sum(1 for device in devices if str(device["device_id"]) in self._online_paired_devices)
         self._lbl_device_count.setText(
             f"{online_count} aktif / {len(devices)} cihaz" if devices else ""
         )
@@ -1133,10 +1235,14 @@ class MainWindow(QMainWindow):
                 self._hero_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
 
         active_card = None
-        if self._paired_phone_address:
-            active_card = self._device_cards.get(self._paired_phone_address)
-        if active_card is None and self._paired_phone_id:
-            active_card = self._card_for_member_device(self._paired_phone_id)
+        if self._paired_phone_id:
+            active_card = self._device_cards.get(str(self._paired_phone_id))
+        if active_card is None and self._paired_phone_address:
+            addr = _address_digits(self._paired_phone_address)
+            active_card = next(
+                (c for c in self._device_cards.values() if c.address == addr),
+                None,
+            )
         if self._connected and (active_card or self._paired_phone_id):
             display_name = active_card.display_name() if active_card else f"...{self._paired_phone_id[-8:]}"
             compact_name = _compact_label(display_name, 20)
@@ -1238,7 +1344,7 @@ class MainWindow(QMainWindow):
 
         devices = self._load_paired_devices()
         self._populate_device_cards(devices)
-        self._online_paired_devices.discard(card_key)
+        self._online_paired_devices.discard(str(card.device_id))
 
         if self._paired_phone_address == card.address or self._paired_phone_id == card.device_id:
             self._paired_phone_id = None
@@ -1437,12 +1543,18 @@ class MainWindow(QMainWindow):
         self._reconnect_timer.stop()
         paired_phone_id = load_paired_phone_id()
         paired_phone_address = load_paired_phone_address()
-        target_key = paired_phone_address or ""
-        if target_key or paired_phone_id:
-            if target_key and target_key not in self._device_cards:
+        if paired_phone_id or paired_phone_address:
+            pid = str(paired_phone_id) if paired_phone_id else ""
+            addr = _address_digits(paired_phone_address) if paired_phone_address else ""
+            missing = (pid and pid not in self._device_cards) or (
+                bool(addr) and not any(c.address == addr for c in self._device_cards.values())
+            )
+            if missing:
                 devices = self._load_paired_devices()
                 self._populate_device_cards(devices)
-            card = self._device_cards.get(target_key) if target_key else None
+            card = self._device_cards.get(pid) if pid else None
+            if card is None and addr:
+                card = next((c for c in self._device_cards.values() if c.address == addr), None)
             if card is None and paired_phone_id:
                 card = self._card_for_member_device(paired_phone_id)
             if card:
@@ -1472,12 +1584,17 @@ class MainWindow(QMainWindow):
         self.db.save_pairing(partner_device_id, self._ws_client.device_id)
         self._ws_client.send_pair_confirm(partner_device_id)
 
-        target_key = self._paired_phone_address or ""
-        if (target_key and target_key not in self._device_cards) or (not target_key and partner_device_id not in {card.device_id for card in self._device_cards.values()}):
+        pid = str(partner_device_id) if partner_device_id else ""
+        addr = _address_digits(self._paired_phone_address) if self._paired_phone_address else ""
+        if (pid and pid not in self._device_cards) or (
+            not pid and partner_device_id not in {c.device_id for c in self._device_cards.values()}
+        ):
             devices = self._load_paired_devices()
             self._populate_device_cards(devices)
 
-        card = self._device_cards.get(target_key) if target_key else None
+        card = self._device_cards.get(pid) if pid else None
+        if card is None and addr:
+            card = next((c for c in self._device_cards.values() if c.address == addr), None)
         if card is None:
             card = self._card_for_member_device(partner_device_id)
         if card:
@@ -1488,17 +1605,19 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(list, list)
     def _on_paired_devices_status(self, paired_devices: list, online_devices: list):
+        online_set = {d for x in (online_devices or []) if (d := _address_digits(str(x)))}
+        incoming_paired = {d for x in (paired_devices or []) if (d := _address_digits(str(x)))}
+
         if self._auth_token:
-            devices = self._load_paired_devices()
-            self._populate_device_cards(devices)
-            online_set = set(online_devices)
+            current_keys = {_address_digits(k) for k in self._device_cards.keys() if _address_digits(k)}
+            if incoming_paired != current_keys or not self._device_cards:
+                devices = self._load_paired_devices()
+                self._populate_device_cards(devices)
             self._online_paired_devices.clear()
-            for d in devices:
-                key = _device_card_key(d["device_id"], d.get("address"))
-                on = d["device_id"] in online_set
-                c = self._device_cards.get(key)
-                if c:
-                    c.set_online(on)
+            for key, card in self._device_cards.items():
+                ck = _address_digits(key)
+                on = bool(ck) and ck in online_set
+                card.set_online(on)
                 if on:
                     self._online_paired_devices.add(key)
             self._reflow_device_cards()
@@ -1507,19 +1626,18 @@ class MainWindow(QMainWindow):
                 f"{online_count} aktif / {len(self._device_cards)} cihaz" if self._device_cards else ""
             )
         else:
-            current_ids = set(self._device_cards.keys())
-            incoming_ids = set(paired_devices)
-            if incoming_ids != current_ids:
+            current_ids = {_address_digits(k) for k in self._device_cards.keys() if _address_digits(k)}
+            if incoming_paired != current_ids:
                 devices = self._load_paired_devices()
                 self._populate_device_cards(devices)
 
-            online_set = set(online_devices)
             self._online_paired_devices.clear()
-            for ck, card in self._device_cards.items():
-                on = card.device_id in online_set
+            for ck_raw, card in self._device_cards.items():
+                ck = _address_digits(ck_raw)
+                on = bool(ck) and ck in online_set
                 card.set_online(on)
                 if on:
-                    self._online_paired_devices.add(ck)
+                    self._online_paired_devices.add(ck_raw)
 
             self._reflow_device_cards()
             online_count = sum(1 for c in self._device_cards.values() if c.is_online())
@@ -1545,15 +1663,26 @@ class MainWindow(QMainWindow):
             devices = self._load_paired_devices()
             self._populate_device_cards(devices)
         else:
-            if self._paired_phone_id and self._paired_phone_id in self._device_cards:
-                self._device_cards[self._paired_phone_id].set_online(False)
-            self._online_paired_devices.discard(self._paired_phone_id or "")
+            pid = str(self._paired_phone_id) if self._paired_phone_id else ""
+            if pid and pid in self._device_cards:
+                self._device_cards[pid].set_online(False)
+            self._online_paired_devices.discard(pid)
         self._refresh_home_summary()
         self._ws_client.send_request_presence()
         self._set_status(Ui.MSG_PEER_DISCONNECTED, error=True)
 
-    @pyqtSlot(str)
-    def _on_error(self, msg: str):
+    @pyqtSlot(str, str)
+    def _on_error(self, msg: str, code: str = ""):
+        text = (msg or "").strip()
+        if _is_accessibility_ws_error(text, code):
+            banner_title = "Erisilebilirlik kapali"
+            banner_body = text or "Telefonda Erisilebilirlik servisini acmadan baglanti baslatilamaz."
+
+            def _apply_banner() -> None:
+                self._show_warning_banner(banner_title, banner_body)
+                self._switch_page(0)
+
+            QTimer.singleShot(0, _apply_banner)
         self._set_status(f"Hata: {msg}", error=True)
 
     @pyqtSlot(QPixmap)
@@ -1610,6 +1739,7 @@ class MainWindow(QMainWindow):
         for btn in self._key_buttons:
             btn.setEnabled(connected)
         if connected:
+            self._hide_warning_banner()
             self._heartbeat.start()
             self._header_status_dot.setStyleSheet(f"background-color: {_GREEN}; border-radius: 4px;")
         else:

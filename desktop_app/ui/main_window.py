@@ -809,8 +809,17 @@ class MainWindow(QMainWindow):
             self._device_cards[self._paired_phone_id].set_online(False)
         self._set_status(Ui.MSG_PEER_DISCONNECTED, error=True)
 
-    @pyqtSlot(str)
-    def _on_error(self, msg: str):
+    @pyqtSlot(str, str)
+    def _on_error(self, msg: str, code: str = ""):
+        c = (code or "").strip()
+        m = (msg or "").strip()
+        folded = m.translate(str.maketrans("ıİşŞğĞüÜöÖçÇ", "iIsSgGuUoOcC")).lower()
+        if c == "accessibility_required" or "erisilebilirlik" in folded or "accessibility" in folded:
+            QMessageBox.warning(
+                self,
+                "Erisilebilirlik gerekli",
+                m or "Telefonda Erisilebilirlik servisini acmaniz gerekiyor.",
+            )
         self._set_status(f"Hata: {msg}", error=True)
 
     @pyqtSlot(QPixmap)
