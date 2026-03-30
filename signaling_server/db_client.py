@@ -195,10 +195,12 @@ class ServerDbClient:
         cur.execute(
             """
             UPDATE devices SET is_online = false
-            WHERE mac_address = %s AND device_type = %s AND device_id != %s
+            WHERE device_type = %s AND device_id != %s
+              AND mac_address IS NOT NULL AND BTRIM(mac_address) <> ''
+              AND LOWER(BTRIM(mac_address)) = LOWER(BTRIM(%s))
             RETURNING user_id, device_id
             """,
-            (mac_n, device_type, device_id),
+            (device_type, device_id, mac_n),
         )
         return [(int(r[0]), str(r[1])) for r in cur.fetchall()]
 

@@ -16,13 +16,28 @@ logging.basicConfig(level=logging.INFO, format=ServerConfig.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
+def _online_key(user_id: int, device_id: str) -> str:
+    return f"{user_id}:{device_id}"
+
+
 def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
+    did = str(device.get("device_id") or "")
+    ouid = device.get("owner_user_id")
+    db_flag = bool(device.get("is_online"))
+    # Gercek zamanli WS baglantisi; DB bayragi hesap degisiminde gecikmeli kalabiliyor.
+    if ouid is not None and did:
+        try:
+            is_online = _online_key(int(ouid), did) in online_devices
+        except (TypeError, ValueError):
+            is_online = db_flag
+    else:
+        is_online = db_flag
     payload = {
         "device_id": device["device_id"],
         "device_type": device["device_type"],
         "device_name": device.get("device_name"),
         "address": device.get("address"),
-        "is_online": bool(device.get("is_online")),
+        "is_online": is_online,
         "mac_address": device.get("mac_address"),
     }
     owner_name = (device.get("owner_name") or "").strip()
@@ -34,7 +49,6 @@ def _device_payload(device: dict, online_devices: dict[str, dict]) -> dict:
         payload["owner_phone"] = owner_phone
     if owner_email:
         payload["owner_email"] = owner_email
-    ouid = device.get("owner_user_id")
     if ouid is not None:
         try:
             payload["owner_user_id"] = int(ouid)
@@ -69,10 +83,6 @@ def _session_entry(app: web.Application, code: str) -> dict:
         app["sessions"][code] = {}
         app["session_devices"][code] = {}
     return app["sessions"][code]
-
-
-def _online_key(user_id: int, device_id: str) -> str:
-    return f"{user_id}:{device_id}"
 
 
 async def _evict_superseded_sessions(app: web.Application, evicted: list[tuple[int, str]]) -> None:
