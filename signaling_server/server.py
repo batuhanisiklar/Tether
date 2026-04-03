@@ -559,9 +559,12 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 if device_id:
                     await _send_device_ack(app, device_id)
                 if message_type == MessageTypes.HEARTBEAT and meta.get("peer_code"):
-                    peer_ws = await _resolve_peer_ws(app, ws, meta)
+                    peer_ws = _session_peer_ws_only(app, ws, meta)
                     if peer_ws:
-                        await peer_ws.send_str(raw.data)
+                        try:
+                            await peer_ws.send_str(raw.data)
+                        except Exception:
+                            pass
             elif message_type in MessageTypes.RELAY_TYPES:
                 await _relay_message(app, ws, meta, message, raw_text=raw.data)
             else:
