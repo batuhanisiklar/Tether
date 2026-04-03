@@ -97,6 +97,10 @@ async def _evict_superseded_sessions(app: web.Application, evicted: list[tuple[i
     for uid, did in evicted:
         key = _online_key(uid, did)
         entry = app["online_devices"].pop(key, None)
+        try:
+            await asyncio.to_thread(app["db"].set_device_online, uid, did, False)
+        except Exception:
+            logger.exception("Superseded DB offline yazilamadi: %s", key)
         if entry and entry.get("ws"):
             try:
                 await entry["ws"].close()
@@ -395,7 +399,7 @@ async def _pick_preferred_online_partner(
                 if partner_id != lookup_partner_id:
                     continue
                 partner_entry = app["online_devices"].get(_online_key(partner_user_id, partner_id))
-                if partner_entry and partner_entry["role"] != role:
+                if partner_entry:
                     return partner_user_id, partner_id
         else:
             target_user_id = int(binding["user_id"])

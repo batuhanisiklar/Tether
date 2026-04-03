@@ -776,10 +776,9 @@ class ServerDbClient:
                         """
                         SELECT DISTINCT p.phone_device_id, p.pc_device_id
                         FROM pairings p
-                        WHERE (p.user_id = %s OR p.partner_user_id = %s)
-                          AND (p.phone_device_id = %s OR p.pc_device_id = %s)
+                        WHERE p.phone_device_id = %s OR p.pc_device_id = %s
                         """,
-                        (user_id, user_id, n, n),
+                        (n, n),
                     )
                     pairs = cur.fetchall()
             other_ids: set[str] = set()
@@ -826,13 +825,15 @@ class ServerDbClient:
                         (user_id,),
                     )
                     mine = {str(r[0]) for r in cur.fetchall()}
+                    if not mine:
+                        return []
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute(
                         """
                         SELECT phone_device_id, pc_device_id FROM pairings
-                        WHERE user_id = %s OR partner_user_id = %s
+                        WHERE phone_device_id = ANY(%s) OR pc_device_id = ANY(%s)
                         """,
-                        (user_id, user_id),
+                        (list(mine), list(mine)),
                     )
                     rows = cur.fetchall()
             others: set[str] = set()
@@ -891,13 +892,12 @@ class ServerDbClient:
                     cur.execute(
                         """
                         DELETE FROM pairings
-                        WHERE (user_id = %s OR partner_user_id = %s)
-                          AND (
+                        WHERE (
                             (phone_device_id = %s AND pc_device_id = %s)
                             OR (phone_device_id = %s AND pc_device_id = %s)
-                          )
+                        )
                         """,
-                        (user_id, user_id, ph, pc, pc, ph),
+                        (ph, pc, pc, ph),
                     )
                 conn.commit()
             return True
