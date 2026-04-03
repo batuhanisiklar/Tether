@@ -160,22 +160,37 @@ async def _save_connection_pair(app: web.Application, controller_device_id: str,
         await asyncio.to_thread(app["db"].create_connection, controller_id, target_id)
 
 
-async def _resolve_peer_ws(
+def _session_peer_ws_only(
     app: web.Application,
     ws: web.WebSocketResponse,
     meta: dict[str, Any],
 ) -> web.WebSocketResponse | None:
+    """Oturum (peer_code/slot) uzerinden es; hata mesaji gondermez — binary relay icin."""
     peer_code = str(meta.get("peer_code") or "")
     peer_slot = str(meta.get("peer_slot") or "")
     if not peer_code or not peer_slot:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Not paired"})
         return None
-
     _prune_closed_peers_from_session(app, peer_code)
     session = app["sessions"].get(peer_code, {})
     for slot, candidate in session.items():
         if slot != peer_slot:
             return candidate
+    return None
+
+
+async def _resolve_peer_ws(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    meta: dict[str, Any],
+) -> web.WebSocketResponse | None:
+    peer = _session_peer_ws_only(app, ws, meta)
+    if peer is not None:
+        return peer
+    peer_code = str(meta.get("peer_code") or "")
+    peer_slot = str(meta.get("peer_slot") or "")
+    if not peer_code or not peer_slot:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Not paired"})
+        return None
     await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Partner bagli degil"})
     return None
 
@@ -199,10 +214,40 @@ async def _relay_binary_frame(
     meta: dict[str, Any],
     payload: bytes,
 ) -> None:
-    peer_ws = await _resolve_peer_ws(app, ws, meta)
+    peer_ws = _session_peer_ws_only(app, ws, meta)
+    if peer_ws is None:
+        device_id = _normalize_device_id(str(meta.get("device_id") or ""))
+        if not device_id:
+            for did, entry in list(app["online_devices"].items()):
+                if entry.get("ws") is ws:
+                    device_id = _normalize_device_id(str(did))
+                    if device_id:
+                        meta["device_id"] = device_id
+                    break
+        if device_id:
+            db: ServerDbClient = app["db"]
+            paired_ctrl = await asyncio.to_thread(db.get_connected_devices_as_controller, device_id)
+            paired_tgt = await asyncio.to_thread(db.get_connected_devices_as_target, device_id)
+            for partner_id_raw in list(paired_ctrl) + list(paired_tgt):
+                partner_id = _normalize_device_id(str(partner_id_raw))
+                if not partner_id or partner_id == device_id:
+                    continue
+                entry = app["online_devices"].get(partner_id)
+                cand = entry.get("ws") if entry else None
+                if cand is not None and cand is not ws and not _websocket_is_closed(cand):
+                    peer_ws = cand
+                    break
     if not peer_ws:
+        logger.debug(
+            "Binary frame relay yok: peer bulunamadi (device_id=%s peer_code=%s)",
+            meta.get("device_id"),
+            meta.get("peer_code"),
+        )
         return
-    await peer_ws.send_bytes(payload)
+    try:
+        await peer_ws.send_bytes(payload)
+    except Exception as exc:
+        logger.warning("Binary frame relay hatasi: %s", exc)
 
 
 async def _register_or_reuse_device(
