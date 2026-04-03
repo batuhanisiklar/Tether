@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QGroupBox, QGridLayout, QDialog, QScrollArea, QMessageBox, QApplication,
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QImage, QPixmap
 
 from desktop_app.config import AppMeta, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
 from desktop_app.config.prefs_store import clear_logged_in, clear_paired_phone_id, read_prefs
@@ -577,12 +577,20 @@ class MainWindow(QMainWindow):
         self._ws_client.peer_disconnected.connect(self._on_peer_disconnected)
         self._ws_client.error_occurred.connect(self._on_error)
         self._ws_client.paired_devices_status.connect(self._on_paired_devices_status)
-        self._ws_client.frame_received.connect(self._on_frame_received)
+        self._ws_client.frame_received.connect(
+            self._on_frame_received,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self._mjpeg.frame_ready.connect(self._screen.set_frame)
         self._mjpeg.error_occurred.connect(self._on_mjpeg_error)
         self._mjpeg.stream_stopped.connect(self._on_stream_stopped)
         self._screen.touch_event.connect(self._on_touch)
         self._screen.swipe_event.connect(self._on_swipe)
+
+    def _connect_presence_channel(self, status_message: str | None = None):
+        if status_message:
+            self._set_status(status_message)
+        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
 
     # ─── SLOTS ────────────────────────────────────────────────────────────────
 
@@ -783,8 +791,14 @@ class MainWindow(QMainWindow):
             )
         self._set_status(f"Hata: {msg}", error=True)
 
-    @pyqtSlot(QPixmap)
-    def _on_frame_received(self, pixmap: QPixmap):
+    @pyqtSlot(bytes)
+    def _on_frame_received(self, jpeg_bytes: bytes):
+        if not jpeg_bytes:
+            return
+        img = QImage()
+        if not img.loadFromData(jpeg_bytes, "JPEG"):
+            return
+        pixmap = QPixmap.fromImage(img)
         self._screen.set_frame(pixmap)
 
     @pyqtSlot(str)

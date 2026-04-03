@@ -162,21 +162,36 @@ class DbClient:
                     insert_cols.append("last_seen")
                     values.append(datetime.now(timezone.utc))
 
-                set_expr = ["device_type = EXCLUDED.device_type"]
+                update_sql_parts: list[sql.Composable] = [
+                    sql.SQL("device_type = %s"),
+                ]
+                update_values: list[Any] = [device_type]
                 if has_device_name:
-                    set_expr.append("device_name = COALESCE(EXCLUDED.device_name, devices.device_name)")
+                    update_sql_parts.append(sql.SQL("device_name = COALESCE(%s, device_name)"))
+                    update_values.append(device_name)
                 if has_last_seen:
-                    set_expr.append("last_seen = NOW()")
+                    update_sql_parts.append(sql.SQL("last_seen = NOW()"))
 
-                query = sql.SQL(
-                    "INSERT INTO devices ({cols}) VALUES ({vals}) "
-                    "ON CONFLICT (user_id, device_id) DO UPDATE SET {updates}"
+                # Bazı eski veritabanlarında (user_id, device_id) unique/PK kısıtı yok.
+                # ON CONFLICT kullanmak yerine önce UPDATE, sonra gerekirse INSERT ile güvenli upsert yap.
+                update_query = sql.SQL(
+                    "UPDATE devices SET {updates} WHERE user_id = %s AND device_id = %s"
                 ).format(
-                    cols=sql.SQL(", ").join(sql.Identifier(c) for c in insert_cols),
-                    vals=sql.SQL(", ").join(sql.Placeholder() for _ in insert_cols),
-                    updates=sql.SQL(", ").join(sql.SQL(x) for x in set_expr),
+                    updates=sql.SQL(", ").join(update_sql_parts),
                 )
-                cur.execute(query, tuple(values))
+                cur.execute(update_query, tuple(update_values + [user_id, normalized_device_id]))
+                if cur.rowcount == 0:
+                    insert_query = sql.SQL(
+                        "INSERT INTO devices ({cols}) VALUES ({vals})"
+                    ).format(
+                        cols=sql.SQL(", ").join(sql.Identifier(c) for c in insert_cols),
+                        vals=sql.SQL(", ").join(sql.Placeholder() for _ in insert_cols),
+                    )
+                    try:
+                        cur.execute(insert_query, tuple(values))
+                    except Exception:
+                        # Yarış durumunda arada başka süreç INSERT etmiş olabilir; tekrar UPDATE dene.
+                        cur.execute(update_query, tuple(update_values + [user_id, normalized_device_id]))
             conn.commit()
             return True
         except Exception as exc:

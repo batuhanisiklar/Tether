@@ -53,7 +53,7 @@ class Prefs:
 @dataclass(frozen=True)
 class ServerDefaults:
     DEFAULT_URL: str  = "wss://connect-your-phone.onrender.com"
-    CODE_LENGTH: int  = 6
+    CODE_LENGTH: int  = 12
 
 
 @dataclass(frozen=True)

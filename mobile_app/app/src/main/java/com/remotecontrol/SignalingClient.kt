@@ -1,9 +1,9 @@
 package com.remotecontrol
 
+import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.*
 import okhttp3.*
-import okio.ByteString.Companion.toByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -47,6 +47,7 @@ class SignalingClient(
     private var ws: WebSocket? = null
     private var disconnectNotified = false
     private var manualClose = false
+    private var pendingJoinCode: String? = null
 
     fun connect() {
         instance = this
@@ -77,6 +78,18 @@ class SignalingClient(
                     put("accessibility_enabled", accessibilityEnabled)
                 }
                 webSocket.send(registerMsg.toString())
+                pendingJoinCode?.let { joinCode ->
+                    val joinMsg = JSONObject().apply {
+                        put("type", "join")
+                        put("code", joinCode)
+                        put("role", "phone")
+                        put("device_id", deviceId)
+                        put("accessibility_enabled", accessibilityEnabled)
+                    }
+                    webSocket.send(joinMsg.toString())
+                    Log.i(TAG, "Sent deferred join for address=$joinCode")
+                    pendingJoinCode = null
+                }
 
                 scope.launch {
                     while (isActive) {
@@ -185,6 +198,7 @@ class SignalingClient(
     fun joinByAddress(rawAddress: String) {
         val joinCode = rawAddress.filter(Char::isDigit).take(12)
         if (joinCode.length != 12) return
+        pendingJoinCode = joinCode
         val msg = JSONObject().apply {
             put("type", "join")
             put("code", joinCode)
@@ -192,12 +206,21 @@ class SignalingClient(
             put("device_id", deviceId)
             put("accessibility_enabled", accessibilityEnabled)
         }
-        ws?.send(msg.toString())
-        Log.i(TAG, "Sent join for address=$joinCode")
+        val socket = ws
+        if (socket != null) {
+            socket.send(msg.toString())
+            Log.i(TAG, "Sent join for address=$joinCode")
+            pendingJoinCode = null
+        } else {
+            Log.i(TAG, "Join queued until websocket open: $joinCode")
+        }
     }
 
     /**
-     * Kamera/ekran JPEG frame'ini binary WebSocket paketi olarak relay eder.
+     * JPEG karesini sunucuya JSON (base64) olarak gönderir; sunucu `frame` tipini eşe relay eder.
+     *
+     * Not: PaaS / ters vekil (Render vb.) WebSocket **binary** çerçevelerini düşürebiliyor;
+     * metin çerçeveleri genelde sorunsuz iletilir.
      */
     fun sendFrame(jpeg: ByteArray) {
         val currentWs = ws
@@ -214,14 +237,20 @@ class SignalingClient(
                 return
             }
 
-            val sent = currentWs.send(jpeg.toByteString())
+            val b64 = Base64.encodeToString(jpeg, Base64.NO_WRAP)
+            val msg = JSONObject().apply {
+                put("type", "frame")
+                put("data", b64)
+            }
+            val payload = msg.toString()
+            val sent = currentWs.send(payload)
             if (!sent) {
                 Log.w(TAG, "Frame gönderilemedi: websocket kabul etmedi")
                 return
             }
 
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "Binary frame gönderildi: ${jpeg.size} bytes")
+                Log.d(TAG, "Frame JSON gönderildi: raw=${jpeg.size} bytes payload=${payload.length} chars")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Frame gönderme hatası: $e", e)

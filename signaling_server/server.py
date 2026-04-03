@@ -76,6 +76,33 @@ def _session_entry(app: web.Application, code: str) -> dict[str, web.WebSocketRe
     return app["sessions"][code]
 
 
+def _websocket_is_closed(ws: web.WebSocketResponse) -> bool:
+    """Kapanmis veya kapanmakta olan baglantilari oturum sayimindan cikar."""
+    try:
+        return bool(ws.closed)
+    except Exception:
+        return True
+
+
+def _prune_closed_peers_from_session(app: web.Application, code: str) -> None:
+    """
+    Oturumda kalmis olü WebSocket referanslarini temizle.
+    Aksi halde len(session)>=2 'Oturum dolu' hatasi verir; gercekte partner yoktur.
+    """
+    session = app["sessions"].get(code)
+    if not session:
+        return
+    devices = app["session_devices"].get(code, {})
+    dead_slots = [slot for slot, peer in list(session.items()) if _websocket_is_closed(peer)]
+    for slot in dead_slots:
+        session.pop(slot, None)
+        devices.pop(slot, None)
+        logger.warning("Oturumdan olü soket cikarildi: code=%s slot=%s", code, slot)
+    if not session:
+        app["sessions"].pop(code, None)
+        app["session_devices"].pop(code, None)
+
+
 async def _send_device_ack(app: web.Application, device_id: str) -> None:
     entry = app["online_devices"].get(device_id)
     if not entry:
@@ -144,6 +171,7 @@ async def _resolve_peer_ws(
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Not paired"})
         return None
 
+    _prune_closed_peers_from_session(app, peer_code)
     session = app["sessions"].get(peer_code, {})
     for slot, candidate in session.items():
         if slot != peer_slot:
@@ -281,13 +309,21 @@ async def _handle_register_or_join(
         await asyncio.to_thread(app["db"].set_device_online, normalized_device_id, True)
 
     session = _session_entry(app, code)
+    _prune_closed_peers_from_session(app, code)
+    session = _session_entry(app, code)
+
     if len(session) >= 2 and ws not in session.values():
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Oturum dolu."})
         return
 
     slot = role
     if slot in session and session.get(slot) is not ws:
-        slot = f"{role}_2"
+        existing = session.get(slot)
+        if existing is not None and _websocket_is_closed(existing):
+            session.pop(slot, None)
+            app["session_devices"][code].pop(slot, None)
+        else:
+            slot = f"{role}_2"
     session[slot] = ws
     normalized_device_id = _normalize_device_id(str(meta.get("device_id") or message.get("device_id") or ""))
     app["session_devices"][code][slot] = normalized_device_id

@@ -2,7 +2,7 @@ import logging
 import os
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
-from PyQt6.QtGui import QFont, QPixmap
+from PyQt6.QtGui import QFont, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QMenu,
     QApplication,
@@ -422,10 +422,6 @@ class MainWindow(QMainWindow):
     def _connect_presence_mode(self, status_message: str | None = None):
         if self._logging_out:
             return
-        if not (self._device_cards or load_paired_phone_id() or load_paired_phone_address()):
-            self._ws_mode = "idle"
-            self._set_status(Ui.MSG_WAITING)
-            return
         self._ws_mode = "presence"
         self._reconnect_timer.stop()
         self._presence_timer.stop()
@@ -466,13 +462,6 @@ class MainWindow(QMainWindow):
 
     def _reconnect_current_mode(self):
         if self._logging_out:
-            return
-        if self._ws_mode == "session" and (self._paired_phone_id or self._paired_phone_address):
-            self._connect_session_mode(
-                self._paired_phone_id,
-                self._paired_phone_address,
-                "Baglanti yeniden kuruluyor...",
-            )
             return
         self._connect_presence_mode("Cihaz durumu yeniden baglaniyor...")
 
@@ -1131,7 +1120,10 @@ class MainWindow(QMainWindow):
             self._on_paired_devices_status,
             Qt.ConnectionType.QueuedConnection,
         )
-        self._ws_client.frame_received.connect(self._on_frame_received)
+        self._ws_client.frame_received.connect(
+            self._on_frame_received,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self._mjpeg.frame_ready.connect(self._screen.set_frame)
         self._mjpeg.error_occurred.connect(self._on_mjpeg_error)
         self._mjpeg.stream_stopped.connect(self._on_stream_stopped)
@@ -1640,8 +1632,17 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, _apply_banner)
         self._set_status(f"Hata: {msg}", error=True)
 
-    @pyqtSlot(QPixmap)
-    def _on_frame_received(self, pixmap: QPixmap):
+    @pyqtSlot(bytes)
+    def _on_frame_received(self, jpeg_bytes: bytes):
+        if not jpeg_bytes:
+            return
+        img = QImage()
+        if not img.loadFromData(jpeg_bytes, "JPEG"):
+            logger.warning("JPEG decode basarisiz (%d bytes)", len(jpeg_bytes))
+            return
+        pixmap = QPixmap.fromImage(img)
+        if pixmap.isNull():
+            return
         if not self._connected:
             self._set_connected(True)
             self._switch_page(1)

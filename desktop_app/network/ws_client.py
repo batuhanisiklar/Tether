@@ -7,7 +7,6 @@ import logging
 import threading
 import websocket
 from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QPixmap, QImage
 
 from desktop_app.config import Network
 from desktop_app.config.prefs_store import (
@@ -20,6 +19,18 @@ from desktop_app.config.prefs_store import (
 logger = logging.getLogger(__name__)
 
 
+def _normalize_jpeg_bytes(raw: bytes) -> bytes | None:
+    """SOI (FFD8) ile baslar; son EOI (FFD9) konumuna kadar kes."""
+    if len(raw) < 4 or not raw.startswith(Network.JPEG_MARKER_START):
+        return None
+    if raw.endswith(Network.JPEG_MARKER_END):
+        return raw
+    end = raw.rfind(Network.JPEG_MARKER_END)
+    if end < 0:
+        return None
+    return raw[: end + 2]
+
+
 class WsClient(QObject):
     connected = pyqtSignal()
     disconnected = pyqtSignal(str)
@@ -27,7 +38,8 @@ class WsClient(QObject):
     peer_disconnected = pyqtSignal()
     command_received = pyqtSignal(dict)
     error_occurred = pyqtSignal(str, str)
-    frame_received = pyqtSignal(QPixmap)
+    # Ham JPEG — QPixmap/QImage sadece ana is parcaciginda olusturulmali (Qt kurali).
+    frame_received = pyqtSignal(bytes)
     paired_devices_status = pyqtSignal(list, list)
 
     def __init__(self, parent=None):
@@ -114,7 +126,6 @@ class WsClient(QObject):
         self._ws = websocket.WebSocketApp(
             url,
             on_open=on_open,
-            on_message=self._on_message,
             on_data=self._on_data,
             on_error=self._on_error,
             on_close=self._on_close,
@@ -151,36 +162,40 @@ class WsClient(QObject):
         if ws is not self._ws:
             return
         self.connected.emit()
-        ws.send(
-            json.dumps(
-                {
-                    "type": "join",
-                    "code": self._session_code,
-                    "role": "pc",
-                    "device_id": self.device_id,
-                },
-                separators=(",", ":"),
-            )
-        )
+        _s = lambda d: json.dumps(d, separators=(",", ":"))
+        ws.send(_s({"type": "device_hello", "device_id": self.device_id, "role": "pc"}))
+        ws.send(_s({
+            "type": "join",
+            "code": self._session_code,
+            "role": "pc",
+            "device_id": self.device_id,
+        }))
 
     def _on_open_device_hello(self, ws) -> None:
         if ws is not self._ws:
             return
         self.connected.emit()
-        payload: dict = {
-            "type": "device_hello",
-            "device_id": self.device_id,
+        _s = lambda d: json.dumps(d, separators=(",", ":"))
+        ws.send(_s({"type": "device_hello", "device_id": self.device_id, "role": "pc"}))
+        address = getattr(self, "_device_address", None) or self.device_id
+        ws.send(_s({
+            "type": "register",
+            "code": address,
             "role": "pc",
-        }
-        ws.send(json.dumps(payload, separators=(",", ":")))
+            "device_id": self.device_id,
+        }))
 
     def _on_message(self, ws, raw) -> None:
         if ws is not self._ws:
             return
 
+        if isinstance(raw, (bytes, bytearray)):
+            # Binary frame'ler on_data'da işlenir; burada JSON parse etmeye çalışmayız.
+            return
+
         try:
             msg = json.loads(raw)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             logger.warning("JSON decode hatasi: %s", raw[:100] if isinstance(raw, str) else raw)
             return
 
@@ -224,9 +239,10 @@ class WsClient(QObject):
     def _on_data(self, ws, raw_data, data_type, _continue_flag) -> None:
         if ws is not self._ws:
             return
-        # websocket-client tarafinda binary frame'ler her zaman on_message'a dusmeyebiliyor.
         if data_type == websocket.ABNF.OPCODE_BINARY and isinstance(raw_data, (bytes, bytearray)):
             self._handle_frame_bytes(bytes(raw_data))
+        elif data_type == websocket.ABNF.OPCODE_TEXT:
+            self._on_message(ws, raw_data if isinstance(raw_data, str) else raw_data.decode("utf-8", errors="replace"))
 
     def _on_error(self, ws, error) -> None:
         if ws is not self._ws:
@@ -236,6 +252,10 @@ class WsClient(QObject):
             if not self._disconnect_emitted:
                 self._disconnect_emitted = True
                 self.disconnected.emit("socket is already closed")
+            return
+        if isinstance(error, UnicodeDecodeError):
+            # Binary frame decode denemesi kaynakli gecici hata; on_data tarafi frame'i isler.
+            logger.debug("UnicodeDecodeError ignored in websocket callback: %s", error)
             return
         self.error_occurred.emit(str(error), "")
 
@@ -249,25 +269,16 @@ class WsClient(QObject):
     def _handle_frame_bytes(self, jpeg_bytes: bytes) -> None:
         if self._frame_processing:
             return
-        if (
-            len(jpeg_bytes) < 4
-            or not jpeg_bytes.startswith(Network.JPEG_MARKER_START)
-            or not jpeg_bytes.endswith(Network.JPEG_MARKER_END)
-        ):
+        normalized = _normalize_jpeg_bytes(jpeg_bytes)
+        if not normalized:
             logger.debug("Gecersiz JPEG frame atlandi: %d bytes", len(jpeg_bytes))
             return
         self._frame_processing = True
         try:
-            img = QImage()
-            if img.loadFromData(jpeg_bytes, "JPEG"):
-                pixmap = QPixmap.fromImage(img)
-                if not pixmap.isNull():
-                    self.frame_received.emit(pixmap)
-                    logger.debug("Frame: %d bytes %dx%d", len(jpeg_bytes), img.width(), img.height())
-            else:
-                logger.warning("JPEG decode basarisiz")
+            self.frame_received.emit(bytes(normalized))
+            logger.debug("Frame emit: %d bytes", len(normalized))
         except Exception as e:
-            logger.error("Frame decode hatasi: %s", e, exc_info=True)
+            logger.error("Frame emit hatasi: %s", e, exc_info=True)
         finally:
             self._frame_processing = False
 
