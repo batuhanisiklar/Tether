@@ -331,6 +331,8 @@ async def _handle_register_or_join(
     meta["peer_slot"] = slot
     meta["peer_role"] = role
     meta["session_initiator"] = bool(message.get("type") == MessageTypes.JOIN)
+    if role == "phone" and "accessibility_enabled" in message:
+        meta["accessibility_enabled"] = bool(message.get("accessibility_enabled"))
 
     ack_type = MessageTypes.REGISTERED if message.get("type") == MessageTypes.REGISTER else MessageTypes.JOINED
     await _send_json(ws, {"type": ack_type, "code": code, "role": role})
@@ -474,6 +476,9 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
             elif message_type in {MessageTypes.REGISTER, MessageTypes.JOIN}:
                 await _handle_register_or_join(app, ws, meta, message)
             elif message_type in {MessageTypes.REQUEST_PRESENCE, MessageTypes.HEARTBEAT}:
+                if message_type == MessageTypes.REQUEST_PRESENCE and meta.get("role") == "phone":
+                    if "accessibility_enabled" in message:
+                        meta["accessibility_enabled"] = bool(message.get("accessibility_enabled"))
                 device_id = _normalize_device_id(str(meta.get("device_id") or ""))
                 if device_id:
                     await _send_device_ack(app, device_id)
