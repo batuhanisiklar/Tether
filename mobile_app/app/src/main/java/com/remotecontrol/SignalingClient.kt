@@ -1,9 +1,9 @@
 package com.remotecontrol
 
-import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.*
 import okhttp3.*
+import okio.ByteString.Companion.toByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -20,9 +20,9 @@ class SignalingClient(
     private val serverUrl: String,
     private val deviceId: String,
     private val deviceAddress: String,
-    private val accessibilityEnabled: Boolean = true,
+    private val isAccessibilityEnabled: () -> Boolean,
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
-    private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>) -> Unit,
+    private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>, partnerOnline: Boolean) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
     private val onDisconnected: () -> Unit,
 ) {
@@ -34,27 +34,57 @@ class SignalingClient(
 
         /** Diğer servislerden frame göndermek için erişilebilir instance */
         var instance: SignalingClient? = null
+
+        /**
+         * Tek OkHttpClient — her disconnect()'te dispatcher shutdown edilmez; yoksa yeniden baglantı
+         * veya arka planda ScreenStreamService + yeni SignalingClient yarışında baglantı kopar / ws null olur.
+         */
+        private val sharedHttpClient by lazy {
+            OkHttpClient.Builder()
+                .pingInterval(25, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.MILLISECONDS)
+                .writeTimeout(120, TimeUnit.SECONDS)
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
     }
 
     val sessionCode: String = generateCode()
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val client = OkHttpClient.Builder()
-        .pingInterval(20, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .build()
 
     private var ws: WebSocket? = null
     private var disconnectNotified = false
     private var manualClose = false
     private var pendingJoinCode: String? = null
+    private var lastNullWsLogMs: Long = 0L
+
+    /** Cok buyuk JSON base64 cerceveleri proxy/WebSocket limitinde dusebilir; binary genelde sorunsuz. */
+    private val maxJsonFrameBytes = 70_000
+
+    /** Erisilebilirlik acildiktan sonra (ayarlardan donus vb.) sunucudaki bayragi gunceller. */
+    fun pushAccessibilityToServer() {
+        val socket = ws ?: return
+        try {
+            socket.send(
+                JSONObject().apply {
+                    put("type", "device_hello")
+                    put("device_id", deviceId)
+                    put("role", "phone")
+                    put("accessibility_enabled", isAccessibilityEnabled())
+                }.toString(),
+            )
+        } catch (_: Exception) {
+        }
+    }
 
     fun connect() {
-        instance = this
         disconnectNotified = false
         manualClose = false
+        instance = this
         val request = Request.Builder().url(serverUrl).build()
-        ws = client.newWebSocket(request, object : WebSocketListener() {
+        ws = sharedHttpClient.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (webSocket != ws) return
@@ -65,7 +95,7 @@ class SignalingClient(
                     put("type", "device_hello")
                     put("device_id", deviceId)
                     put("role", "phone")
-                    put("accessibility_enabled", accessibilityEnabled)
+                    put("accessibility_enabled", isAccessibilityEnabled())
                 }
                 webSocket.send(helloMsg.toString())
 
@@ -75,7 +105,7 @@ class SignalingClient(
                     put("code", registerCode)
                     put("role", "phone")
                     put("device_id", deviceId)
-                    put("accessibility_enabled", accessibilityEnabled)
+                    put("accessibility_enabled", isAccessibilityEnabled())
                 }
                 webSocket.send(registerMsg.toString())
                 pendingJoinCode?.let { joinCode ->
@@ -84,12 +114,14 @@ class SignalingClient(
                         put("code", joinCode)
                         put("role", "phone")
                         put("device_id", deviceId)
-                        put("accessibility_enabled", accessibilityEnabled)
+                        put("accessibility_enabled", isAccessibilityEnabled())
                     }
                     webSocket.send(joinMsg.toString())
                     Log.i(TAG, "Sent deferred join for address=$joinCode")
                     pendingJoinCode = null
                 }
+
+                if (!scope.isActive) return
 
                 scope.launch {
                     while (isActive) {
@@ -97,7 +129,10 @@ class SignalingClient(
                         val sock = ws ?: break
                         try {
                             sock.send(
-                                JSONObject().apply { put("type", "request_presence") }.toString(),
+                                JSONObject().apply {
+                                    put("type", "request_presence")
+                                    put("accessibility_enabled", isAccessibilityEnabled())
+                                }.toString(),
                             )
                         } catch (_: Exception) {
                             break
@@ -132,7 +167,7 @@ class SignalingClient(
                             val pairedDevices = json.optJSONArray("paired_devices")?.let(::jsonArrayToDeviceIds) ?: emptyList()
                             val onlinePairedDevices = json.optJSONArray("online_paired_devices")?.let(::jsonArrayToDeviceIds) ?: emptyList()
                             Log.i(TAG, "Device ack: paired_with=$pairedWith online=$partnerOnline")
-                            onPairedDevicesStatus(pairedDevices, onlinePairedDevices)
+                            onPairedDevicesStatus(pairedDevices, onlinePairedDevices, partnerOnline)
                         }
 
                         "paired" -> {
@@ -161,6 +196,8 @@ class SignalingClient(
                         }
 
                         "error" -> Log.e(TAG, "Server error: ${json.optString("message")}")
+
+                        "heartbeat", "joined", "waiting" -> { /* PC keep-alive / sunucu ack (yok say) */ }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Parse error: $e")
@@ -168,13 +205,19 @@ class SignalingClient(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (webSocket != ws) return
+                val ours = ws
+                if (ours != null && webSocket != ours) return
+                ws = null
+                if (instance === this@SignalingClient) instance = null
                 Log.e(TAG, "WS failure: $t")
                 notifyDisconnectedOnce()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (webSocket != ws) return
+                val ours = ws
+                if (ours != null && webSocket != ours) return
+                ws = null
+                if (instance === this@SignalingClient) instance = null
                 Log.i(TAG, "WS closed: $code $reason")
                 notifyDisconnectedOnce()
             }
@@ -204,7 +247,7 @@ class SignalingClient(
             put("code", joinCode)
             put("role", "phone")
             put("device_id", deviceId)
-            put("accessibility_enabled", accessibilityEnabled)
+            put("accessibility_enabled", isAccessibilityEnabled())
         }
         val socket = ws
         if (socket != null) {
@@ -217,15 +260,17 @@ class SignalingClient(
     }
 
     /**
-     * JPEG karesini sunucuya JSON (base64) olarak gönderir; sunucu `frame` tipini eşe relay eder.
-     *
-     * Not: PaaS / ters vekil (Render vb.) WebSocket **binary** çerçevelerini düşürebiliyor;
-     * metin çerçeveleri genelde sorunsuz iletilir.
+     * JPEG'i binary WebSocket cercevesi olarak gonderir (sunucu `send_bytes` ile PC'ye iletir).
+     * Kucuk karelerde istege bagli JSON fallback (cok nadir proxy senaryolari).
      */
     fun sendFrame(jpeg: ByteArray) {
         val currentWs = ws
         if (currentWs == null) {
-            Log.w(TAG, "WebSocket null - frame gönderilemedi")
+            val now = System.currentTimeMillis()
+            if (now - lastNullWsLogMs > 5_000L) {
+                lastNullWsLogMs = now
+                Log.w(TAG, "WebSocket yok — frame atlandi (signaling yeniden baglanincaya kadar)")
+            }
             return
         }
         try {
@@ -237,20 +282,21 @@ class SignalingClient(
                 return
             }
 
-            val b64 = Base64.encodeToString(jpeg, Base64.NO_WRAP)
-            val msg = JSONObject().apply {
-                put("type", "frame")
-                put("data", b64)
+            var sent = currentWs.send(jpeg.toByteString())
+            if (!sent && jpeg.size <= maxJsonFrameBytes) {
+                val b64 = android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP)
+                val msg = JSONObject().apply {
+                    put("type", "frame")
+                    put("data", b64)
+                }
+                sent = currentWs.send(msg.toString())
             }
-            val payload = msg.toString()
-            val sent = currentWs.send(payload)
             if (!sent) {
-                Log.w(TAG, "Frame gönderilemedi: websocket kabul etmedi")
+                Log.w(TAG, "Frame gonderilemedi (binary/fallback)")
                 return
             }
-
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "Frame JSON gönderildi: raw=${jpeg.size} bytes payload=${payload.length} chars")
+                Log.d(TAG, "Frame gonderildi: ${jpeg.size} bytes (binary veya kucuk JSON)")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Frame gönderme hatası: $e", e)
@@ -267,7 +313,9 @@ class SignalingClient(
     }
 
     fun disconnect(sendServerLogout: Boolean = false) {
-        instance = null
+        if (instance === this) {
+            instance = null
+        }
         manualClose = true
         disconnectNotified = true
         val currentWs = ws
@@ -282,9 +330,11 @@ class SignalingClient(
             } catch (_: Exception) {
             }
         }
-        currentWs?.close(1000, "Client disconnect")
+        try {
+            currentWs?.close(1000, "Client disconnect")
+        } catch (_: Exception) {
+        }
         scope.cancel()
-        client.dispatcher.executorService.shutdown()
     }
 
     private fun notifyDisconnectedOnce() {

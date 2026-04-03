@@ -80,7 +80,6 @@ def _format_address(addr: str) -> str:
 
 
 def _format_address_spaced(addr: str) -> str:
-    """Large hero display: '000000000001' → '0000-0000-0001'."""
     digits = "".join(ch for ch in addr if ch.isdigit())[:12]
     return "-".join(digits[i:i + 4] for i in range(0, len(digits), 4))
 
@@ -331,6 +330,7 @@ class MainWindow(QMainWindow):
         self._current_page = 0
         self._account_button: QPushButton | None = None
         self._backend_api = BackendApi()
+        self._reconnect_session_code: str | None = None
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
         self.setMinimumSize(960, 600)
@@ -339,10 +339,6 @@ class MainWindow(QMainWindow):
         self._apply_global_style()
         self._build_ui()
         self._connect_signals()
-
-        self._heartbeat = QTimer(self)
-        self._heartbeat.setInterval(Network.HEARTBEAT_INTERVAL_MS)
-        self._heartbeat.timeout.connect(self._ws_client.send_heartbeat)
 
         self._presence_timer = QTimer(self)
         self._presence_timer.setInterval(4_000)
@@ -422,7 +418,11 @@ class MainWindow(QMainWindow):
     def _connect_presence_mode(self, status_message: str | None = None):
         if self._logging_out:
             return
+        if self._ws_mode == "session" and self._connected:
+            logger.info("Presence baglantisi atlandi: aktif uzak oturum korunuyor")
+            return
         self._ws_mode = "presence"
+        self._mjpeg.stop()
         self._reconnect_timer.stop()
         self._presence_timer.stop()
         if status_message:
@@ -440,6 +440,7 @@ class MainWindow(QMainWindow):
         if not partner_device_id and not address_digits:
             return
         self._ws_mode = "session"
+        self._mjpeg.stop()
         self._paired_phone_id = partner_device_id
         self._paired_phone_address = address_digits or None
         self._reconnect_timer.stop()
@@ -462,6 +463,16 @@ class MainWindow(QMainWindow):
 
     def _reconnect_current_mode(self):
         if self._logging_out:
+            return
+        code = self._reconnect_session_code
+        self._reconnect_session_code = None
+        if code and len(code) == 12:
+            logger.info("Yeniden baglanti: oturum kodu ile (presence yerine)")
+            self._connect_session_mode(
+                partner_device_id=self._paired_phone_id,
+                partner_address=code,
+                status_message="Oturum yeniden kuruluyor...",
+            )
             return
         self._connect_presence_mode("Cihaz durumu yeniden baglaniyor...")
 
@@ -1147,6 +1158,9 @@ class MainWindow(QMainWindow):
             self.db.upsert_device(self._user_id, self._ws_client.device_id, "pc", _desktop_device_name())
         devices = self._load_paired_devices()
         self._populate_device_cards(devices)
+        if self._ws_mode == "session":
+            logger.debug("Cihaz listesi guncellendi; uzak oturum varken presence WS acilmadi")
+            return
         self._connect_presence_channel("Cihaz durumu izleniyor...")
 
     def _populate_device_cards(self, devices: list[dict]):
@@ -1428,7 +1442,9 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_disconnect(self):
         self._ws_mode = "presence"
+        self._reconnect_session_code = None
         self._reconnect_timer.stop()
+        self._presence_timer.stop()
         self._manual_disconnect = True
         self._mjpeg.stop()
         self._ws_client.disconnect()
@@ -1446,7 +1462,6 @@ class MainWindow(QMainWindow):
         self._logging_out = True
 
         self._mjpeg.stop()
-        self._heartbeat.stop()
         self._presence_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect(send_logout=True)
@@ -1481,17 +1496,31 @@ class MainWindow(QMainWindow):
         self._manual_disconnect = False
         self._set_status(Ui.MSG_SERVER_CONNECTED)
         self._btn_disconnect.setEnabled(True)
-        if not self._presence_timer.isActive():
-            self._presence_timer.start()
         if self._ws_mode == "presence":
+            if not self._presence_timer.isActive():
+                self._presence_timer.start()
             devices = self._load_paired_devices()
             if devices:
                 self._populate_device_cards(devices)
             self._ws_client.send_request_presence()
+        else:
+            self._presence_timer.stop()
 
     @pyqtSlot(str)
     def _on_ws_disconnected(self, reason: str):
         was_manual = self._manual_disconnect
+        was_remote_session = self._ws_mode == "session" and self._connected
+        restore_digits = ""
+        if was_remote_session and not was_manual:
+            restore_digits = _address_digits(self._paired_phone_address or "")
+            if len(restore_digits) != 12:
+                restore_digits = _address_digits(load_paired_phone_address() or "")
+            if len(restore_digits) != 12:
+                restore_digits = _address_digits(self._ws_client.join_session_code or "")
+        if was_remote_session and not was_manual and len(restore_digits) == 12:
+            self._reconnect_session_code = restore_digits
+        else:
+            self._reconnect_session_code = None
         self._manual_disconnect = False
         self._btn_connect.setEnabled(True)
         self._btn_remote_connect.setEnabled(True)
@@ -1541,9 +1570,18 @@ class MainWindow(QMainWindow):
         self._switch_page(1)
         self._set_status("Eslesme tamamlandi. Akis bekleniyor...")
         self._refresh_home_summary()
-        if stream_url and stream_url.startswith("http") and "0.0.0.0" not in stream_url and "10.0.2." not in stream_url:
+        su = (stream_url or "").strip()
+        su_lower = su.lower()
+        mjpeg_unreachable = (
+            not su.startswith("http")
+            or "0.0.0.0" in su
+            or "10.0.2." in su
+            or "127.0.0.1" in su_lower
+            or "localhost" in su_lower
+        )
+        if su and not mjpeg_unreachable:
             try:
-                self._mjpeg.start(stream_url)
+                self._mjpeg.start(su)
                 self._set_status("Baglandi — video akisi aktif.")
                 return
             except Exception:
@@ -1633,20 +1671,29 @@ class MainWindow(QMainWindow):
         self._set_status(f"Hata: {msg}", error=True)
 
     @pyqtSlot(bytes)
-    def _on_frame_received(self, jpeg_bytes: bytes):
-        if not jpeg_bytes:
+    def _on_frame_received(self, frame_bytes: bytes):
+        if not frame_bytes:
             return
-        img = QImage()
-        if not img.loadFromData(jpeg_bytes, "JPEG"):
-            logger.warning("JPEG decode basarisiz (%d bytes)", len(jpeg_bytes))
-            return
-        pixmap = QPixmap.fromImage(img)
+            
+        pixmap = QPixmap()
+        # "JPEG" format kısıtlamasını SİLDİK. Qt formatı (PNG, WEBP, JPEG) kendi algılayacak.
+        if not pixmap.loadFromData(frame_bytes):
+            img = QImage()
+            if not img.loadFromData(frame_bytes):
+                # Eğer buraya düşerse Android tarafı resmi bozuyor veya başka format yolluyor demektir.
+                import logging
+                logging.getLogger(__name__).warning(f"Görüntü decode basarisiz! Gelen byte boyutu: {len(frame_bytes)}")
+                return
+            pixmap = QPixmap.fromImage(img)
+            
         if pixmap.isNull():
             return
+            
         if not self._connected:
             self._set_connected(True)
             self._switch_page(1)
             self._set_status(Ui.MSG_PAIRED_WS)
+            
         self._screen.set_frame(pixmap)
 
     @pyqtSlot(str)
@@ -1696,10 +1743,8 @@ class MainWindow(QMainWindow):
             btn.setEnabled(connected)
         if connected:
             self._hide_warning_banner()
-            self._heartbeat.start()
             self._header_status_dot.setStyleSheet(f"background-color: {_GREEN}; border-radius: 4px;")
         else:
-            self._heartbeat.stop()
             self._header_status_dot.setStyleSheet(f"background-color: {_TEXT_DIM}; border-radius: 4px;")
         self._refresh_home_summary()
 
@@ -1713,7 +1758,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._mjpeg.stop()
-        self._heartbeat.stop()
         self._presence_timer.stop()
         self._reconnect_timer.stop()
         self._manual_disconnect = True

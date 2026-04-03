@@ -15,7 +15,6 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import fi.iki.elonen.NanoHTTPD
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
@@ -50,9 +49,7 @@ class ScreenStreamService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Uygulama task'i kapatildiginda (swipe/close) offline'a dusur.
-        SignalingClient.instance?.disconnect()
-        SignalingClient.instance = null
+        // Sadece yayin servisini durdur; signaling MainActivity'de kalmali
         stopSelf()
         super.onTaskRemoved(rootIntent)
     }
@@ -132,7 +129,6 @@ class ScreenStreamService : Service() {
             imageReader?.setOnImageAvailableListener({ reader ->
                 val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
                 try {
-                    // İlk frame'de log
                     if (frameCount == 0L) {
                         Log.i(TAG, "🎬 İlk frame yakalandı! SignalingClient.instance = ${SignalingClient.instance != null}")
                     }
@@ -147,30 +143,31 @@ class ScreenStreamService : Service() {
                     )
                     bmp.copyPixelsFromBuffer(buffer)
 
-                    // Performans için yarı boyut
-                    val scaledW = (width * 0.6).toInt()
-                    val scaledH = (height * 0.6).toInt()
-                    val scaled = Bitmap.createScaledBitmap(bmp, scaledW, scaledH, false)
+                    // --- KALİTE GÜNCELLEMESİ YAPILAN BÖLÜM ---
+                    // Görüntünün kenar sınırı 520'den 1080'e çıkarıldı.
+                    val maxSide = 1080 
+                    // Zorunlu küçültme oranı 0.5f'den 0.8f'e çekildi (Orijinale daha yakın).
+                    val scale = minOf(0.8f, maxSide.toFloat() / maxOf(width, height))
+                    val scaledW = maxOf(1, (width * scale).toInt())
+                    val scaledH = maxOf(1, (height * scale).toInt())
+                    
+                    val scaled = Bitmap.createScaledBitmap(bmp, scaledW, scaledH, true)
                     bmp.recycle()
 
                     val out = ByteArrayOutputStream()
-                    scaled.compress(Bitmap.CompressFormat.JPEG, 65, out)
+                    // Sıkıştırma kalitesi 58'den 80'e çıkarıldı (Minecraft görüntüsünü engeller).
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
                     scaled.recycle()
+                    // ------------------------------------------
 
-                    // Ortak byte dizisi oluştur
                     val jpegBytes = out.toByteArray()
-                    // HTTP MJPEG sunucusu için hafızada tut
                     latestFrame.set(jpegBytes)
-                    
-                    // Frame sayacını artır
                     frameCount++
                     
-                    // Aynı frame'i WebSocket üzerinden de PC'ye relay et
                     val client = SignalingClient.instance
                     if (client != null) {
                         try {
                             client.sendFrame(jpegBytes)
-                            // Her 30 frame'de bir log (spam'i önlemek için)
                             if (frameCount % 30 == 0L) {
                                 Log.i(TAG, "✅ Frame sent via WebSocket: ${jpegBytes.size} bytes (frame #$frameCount)")
                             }
@@ -178,7 +175,6 @@ class ScreenStreamService : Service() {
                             Log.e(TAG, "❌ Frame gönderme hatası: $e", e)
                         }
                     } else {
-                        // İlk 10 frame'de ve sonra her 100 frame'de bir log göster
                         if (frameCount <= 10 || frameCount % 100 == 0L) {
                             Log.w(TAG, "⚠️ SignalingClient.instance is null - frame #$frameCount gönderilemedi (${jpegBytes.size} bytes)")
                         }
@@ -237,16 +233,8 @@ class ScreenStreamService : Service() {
     }
 }
 
-
 /**
  * Basit MJPEG HTTP sunucu — Raw ServerSocket tabanlı
- * ====================================================
- * NanoHTTPD yerine doğrudan ServerSocket kullanır.
- * Böylece response stream erken kapatılmaz ve frames
- * doğru şekilde istemciye iletilir.
- *
- * GET /stream → multipart/x-mixed-replace JPEG akışı
- * GET /        → "OK" (health check)
  */
 class MjpegServer(
     private val port: Int,
@@ -288,20 +276,17 @@ class MjpegServer(
 
     private fun handleClient(socket: java.net.Socket) {
         try {
-            socket.soTimeout = 0  // stream sonsuz
+            socket.soTimeout = 0  
             val input = socket.getInputStream().bufferedReader()
             val output = socket.getOutputStream()
 
-            // HTTP isteğini oku (path kontrolü için)
             val requestLine = input.readLine() ?: return
-            // Geri kalan header'ları tüket
             while (true) {
                 val line = input.readLine() ?: break
                 if (line.isEmpty()) break
             }
 
             if (!requestLine.contains("/stream")) {
-                // Health check
                 val resp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK"
                 output.write(resp.toByteArray())
                 output.flush()
@@ -309,7 +294,6 @@ class MjpegServer(
                 return
             }
 
-            // MJPEG stream başlığı gönder
             val header = "HTTP/1.1 200 OK\r\n" +
                     "Content-Type: multipart/x-mixed-replace; boundary=$BOUNDARY\r\n" +
                     "Cache-Control: no-cache\r\n" +
@@ -317,7 +301,6 @@ class MjpegServer(
             output.write(header.toByteArray())
             output.flush()
 
-            // Frame döngüsü
             while (running && !socket.isClosed) {
                 val jpeg = frameRef.get()
                 if (jpeg != null && jpeg.isNotEmpty()) {
@@ -343,4 +326,3 @@ class MjpegServer(
         }
     }
 }
-

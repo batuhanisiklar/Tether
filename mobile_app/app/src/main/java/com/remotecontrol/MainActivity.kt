@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
@@ -64,8 +65,13 @@ class MainActivity : AppCompatActivity() {
     private var currentAddress = "------------"
     private var currentPairings: List<DeviceSummary> = emptyList()
     private var streamRunning = false
+    /** Bilgisayar eslesti; ekran/kamera yayini kullanici Ekrani paylas ile baslatilir. */
+    private var remoteSessionPaired = false
     private var accessibilityEnabled = false
     private var connectionGeneration = 0
+    /** Son device_ack partner_online (PC presence). */
+    private var lastAckPartnerOnline: Boolean? = null
+    private var lastSignalingResyncMs = 0L
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -224,6 +230,20 @@ class MainActivity : AppCompatActivity() {
 
     fun canStopStream(): Boolean = streamRunning
 
+    fun canStartScreenShare(): Boolean =
+        remoteSessionPaired && !streamRunning && isAccessibilityServiceEnabled()
+
+    fun startScreenShareFromUser() {
+        if (!canStartScreenShare()) return
+        if (IS_EMULATOR) {
+            updateStatus("Kamera izni isteniyor...")
+            requestCameraAccess(useFront = false)
+        } else {
+            updateStatus("Ekran kaydi izni isteniyor...")
+            requestScreenCapture()
+        }
+    }
+
     fun deviceSummaryText(): String = "Bu cihaz: $deviceName"
 
     fun preferredPcText(): String {
@@ -244,8 +264,34 @@ class MainActivity : AppCompatActivity() {
         "Dokunma kontrolu icin erisilebilirlik servisini acin"
     }
 
+    /**
+     * PC koptugunda veya soket kapandiginda WS'i kapatip signaling'i sifirdan kurar (eski oturum/room kalintisi kalmasin).
+     * @param minIntervalMs ayni islemin device_ack ile arka arkaya tetiklenmesini engeller (>0).
+     */
+    private fun resyncSignalingAfterRemoteLost(reason: String, minIntervalMs: Long) {
+        if (isFinishing || isDestroyed) return
+        val now = SystemClock.elapsedRealtime()
+        if (minIntervalMs > 0 && now - lastSignalingResyncMs < minIntervalMs) {
+            Log.d(TAG, "resyncSignaling atlandi (debounce ${minIntervalMs}ms): $reason")
+            return
+        }
+        lastSignalingResyncMs = now
+        Log.i(TAG, "Signaling yenileniyor: $reason")
+        streamRunning = false
+        remoteSessionPaired = false
+        stopAllStreams()
+        currentStatus = "Baglanti kesildi"
+        currentStatusDetail = "Sunucu ile yeniden esitleniyor..."
+        refreshFragments()
+        signalingClient?.disconnect(sendServerLogout = false)
+        signalingClient = null
+        connectSignaling(joinAddress = null)
+    }
+
     private fun connectSignaling(joinAddress: String?) {
         val generation = ++connectionGeneration
+        lastAckPartnerOnline = null
+        remoteSessionPaired = false
         currentStatus = "Signaling sunucusuna baglaniyor"
         currentStatusDetail = ""
         refreshFragments()
@@ -257,7 +303,7 @@ class MainActivity : AppCompatActivity() {
             serverUrl = SIGNALING_URL,
             deviceId = deviceId,
             deviceAddress = currentAddress.filter(Char::isDigit).take(12),
-            accessibilityEnabled = isAccessibilityServiceEnabled(),
+            isAccessibilityEnabled = { isAccessibilityServiceEnabled() },
             onPaired = { _, partnerDeviceId ->
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
@@ -266,6 +312,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     updateAccessibilityHint()
                     if (!isAccessibilityServiceEnabled()) {
+                        remoteSessionPaired = false
                         streamRunning = false
                         currentStatus = "Erisilebilirlik kapali"
                         currentStatusDetail = "Kontrol icin erisilebilirlik servisini acin."
@@ -273,32 +320,34 @@ class MainActivity : AppCompatActivity() {
                         showAccessibilityRequiredDialog()
                         return@runOnUiThread
                     }
-                    streamRunning = true
+                    remoteSessionPaired = true
+                    streamRunning = false
                     scope.launch { refreshPairings() }
+                    currentStatus = getString(R.string.pair_pc_connected_title)
+                    currentStatusDetail = if (IS_EMULATOR) {
+                        getString(R.string.pair_camera_starting_hint)
+                    } else {
+                        getString(R.string.pair_screen_permission_hint)
+                    }
+                    refreshFragments()
                     if (IS_EMULATOR) {
-                        updateStatus("Bilgisayar baglandi, kamera yayini baslatiliyor")
                         requestCameraAccess(useFront = false)
                     } else {
-                        updateStatus("Bilgisayar baglandi, ekran yayini baslatiliyor")
                         requestScreenCapture()
                     }
                 }
             },
-            onPairedDevicesStatus = { pairedDeviceIds, onlineDeviceIds ->
+            onPairedDevicesStatus = { pairedDeviceIds, onlineDeviceIds, partnerOnline ->
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
-                    applyRealtimePairingStatus(pairedDeviceIds, onlineDeviceIds)
+                    applyRealtimePairingStatus(pairedDeviceIds, onlineDeviceIds, partnerOnline)
                 }
             },
             onCommand = { action, params -> handleCommand(action, params) },
             onDisconnected = {
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
-                    streamRunning = false
-                    stopAllStreams()
-                    currentStatus = "Baglanti kesildi"
-                    currentStatusDetail = "Yeniden baglanmak icin Anasayfa veya Cihazlar sekmesini kullanin."
-                    refreshFragments()
+                    resyncSignalingAfterRemoteLost("ws_kapandi_veya_peer_disconnected", minIntervalMs = 0L)
                 }
             },
         )
@@ -335,9 +384,20 @@ class MainActivity : AppCompatActivity() {
     private fun applyRealtimePairingStatus(
         pairedDeviceIds: List<String>,
         onlineDeviceIds: List<String>,
+        partnerOnlineFromAck: Boolean,
     ) {
         val pairedSet = pairedDeviceIds.toSet()
         val onlineSet = onlineDeviceIds.toSet()
+        val pcNorm = pairedPcId?.filter { it.isDigit() }?.take(12).orEmpty()
+        val prevPartnerOnline = lastAckPartnerOnline
+        lastAckPartnerOnline = partnerOnlineFromAck
+        if (prevPartnerOnline == true && !partnerOnlineFromAck && pcNorm.isNotEmpty()) {
+            val pcStillListed = pairedDeviceIds.any { it.filter { ch -> ch.isDigit() }.take(12) == pcNorm }
+            if (pcStillListed && (remoteSessionPaired || streamRunning)) {
+                resyncSignalingAfterRemoteLost("device_ack: eslestirilmis PC cevrimdisi", minIntervalMs = 5_000L)
+                return
+            }
+        }
         runOnUiThread {
             if (pairedSet.isEmpty() && onlineSet.isEmpty()) {
                 scope.launch { refreshPairings() }
@@ -699,6 +759,7 @@ class MainActivity : AppCompatActivity() {
             scope.launch { refreshPairings() }
         }
         refreshFragments()
+        signalingClient?.pushAccessibilityToServer()
     }
 
     override fun onDestroy() {

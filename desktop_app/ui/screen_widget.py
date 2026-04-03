@@ -62,6 +62,7 @@ class ScreenWidget(QLabel):
         self._current_pixmap = pixmap
         self._last_source_key = pixmap.cacheKey()
         self._render()
+        self.update()
 
     def clear_frame(self):
         """Stream durduğunda placeholder göster."""
@@ -162,8 +163,13 @@ class ScreenWidget(QLabel):
         """Mevcut pixmap'i döndürerek ve widget boyutuna uyarlayarak göster."""
         if not self._current_pixmap:
             return
+        w, h = self.width(), self.height()
+        # Layout henuz hazir degilken scaled(0,0) bos pixmap -> siyah ekran; resizeEvent tekrar dener.
+        if w < 4 or h < 4:
+            return
+
         source_key = self._last_source_key or self._current_pixmap.cacheKey()
-        render_key = (source_key, self._rotation_deg, self.width(), self.height())
+        render_key = (source_key, self._rotation_deg, w, h)
         if self._last_render_key == render_key:
             return
 
@@ -180,10 +186,13 @@ class ScreenWidget(QLabel):
             return
 
         scaled = self._transformed_pixmap.scaled(
-            self.size(),
+            w,
+            h,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
+        if scaled.isNull():
+            return
         self._last_render_key = render_key
         self.setPixmap(scaled)
 

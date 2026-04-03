@@ -60,6 +60,10 @@
     <string name="help_step_4">4. Sorun yasarsaniz Ayarlar ekranindaki cihaz kimligi ve tercih edilen bilgisayar bilgisini kontrol edin.</string>
     <string name="warning_accessibility">Dokunma kontrolü için buraya tıklayın</string>
     <string name="retry_connect">Yeniden Bağlan</string>
+    <string name="restart_screen_broadcast">Yayını yeniden başlat</string>
+    <string name="pair_pc_connected_title">Bilgisayar bağlandı</string>
+    <string name="pair_screen_permission_hint">Ekranı bilgisayarda göstermek için açılan izin penceresini onaylayın.</string>
+    <string name="pair_camera_starting_hint">Emülatör: kamera yayını için izin isteniyor.</string>
     <string name="stop_stream">Yayını Durdur</string>
     <string name="logout">Cikis Yap</string>
 </resources>

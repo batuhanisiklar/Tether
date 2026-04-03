@@ -18,19 +18,6 @@ from desktop_app.config.prefs_store import (
 
 logger = logging.getLogger(__name__)
 
-
-def _normalize_jpeg_bytes(raw: bytes) -> bytes | None:
-    """SOI (FFD8) ile baslar; son EOI (FFD9) konumuna kadar kes."""
-    if len(raw) < 4 or not raw.startswith(Network.JPEG_MARKER_START):
-        return None
-    if raw.endswith(Network.JPEG_MARKER_END):
-        return raw
-    end = raw.rfind(Network.JPEG_MARKER_END)
-    if end < 0:
-        return None
-    return raw[: end + 2]
-
-
 class WsClient(QObject):
     connected = pyqtSignal()
     disconnected = pyqtSignal(str)
@@ -47,10 +34,14 @@ class WsClient(QObject):
         self._ws: websocket.WebSocketApp | None = None
         self._thread: threading.Thread | None = None
         self._session_code: str = ""
-        self._frame_processing: bool = False
         self._disconnect_emitted: bool = False
         self.device_id: str = load_or_create_device_id()
         logger.info("PC device_id: %s", self.device_id)
+
+    @property
+    def join_session_code(self) -> str:
+        """Son connect_to_server ile kullanilan 12 haneli oda kodu (yeniden baglanti icin)."""
+        return self._session_code
 
     def connect_to_server(self, url: str, code: str) -> None:
         self.disconnect()
@@ -126,13 +117,17 @@ class WsClient(QObject):
         self._ws = websocket.WebSocketApp(
             url,
             on_open=on_open,
-            on_data=self._on_data,
+            on_message=self._on_message,  # <-- on_data TAMAMEN SİLİNDİ, HER ŞEY BURADAN GEÇECEK
             on_error=self._on_error,
             on_close=self._on_close,
         )
         self._thread = threading.Thread(
             target=self._ws.run_forever,
-            kwargs={"skip_utf8_validation": True},
+            kwargs={
+                "skip_utf8_validation": True,
+                "ping_interval": 45,
+                "ping_timeout": 30,
+            },
             daemon=True,
         )
         self._thread.start()
@@ -189,18 +184,26 @@ class WsClient(QObject):
         if ws is not self._ws:
             return
 
+        # 1. BİLGİ: EKRAN GÖRÜNTÜSÜ / JSON AYRIMI
+        # 'skip_utf8_validation=True' nedeniyle JSON metinleri de byte olarak gelebiliyor.
         if isinstance(raw, (bytes, bytearray)):
-            # Binary frame'ler on_data'da işlenir; burada JSON parse etmeye çalışmayız.
-            return
+            # Eğer gelen veri JSON formatındaysa (süslü parantez ile başlıyorsa) metne çevir
+            if raw.startswith(b"{"):
+                raw = raw.decode("utf-8", errors="ignore")
+            else:
+                # Süslü parantez ile BAŞLAMIYORSA, bu Android'den gelen Binary(Resim) verisidir!
+                self._handle_frame_bytes(bytes(raw))
+                return
 
+        # 2. BİLGİ: JSON MESAJ YAKALAYICI (Artık raw değişkeni bir string)
         try:
             msg = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError):
             logger.warning("JSON decode hatasi: %s", raw[:100] if isinstance(raw, str) else raw)
             return
 
-        msg_type = msg.get("type")
-        if msg_type not in {"frame", "heartbeat"}:
+        msg_type = str(msg.get("type") or "").lower()
+        if msg_type not in {"frame", "heartbeat", "device_ack"}:
             logger.debug("Mesaj alindi: type=%s", msg_type)
 
         if msg_type == "paired":
@@ -215,14 +218,18 @@ class WsClient(QObject):
             self.paired_devices_status.emit(paired_devices, online_paired_devices)
 
         elif msg_type == "stream_info":
-            self.paired.emit(msg.get("url", ""))
+            url = msg.get("url", "")
+            if isinstance(url, str):
+                logger.info("stream_info url=%r", url)
+            self.paired.emit(url if isinstance(url, str) else "")
 
         elif msg_type == "frame":
             data_str = msg.get("data", "")
             if not data_str:
                 return
             try:
-                self._handle_frame_bytes(base64.b64decode(data_str))
+                raw_b64 = data_str if isinstance(data_str, str) else str(data_str)
+                self._handle_frame_bytes(base64.b64decode(raw_b64, validate=False))
             except Exception as e:
                 logger.warning("Frame decode hatasi: %s", e)
 
@@ -236,14 +243,6 @@ class WsClient(QObject):
             code = str(msg.get("code") or "").strip()
             self.error_occurred.emit(msg.get("message", "Bilinmeyen hata"), code)
 
-    def _on_data(self, ws, raw_data, data_type, _continue_flag) -> None:
-        if ws is not self._ws:
-            return
-        if data_type == websocket.ABNF.OPCODE_BINARY and isinstance(raw_data, (bytes, bytearray)):
-            self._handle_frame_bytes(bytes(raw_data))
-        elif data_type == websocket.ABNF.OPCODE_TEXT:
-            self._on_message(ws, raw_data if isinstance(raw_data, str) else raw_data.decode("utf-8", errors="replace"))
-
     def _on_error(self, ws, error) -> None:
         if ws is not self._ws:
             return
@@ -254,7 +253,6 @@ class WsClient(QObject):
                 self.disconnected.emit("socket is already closed")
             return
         if isinstance(error, UnicodeDecodeError):
-            # Binary frame decode denemesi kaynakli gecici hata; on_data tarafi frame'i isler.
             logger.debug("UnicodeDecodeError ignored in websocket callback: %s", error)
             return
         self.error_occurred.emit(str(error), "")
@@ -266,21 +264,16 @@ class WsClient(QObject):
             self._disconnect_emitted = True
             self.disconnected.emit(f"code={code}, msg={msg}")
 
-    def _handle_frame_bytes(self, jpeg_bytes: bytes) -> None:
-        if self._frame_processing:
+    def _handle_frame_bytes(self, frame_bytes: bytes) -> None:
+        if not frame_bytes:
             return
-        normalized = _normalize_jpeg_bytes(jpeg_bytes)
-        if not normalized:
-            logger.debug("Gecersiz JPEG frame atlandi: %d bytes", len(jpeg_bytes))
-            return
-        self._frame_processing = True
+            
+        logger.info(f"MÜKEMMEL! Android'den {len(frame_bytes)} byte görüntü verisi masaüstüne ulaştı!")
+        
         try:
-            self.frame_received.emit(bytes(normalized))
-            logger.debug("Frame emit: %d bytes", len(normalized))
+            self.frame_received.emit(bytes(frame_bytes))
         except Exception as e:
             logger.error("Frame emit hatasi: %s", e, exc_info=True)
-        finally:
-            self._frame_processing = False
 
 
 def load_paired_phone_id() -> str | None:

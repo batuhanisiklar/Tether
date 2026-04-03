@@ -152,6 +152,13 @@
                 android:layout_marginBottom="10dp" />
 
             <Button
+                android:id="@+id/btn_start_stream"
+                style="@style/WidgetRemoteControlPrimaryButton"
+                android:layout_width="match_parent"
+                android:text="@string/restart_screen_broadcast"
+                android:layout_marginBottom="10dp" />
+
+            <Button
                 android:id="@+id/btn_stop_stream"
                 style="@style/WidgetRemoteControlDangerButton"
                 android:layout_width="match_parent"

@@ -25,6 +25,9 @@ class HomeFragment : Fragment(), DashboardFragment {
         binding.btnConnect.setOnClickListener {
             (activity as? MainActivity)?.reconnect()
         }
+        binding.btnStartStream.setOnClickListener {
+            (activity as? MainActivity)?.startScreenShareFromUser()
+        }
         binding.btnStopStream.setOnClickListener {
             (activity as? MainActivity)?.stopStreamsFromUi()
         }
@@ -43,6 +46,9 @@ class HomeFragment : Fragment(), DashboardFragment {
         binding.tvStatus.text = host.statusText()
         binding.tvStatusDetail.text = host.statusDetailText()
         binding.btnConnect.isEnabled = host.canReconnect()
+        val showStart = host.canStartScreenShare()
+        binding.btnStartStream.visibility = if (showStart) View.VISIBLE else View.GONE
+        binding.btnStartStream.isEnabled = showStart
         binding.btnStopStream.isEnabled = host.canStopStream()
     }
 
