@@ -11,20 +11,15 @@ import java.util.concurrent.TimeUnit
 /**
  * Signaling sunucusuyla WebSocket üzerinden haberleşir.
  *
- * Birincil akış (otomatik bağlantı):
- *  - device_hello → sunucu bilinen eşleşmeyi kontrol eder
- *  - auto_paired → PC çevrimiçiyse direkt eşleşir
- *
- * İlk eşleşme (6 haneli kod):
- *  - register → PC join eder → paired → ikisi de pair_confirm gönderir
+ * Kalici kimlik + manuel oturum akisi:
+ *  - device_hello: cihaz cevrimici ve presence takibi
+ *  - register(code=deviceAddress): diger cihazlar bu adrese join olur
+ *  - join(code=partnerAddress): manuel baglanti baslatir
  */
 class SignalingClient(
     private val serverUrl: String,
     private val deviceId: String,
     private val deviceAddress: String,
-    private val preferredPartnerId: String? = null,
-    private val preferredPartnerAddress: String? = null,
-    private val allowAutoPair: Boolean = false,
     private val accessibilityEnabled: Boolean = true,
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>) -> Unit,
@@ -69,27 +64,19 @@ class SignalingClient(
                     put("type", "device_hello")
                     put("device_id", deviceId)
                     put("role", "phone")
-                    put("auto_pair", allowAutoPair)
                     put("accessibility_enabled", accessibilityEnabled)
-                    if (allowAutoPair && !preferredPartnerId.isNullOrBlank()) {
-                        put("preferred_partner_id", preferredPartnerId)
-                    } else if (allowAutoPair && !preferredPartnerAddress.isNullOrBlank()) {
-                        put("preferred_partner_id", preferredPartnerAddress)
-                    }
                 }
                 webSocket.send(helloMsg.toString())
 
-                // Kayıtlı bir PC hedeflenmiyorsa 6 haneli fallback kodu da aç.
-                if (preferredPartnerId.isNullOrBlank() && preferredPartnerAddress.isNullOrBlank()) {
-                    val registerMsg = JSONObject().apply {
-                        put("type", "register")
-                        put("code", sessionCode)
-                        put("role", "phone")
-                        put("device_id", deviceId)
-                        put("accessibility_enabled", accessibilityEnabled)
-                    }
-                    webSocket.send(registerMsg.toString())
+                val registerCode = deviceAddress.filter(Char::isDigit).take(12).ifBlank { sessionCode }
+                val registerMsg = JSONObject().apply {
+                    put("type", "register")
+                    put("code", registerCode)
+                    put("role", "phone")
+                    put("device_id", deviceId)
+                    put("accessibility_enabled", accessibilityEnabled)
                 }
+                webSocket.send(registerMsg.toString())
 
                 scope.launch {
                     while (isActive) {
@@ -133,15 +120,6 @@ class SignalingClient(
                             val onlinePairedDevices = json.optJSONArray("online_paired_devices")?.let(::jsonArrayToDeviceIds) ?: emptyList()
                             Log.i(TAG, "Device ack: paired_with=$pairedWith online=$partnerOnline")
                             onPairedDevicesStatus(pairedDevices, onlinePairedDevices)
-                        }
-
-                        "auto_paired" -> {
-                            val partnerDeviceId = json.optString("partner_device_id", "")
-                            Log.i(TAG, "Auto-paired with PC: $partnerDeviceId")
-                            scope.launch {
-                                delay(500)
-                                onPaired(8080, partnerDeviceId.ifBlank { null })
-                            }
                         }
 
                         "paired" -> {
@@ -202,6 +180,20 @@ class SignalingClient(
         }
         ws?.send(msg.toString())
         Log.i(TAG, "Sent pair_confirm: $deviceId <-> $pcDeviceId")
+    }
+
+    fun joinByAddress(rawAddress: String) {
+        val joinCode = rawAddress.filter(Char::isDigit).take(12)
+        if (joinCode.length != 12) return
+        val msg = JSONObject().apply {
+            put("type", "join")
+            put("code", joinCode)
+            put("role", "phone")
+            put("device_id", deviceId)
+            put("accessibility_enabled", accessibilityEnabled)
+        }
+        ws?.send(msg.toString())
+        Log.i(TAG, "Sent join for address=$joinCode")
     }
 
     /**

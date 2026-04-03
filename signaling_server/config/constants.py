@@ -25,10 +25,9 @@ class MessageTypes:
     RELAY: str = "relay"
     FRAME: str = "frame"
 
-    # Persistent device identity & auto-pairing
+    # Persistent device identity
     DEVICE_HELLO: str = "device_hello"    # Client → Server: announce device_id + role
     DEVICE_ACK: str = "device_ack"        # Server → Client: acknowledged, pairing status
-    AUTO_PAIRED: str = "auto_paired"      # Server → Both: paired partner came online
     PAIR_CONFIRM: str = "pair_confirm"    # Client → Server: confirm pairing after code-join
     PAIRED_DEVICES: str = "paired_devices"  # Server → Client: list of known paired devices
     REQUEST_PRESENCE: str = "request_presence"  # Client → Server: refresh device_ack

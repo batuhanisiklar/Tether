@@ -432,7 +432,7 @@ class MainWindow(QMainWindow):
         if status_message:
             self._set_status(status_message)
         self._manual_disconnect = True
-        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, auto_pair=False)
+        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
 
     def _connect_session_mode(
         self,
@@ -453,12 +453,10 @@ class MainWindow(QMainWindow):
         self._manual_disconnect = True
         if address_digits:
             save_paired_phone_address(address_digits)
-        self._ws_client.connect_with_device_id(
-            ServerDefaults.DEFAULT_URL,
-            preferred_partner_id=partner_device_id,
-            preferred_partner_address=address_digits or None,
-            auto_pair=True,
-        )
+        session_code = address_digits or _address_digits(partner_device_id)
+        if not session_code:
+            return
+        self._ws_client.connect_to_server(ServerDefaults.DEFAULT_URL, session_code)
 
     def _schedule_reconnect(self, delay_ms: int = 1500):
         if self._logging_out:
@@ -1127,7 +1125,6 @@ class MainWindow(QMainWindow):
         self._ws_client.connected.connect(self._on_ws_connected)
         self._ws_client.disconnected.connect(self._on_ws_disconnected)
         self._ws_client.paired.connect(self._on_paired)
-        self._ws_client.auto_paired.connect(self._on_auto_paired)
         self._ws_client.peer_disconnected.connect(self._on_peer_disconnected)
         self._ws_client.error_occurred.connect(self._on_error)
         self._ws_client.paired_devices_status.connect(
@@ -1158,7 +1155,7 @@ class MainWindow(QMainWindow):
             self.db.upsert_device(self._user_id, self._ws_client.device_id, "pc", _desktop_device_name())
         devices = self._load_paired_devices()
         self._populate_device_cards(devices)
-        self._try_auto_connect()
+        self._connect_presence_channel("Cihaz durumu izleniyor...")
 
     def _populate_device_cards(self, devices: list[dict]):
         for card in self._device_cards.values():
@@ -1365,19 +1362,6 @@ class MainWindow(QMainWindow):
     def _on_presence_tick(self):
         self._ws_client.send_request_presence()
 
-    # ── Auto connect ─────────────────────────────────────────────────────────
-    @pyqtSlot()
-    def _try_auto_connect(self):
-        paired_id = load_paired_phone_id()
-        paired_address = load_paired_phone_address()
-        if paired_id or paired_address or self._device_cards:
-            self._paired_phone_id = paired_id
-            self._paired_phone_address = paired_address
-            self._refresh_home_summary()
-            self._connect_presence_channel("Kayitli cihazlar kontrol ediliyor...")
-        else:
-            self._set_status(Ui.MSG_WAITING)
-
     # ── Connect button ───────────────────────────────────────────────────────
     def _submit_static_address(self, raw_value: str) -> None:
         if not raw_value:
@@ -1573,35 +1557,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 logger.exception("MJPEG akisi baslatilamadi")
         self._set_status(Ui.MSG_PAIRED_WS)
-
-    @pyqtSlot(str)
-    def _on_auto_paired(self, partner_device_id: str):
-        self._reconnect_timer.stop()
-        self._set_connected(True)
-        self._switch_page(1)
-        self._set_status("Otomatik baglanti kuruldu.")
-
-        self.db.save_pairing(partner_device_id, self._ws_client.device_id)
-        self._ws_client.send_pair_confirm(partner_device_id)
-
-        pid = str(partner_device_id) if partner_device_id else ""
-        addr = _address_digits(self._paired_phone_address) if self._paired_phone_address else ""
-        if (pid and pid not in self._device_cards) or (
-            not pid and partner_device_id not in {c.device_id for c in self._device_cards.values()}
-        ):
-            devices = self._load_paired_devices()
-            self._populate_device_cards(devices)
-
-        card = self._device_cards.get(pid) if pid else None
-        if card is None and addr:
-            card = next((c for c in self._device_cards.values() if c.address == addr), None)
-        if card is None:
-            card = self._card_for_member_device(partner_device_id)
-        if card:
-            self._paired_phone_id = card.device_id
-            self._paired_phone_address = card.address
-            card.set_online(True)
-        self._refresh_home_summary()
 
     @pyqtSlot(list, list)
     def _on_paired_devices_status(self, paired_devices: list, online_devices: list):

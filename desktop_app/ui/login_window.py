@@ -7,6 +7,7 @@ Tüm auth işlemleri DbClient üzerinden Neon DB'ye gider.
 
 import logging
 import os
+import sys
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
@@ -64,7 +65,11 @@ class LoginWindow(QDialog):
         self.db = db
         self._backend_api = BackendApi()
         self.setWindowTitle(AppMeta.NAME)
-        self.setFixedSize(420, 720)
+        # Windows DWM/DPI bazen sabit yüksekliği 2–8 px farkla uygular; min==max uyarı ve log üretir.
+        _win_slack = 24 if sys.platform == "win32" else 0
+        self.setMinimumSize(420, 720)
+        self.setMaximumSize(420, 720 + _win_slack)
+        self.resize(420, 720)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._drag_pos = None

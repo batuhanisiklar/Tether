@@ -17,7 +17,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QPixmap
 
 from desktop_app.config import AppMeta, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
-from desktop_app.config.prefs_store import clear_logged_in, clear_paired_phone_id, load_paired_phone_id, read_prefs
+from desktop_app.config.prefs_store import clear_logged_in, clear_paired_phone_id, read_prefs
 from desktop_app.ui.screen_widget import ScreenWidget
 from desktop_app.network.ws_client import WsClient
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
@@ -450,7 +450,7 @@ class MainWindow(QMainWindow):
         cl = QVBoxLayout(grp_conn)
         cl.setSpacing(7)
 
-        cl.addWidget(self._lbl(f"6 Haneli Kod"))
+        cl.addWidget(self._lbl("Telefon Sabit Adresi"))
         self._inp_code = QLineEdit()
         self._inp_code.setPlaceholderText(Ui.PLACEHOLDER_CODE)
         self._inp_code.setMaxLength(ServerDefaults.CODE_LENGTH)
@@ -574,7 +574,6 @@ class MainWindow(QMainWindow):
         self._ws_client.connected.connect(self._on_ws_connected)
         self._ws_client.disconnected.connect(self._on_ws_disconnected)
         self._ws_client.paired.connect(self._on_paired)
-        self._ws_client.auto_paired.connect(self._on_auto_paired)
         self._ws_client.peer_disconnected.connect(self._on_peer_disconnected)
         self._ws_client.error_occurred.connect(self._on_error)
         self._ws_client.paired_devices_status.connect(self._on_paired_devices_status)
@@ -591,7 +590,7 @@ class MainWindow(QMainWindow):
     def _load_devices_from_db(self):
         """DB'den eşleşmiş cihazları arka planda yükler."""
         if not self._user_id:
-            self._try_auto_connect()
+            self._connect_presence_channel("Cihaz durumu izleniyor...")
             return
 
         # DB'ye önce kendi cihazımızı kaydet
@@ -601,8 +600,7 @@ class MainWindow(QMainWindow):
         devices = self.db.get_paired_devices(self._ws_client.device_id)
         self._populate_device_cards(devices)
 
-        # Kayıtlı telefon varsa auto-connect dene
-        self._try_auto_connect()
+        self._connect_presence_channel("Cihaz durumu izleniyor...")
 
     def _populate_device_cards(self, devices: list[dict]):
         """Kart listesini DB sonuçlarıyla doldurur."""
@@ -633,7 +631,7 @@ class MainWindow(QMainWindow):
         if card:
             card.set_connecting()
         self._set_status(f"Eşleşmiş telefona bağlanılıyor...")
-        self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL, preferred_partner_id=device_id)
+        self._ws_client.connect_to_server(ServerDefaults.DEFAULT_URL, device_id)
 
     def _on_card_forget(self, device_id: str):
         short_id = device_id[-8:] if len(device_id) > 8 else device_id
@@ -667,28 +665,18 @@ class MainWindow(QMainWindow):
         self._set_status("Eşleşme kaldırıldı.")
 
     @pyqtSlot()
-    def _try_auto_connect(self):
-        """Kayıtlı telefon varsa sunucuya bağlan ve device_hello gönder."""
-        paired_id = load_paired_phone_id()
-        if paired_id or self._device_cards:
-            self._paired_phone_id = paired_id
-            self._set_status("Kayıtlı telefon aranıyor...")
-            self._ws_client.connect_with_device_id(ServerDefaults.DEFAULT_URL)
-        else:
-            self._set_status(Ui.MSG_WAITING)
-
-    @pyqtSlot()
     def _on_connect(self):
-        code = self._inp_code.text().strip()
-        if not code:
-            self._set_status("Oturum kodu girilmedi.", error=True)
+        raw_address = self._inp_code.text().strip()
+        digits = "".join(ch for ch in raw_address if ch.isdigit())[:12]
+        if not digits:
+            self._set_status("Telefon sabit adresi girilmedi.", error=True)
             return
-        if len(code) != ServerDefaults.CODE_LENGTH or not code.isdigit():
+        if len(digits) != ServerDefaults.CODE_LENGTH:
             self._set_status(Ui.MSG_CODE_MUST_BE_12_DIGITS, error=True)
             return
         self._btn_connect.setEnabled(False)
         self._set_status(Ui.MSG_CONNECTING)
-        self._ws_client.connect_to_server(ServerDefaults.DEFAULT_URL, code)
+        self._ws_client.connect_to_server(ServerDefaults.DEFAULT_URL, digits)
 
     @pyqtSlot()
     def _on_disconnect(self):
@@ -749,8 +737,6 @@ class MainWindow(QMainWindow):
     def _on_paired(self, stream_url: str):
         """İlk eşleşme (6 haneli kod)."""
         self._set_connected(True)
-        # pair_confirm gönder ve DB'ye kaydet
-        # Phone device_id henüz bilinmiyor; server auto_paired'dan alınacak
         self._set_status("Eşleşildi! Akış bekleniyor...")
         if stream_url and stream_url.startswith("http"):
             if "0.0.0.0" not in stream_url and "10.0.2." not in stream_url:
@@ -761,31 +747,6 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
         self._set_status(Ui.MSG_PAIRED_WS)
-
-    @pyqtSlot(str)
-    def _on_auto_paired(self, partner_device_id: str):
-        """Kayıtlı eşleşme — telefon çevrimiçiydi, otomatik bağlandı."""
-        self._paired_phone_id = partner_device_id
-        self._set_connected(True)
-        self._set_status(f"Otomatik bağlandı  —  Ekran akışı bekleniyor")
-
-        # Kart güncelle
-        card = self._device_cards.get(partner_device_id)
-        if card:
-            card.set_online(True)
-
-        # DB'ye pair kaydet ve last_seen güncelle
-        if self._user_id:
-            self.db.upsert_device(self._user_id, partner_device_id, "phone")
-        self.db.save_pairing(partner_device_id, self._ws_client.device_id)
-
-        # Prefs'e partner kaydet
-        self._ws_client.send_pair_confirm(partner_device_id)
-
-        # Kart yoksa listeye ekle
-        if partner_device_id not in self._device_cards:
-            devices = self.db.get_paired_devices(self._ws_client.device_id)
-            self._populate_device_cards(devices)
 
     @pyqtSlot(list, list)
     def _on_paired_devices_status(self, paired_devices: list, online_devices: list):
