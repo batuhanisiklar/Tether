@@ -249,7 +249,22 @@ async def _handle_device_hello(
     normalized_device_id = _normalize_device_id(raw_device_id)
     binding = await asyncio.to_thread(app["db"].get_device_by_id, normalized_device_id)
     if not binding:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz bulunamadi"})
+        logger.warning(
+            "device_hello: DB kaydi yok, meta yine dolduruluyor (register/join devam edebilsin): %s role=%s",
+            normalized_device_id,
+            role,
+        )
+        meta["device_id"] = normalized_device_id
+        meta["role"] = role
+        meta["user_id"] = None
+        meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", True))
+        app["online_devices"][normalized_device_id] = {
+            "ws": ws,
+            "user_id": None,
+            "role": role,
+            "device_id": normalized_device_id,
+        }
+        await _send_device_ack(app, normalized_device_id)
         return
     if str(binding.get("device_type") or "") != role:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz tipi bu oturumla eslesmiyor"})
@@ -293,20 +308,36 @@ async def _handle_register_or_join(
             await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id missing"})
             return
         binding = await asyncio.to_thread(app["db"].get_device_by_id, normalized_device_id)
-        if not binding:
+        if binding:
+            meta["user_id"] = int(binding["user_id"])
+            meta["device_id"] = normalized_device_id
+            meta["role"] = role
+            meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", True))
+            app["online_devices"][normalized_device_id] = {
+                "ws": ws,
+                "user_id": int(binding["user_id"]),
+                "role": role,
+                "device_id": normalized_device_id,
+            }
+            await asyncio.to_thread(app["db"].set_device_online, normalized_device_id, True)
+        elif meta.get("device_id") == normalized_device_id and meta.get("role") == role:
+            logger.warning(
+                "register/join: DB kaydi yok, device_hello meta ile oturum: %s role=%s",
+                normalized_device_id,
+                role,
+            )
+            meta["device_id"] = normalized_device_id
+            meta["role"] = role
+            meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", True))
+            app["online_devices"][normalized_device_id] = {
+                "ws": ws,
+                "user_id": None,
+                "role": role,
+                "device_id": normalized_device_id,
+            }
+        else:
             await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz bulunamadi"})
             return
-        meta["user_id"] = int(binding["user_id"])
-        meta["device_id"] = normalized_device_id
-        meta["role"] = role
-        meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", True))
-        app["online_devices"][normalized_device_id] = {
-            "ws": ws,
-            "user_id": int(binding["user_id"]),
-            "role": role,
-            "device_id": normalized_device_id,
-        }
-        await asyncio.to_thread(app["db"].set_device_online, normalized_device_id, True)
 
     session = _session_entry(app, code)
     _prune_closed_peers_from_session(app, code)
