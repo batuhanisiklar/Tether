@@ -745,6 +745,7 @@ async def auth_profile_update(request: web.Request) -> web.Response:
     data = await _json(request)
     email = data.get("email")
     phone = data.get("phone")
+    old_pwd = data.get("old_password")
     pwd1 = data.get("password")
     pwd2 = data.get("password2")
 
@@ -759,6 +760,9 @@ async def auth_profile_update(request: web.Request) -> web.Response:
     if pwd1 is not None or pwd2 is not None:
         p1 = str(pwd1 or "")
         p2 = str(pwd2 or "")
+        op = str(old_pwd or "")
+        if not op:
+            return web.json_response({"ok": False, "message": "Mevcut sifre gerekli."}, status=400)
         if not p1 or not p2:
             return web.json_response({"ok": False, "message": "Sifre iki kere girilmelidir."}, status=400)
         if p1 != p2:
@@ -773,6 +777,7 @@ async def auth_profile_update(request: web.Request) -> web.Response:
         email=email if email is not None else None,
         phone=str(phone).strip() if phone is not None else None,
         new_password=new_password,
+        old_password=str(old_pwd or "").strip() if (pwd1 is not None or pwd2 is not None) else None,
     )
     if not ok:
         return web.json_response({"ok": False, "message": err or "Profil guncellenemedi."}, status=400)

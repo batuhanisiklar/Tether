@@ -163,6 +163,7 @@ class ServerDbClient:
         email: str | None = None,
         phone: str | None = None,
         new_password: str | None = None,
+        old_password: str | None = None,
     ) -> tuple[bool, str]:
         """
         Kullanıcı profil alanlarını günceller.
@@ -179,6 +180,9 @@ class ServerDbClient:
         password_norm = (new_password or "").strip() if new_password is not None else None
         if password_norm is not None and len(password_norm) < 6:
             return False, "Sifre en az 6 karakter olmali."
+        old_norm = (old_password or "").strip() if old_password is not None else None
+        if password_norm is not None and not old_norm:
+            return False, "Mevcut sifre gerekli."
 
         fields: list[str] = []
         values: list[Any] = []
@@ -189,6 +193,21 @@ class ServerDbClient:
             fields.append("phone = %s")
             values.append(phone_norm)
         if password_norm is not None:
+            # Eski sifreyi dogrula
+            try:
+                with self._get_conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT password_h FROM users WHERE user_id = %s", (int(user_id),))
+                        row = cur.fetchone()
+                        if not row:
+                            return False, "Kullanici bulunamadi."
+                        current_h = str(row[0] or "")
+                        if not current_h or not bcrypt.checkpw(old_norm.encode(), current_h.encode()):
+                            return False, "Mevcut sifre hatali."
+            except Exception as e:
+                logger.exception("update_user_profile password verify: %s", e)
+                return False, "Sifre dogrulanamadi."
+
             password_h = bcrypt.hashpw(password_norm.encode(), bcrypt.gensalt()).decode()
             fields.append("password_h = %s")
             values.append(password_h)
