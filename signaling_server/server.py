@@ -1028,6 +1028,11 @@ async def on_cleanup(app: web.Application) -> None:
         db.close()
 
 
+async def health_check(_request: web.Request) -> web.Response:
+    """Yuk dengeleyici / istemci: HTTP katmaninin ayakta oldugunu dogrular (DB sart degil)."""
+    return web.json_response({"ok": True, "service": "remote-phone-control-signaling"})
+
+
 def create_app() -> web.Application:
     db = ServerDbClient()
     db.init_schema()
@@ -1040,6 +1045,7 @@ def create_app() -> web.Application:
     app["ws_meta"] = {}
     app.add_routes(
         [
+            web.get("/health", health_check),
             web.get("/", websocket_handler),
             web.post("/auth/register", auth_register),
             web.post("/auth/login", auth_login),
