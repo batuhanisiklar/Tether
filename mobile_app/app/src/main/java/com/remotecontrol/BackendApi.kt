@@ -9,6 +9,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 data class ApiResult<T>(
     val data: T? = null,
@@ -39,10 +40,35 @@ data class DeviceSummary(
         ?: "...${deviceId.takeLast(8)}"
 }
 
+data class UserProfile(
+    val userId: Int,
+    val username: String,
+    val email: String,
+    val firstName: String,
+    val lastName: String,
+    val phone: String,
+)
+
+data class ProfileUpdateSession(
+    val token: String,
+    val userId: Int,
+    val username: String,
+)
+
 class BackendApi(
     signalingUrl: String,
-    private val client: OkHttpClient = OkHttpClient(),
+    private val client: OkHttpClient = Companion.defaultClient,
 ) {
+    private companion object {
+        /** Render cold start / yavas ag icin uzun zaman asimlari */
+        val defaultClient: OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(45, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(45, TimeUnit.SECONDS)
+            .callTimeout(180, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val baseHttpUrl = signalingUrl
         .replaceFirst("wss://", "https://")
@@ -257,6 +283,103 @@ class BackendApi(
             }
         } catch (_: IOException) {
             ApiResult(error = "Kullanici bilgisi alinirken sunucuya ulasilamadi.")
+        }
+    }
+
+    suspend fun getProfile(token: String, deviceId: String): ApiResult<UserProfile> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$baseHttpUrl/auth/me?device_id=$deviceId")
+                .addHeader("Authorization", "Bearer $token")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext ApiResult(error = "Kullanici bilgisi alinamadi.")
+                }
+                return@withContext runCatching {
+                    val json = JSONObject(body)
+                    val user = json.getJSONObject("user")
+                    val uid = when {
+                        user.has("id") -> user.getInt("id")
+                        user.has("user_id") -> user.getInt("user_id")
+                        else -> -1
+                    }
+                    require(uid >= 0) { "missing user id" }
+                    ApiResult(
+                        data = UserProfile(
+                            userId = uid,
+                            username = user.optString("username").orEmpty(),
+                            email = user.optString("email").orEmpty(),
+                            firstName = user.optString("first_name").orEmpty(),
+                            lastName = user.optString("last_name").orEmpty(),
+                            phone = user.optString("phone").orEmpty(),
+                        )
+                    )
+                }.getOrElse {
+                    ApiResult(error = "Sunucu yaniti gecersiz (profile parse basarisiz).")
+                }
+            }
+        } catch (_: IOException) {
+            ApiResult(error = "Kullanici bilgisi alinirken sunucuya ulasilamadi.")
+        }
+    }
+
+    suspend fun updateProfile(
+        token: String,
+        email: String,
+        firstName: String,
+        lastName: String,
+        phone: String,
+        oldPassword: String,
+        password: String,
+        password2: String,
+    ): ApiResult<ProfileUpdateSession> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("email", email.trim().lowercase())
+                put("phone", phone.trim())
+                if (password.isNotBlank() || password2.isNotBlank()) {
+                    put("old_password", oldPassword)
+                    put("password", password)
+                    put("password2", password2)
+                }
+            }
+            val request = Request.Builder()
+                .url("$baseHttpUrl/auth/profile")
+                .addHeader("Authorization", "Bearer $token")
+                .post(payload.toString().toRequestBody(jsonType))
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val message = runCatching { JSONObject(body).optString("message") }.getOrDefault("")
+                    return@withContext ApiResult(error = message.ifBlank { "Profil guncellenemedi." })
+                }
+                return@withContext runCatching {
+                    val json = JSONObject(body)
+                    val user = json.getJSONObject("user")
+                    val newToken = json.optString("token").orEmpty()
+                    val uid = when {
+                        user.has("id") -> user.getInt("id")
+                        user.has("user_id") -> user.getInt("user_id")
+                        else -> -1
+                    }
+                    require(uid >= 0) { "missing user id" }
+                    ApiResult(
+                        data = ProfileUpdateSession(
+                            token = newToken.ifBlank { token },
+                            userId = uid,
+                            username = user.optString("username").orEmpty(),
+                        )
+                    )
+                }.getOrElse {
+                    ApiResult(error = "Sunucu yaniti gecersiz (profile update parse basarisiz).")
+                }
+            }
+        } catch (_: IOException) {
+            ApiResult(error = "Profil guncellenirken sunucuya ulasilamadi.")
         }
     }
 

@@ -1,12 +1,14 @@
 import logging
 import os
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QPoint
+from PyQt6.QtCore import QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QMenu,
     QApplication,
     QDialog,
+    QDialogButtonBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -99,6 +101,11 @@ def _compact_label(text: str, limit: int = 24) -> str:
 
 def _address_digits(value: str | None) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())[:12]
+
+
+def _ws_device_id_set(items: list | None) -> set[str]:
+    """device_ack listeleri tam device_id; 12 hane kirpmasi REST yenilemeyi surekli tetikler."""
+    return {str(x).strip() for x in (items or []) if str(x).strip()}
 
 
 def _phone_row_key(device: dict) -> str:
@@ -308,7 +315,7 @@ class DeviceCard(QFrame):
 # MainWindow
 # ─────────────────────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
-    def __init__(self, db: DbClient):
+    def __init__(self, db: DbClient, backend_api: BackendApi | None = None):
         super().__init__()
         self.db = db
         self._ws_client = WsClient()
@@ -319,18 +326,26 @@ class MainWindow(QMainWindow):
         self._paired_phone_address: str | None = None
         self._device_cards: dict[str, DeviceCard] = {}
         self._online_paired_devices: set[str] = set()
+        self._phone_accessibility_enabled: bool | None = None
+        self._remote_frame_visible = False
         self._logging_out = False
         self._manual_disconnect = False
         self._ws_mode = "idle"
         self._user_id: int | None = None
         self._username = "Kullanici"
         self._user_email = ""
+        self._user_first_name = ""
+        self._user_last_name = ""
         self._user_address = ""
         self._auth_token = ""
         self._current_page = 0
         self._account_button: QPushButton | None = None
-        self._backend_api = BackendApi()
+        self._backend_api = backend_api if backend_api is not None else BackendApi()
         self._reconnect_session_code: str | None = None
+        self._profile_drawer_open = False
+        self._profile_drawer_width = 432
+        self._profile_cache: dict = {}
+        self._profile_anim: QPropertyAnimation | None = None
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
         self.setMinimumSize(960, 600)
@@ -341,7 +356,7 @@ class MainWindow(QMainWindow):
         self._connect_signals()
 
         self._presence_timer = QTimer(self)
-        self._presence_timer.setInterval(4_000)
+        self._presence_timer.setInterval(8_000)
         self._presence_timer.timeout.connect(self._on_presence_tick)
 
         self._reconnect_timer = QTimer(self)
@@ -355,6 +370,8 @@ class MainWindow(QMainWindow):
         self._user_id = prefs.get("user_id")
         self._username = prefs.get("username", "Kullanici")
         self._user_email = (prefs.get(Prefs.KEY_USER_EMAIL) or "").strip()
+        self._user_first_name = (prefs.get(Prefs.KEY_USER_FIRST_NAME) or "").strip()
+        self._user_last_name = (prefs.get(Prefs.KEY_USER_LAST_NAME) or "").strip()
         self._auth_token = load_auth_token()
         self._user_address = load_user_address()
         if self._auth_token:
@@ -367,6 +384,12 @@ class MainWindow(QMainWindow):
                 if em:
                     self._user_email = em
                     update_prefs(**{Prefs.KEY_USER_EMAIL: em})
+                fn = (profile.get("first_name") or "").strip()
+                ln = (profile.get("last_name") or "").strip()
+                if fn or ln:
+                    self._user_first_name = fn
+                    self._user_last_name = ln
+                    update_prefs(**{Prefs.KEY_USER_FIRST_NAME: fn, Prefs.KEY_USER_LAST_NAME: ln})
         if not self._user_address and self._user_id:
             self._user_address = self.db.get_user_address(self._user_id) or ""
         if not self._user_email:
@@ -375,45 +398,50 @@ class MainWindow(QMainWindow):
 
     def _load_paired_devices(self) -> list[dict]:
         merged: dict[str, dict] = {}
+        pc_id = self._ws_client.device_id
+
+        def _ingest_phone_rows(rows: list[dict] | None) -> None:
+            for device in rows or []:
+                if device.get("device_type") != "phone" or device.get("device_id") == pc_id:
+                    continue
+                key = _phone_row_key(device)
+                if not key:
+                    continue
+                merged[key] = _merge_phone_device_row(merged.get(key, {}), dict(device))
+
         if self._auth_token:
+            bundle, bundle_err = self._backend_api.get_phone_device_bundle(self._auth_token, pc_id)
+            if bundle and bundle.get("ok"):
+                _ingest_phone_rows(list(bundle.get("devices") or []))
+                _ingest_phone_rows(list(bundle.get("recent_devices") or []))
+                _ingest_phone_rows(list(bundle.get("pairings") or []))
+                if merged:
+                    return list(merged.values())
+                return self.db.get_paired_devices(pc_id)
+            if bundle_err and bundle_err != "bundle_missing":
+                logger.warning("phone-bundle alinamadi: %s", bundle_err)
+
             devices, devices_error = self._backend_api.get_devices(self._auth_token)
             if devices is not None:
-                for device in devices:
-                    if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
-                        key = _phone_row_key(device)
-                        if not key:
-                            continue
-                        merged[key] = _merge_phone_device_row(merged.get(key, {}), dict(device))
+                _ingest_phone_rows(devices)
             else:
                 logger.warning("Server devices alinamadi: %s", devices_error)
 
             recent_devices, recent_error = self._backend_api.get_recent_devices(self._auth_token, "phone")
             if recent_devices is not None:
-                for device in recent_devices:
-                    if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
-                        key = _phone_row_key(device)
-                        if not key:
-                            continue
-                        existing = merged.get(key, {})
-                        merged[key] = _merge_phone_device_row(existing, dict(device))
+                _ingest_phone_rows(recent_devices)
             else:
                 logger.warning("Server recent devices alinamadi: %s", recent_error)
 
-            pairings, pairings_error = self._backend_api.get_pairings(self._auth_token, self._ws_client.device_id)
+            pairings, pairings_error = self._backend_api.get_pairings(self._auth_token, pc_id)
             if pairings is not None:
-                for device in pairings:
-                    if device.get("device_type") == "phone" and device.get("device_id") != self._ws_client.device_id:
-                        key = _phone_row_key(device)
-                        if not key:
-                            continue
-                        existing = merged.get(key, {})
-                        merged[key] = _merge_phone_device_row(existing, dict(device))
+                _ingest_phone_rows(pairings)
             else:
                 logger.warning("Server pairings alinamadi: %s", pairings_error)
 
             if merged:
                 return list(merged.values())
-        return self.db.get_paired_devices(self._ws_client.device_id)
+        return self.db.get_paired_devices(pc_id)
 
     def _connect_presence_mode(self, status_message: str | None = None):
         if self._logging_out:
@@ -508,6 +536,10 @@ class MainWindow(QMainWindow):
         self._pages.addWidget(self._build_home_page())
         self._pages.addWidget(self._build_remote_page())
         root.addWidget(self._pages, stretch=1)
+
+        # Sağdan açılan profil sekmesi (drawer)
+        self._profile_drawer = self._build_profile_drawer(central)
+        self._profile_drawer.hide()
 
         self._status_bar = QStatusBar()
         self._status_bar.showMessage(Ui.MSG_WAITING)
@@ -801,7 +833,10 @@ class MainWindow(QMainWindow):
         info_pc.setStyleSheet(f"color: {_TEXT}; font-size: 14px; font-weight: 500;")
         right.addWidget(info_pc)
 
-        info_user = QLabel(f"  {self._user_email or _display_username(self._username)}")
+        display_name = f"{self._user_first_name} {self._user_last_name}".strip()
+        if not display_name:
+            display_name = self._user_email or _display_username(self._username)
+        info_user = QLabel(f"  {display_name}")
         info_user.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 13px;")
         right.addWidget(info_user)
 
@@ -1135,7 +1170,7 @@ class MainWindow(QMainWindow):
             self._on_frame_received,
             Qt.ConnectionType.QueuedConnection,
         )
-        self._mjpeg.frame_ready.connect(self._screen.set_frame)
+        self._mjpeg.frame_ready.connect(self._on_mjpeg_frame)
         self._mjpeg.error_occurred.connect(self._on_mjpeg_error)
         self._mjpeg.stream_stopped.connect(self._on_stream_stopped)
         self._screen.touch_event.connect(self._on_touch)
@@ -1257,7 +1292,7 @@ class MainWindow(QMainWindow):
             self._tab_session.hide()
 
         if self._account_button is not None:
-            acct = self._user_email or self._username
+            acct = (f"{self._user_first_name} {self._user_last_name}".strip() or self._user_email or self._username)
             self._account_button.setText(f"{acct}  ▾")
 
     def _show_account_menu(self):
@@ -1279,19 +1314,724 @@ class MainWindow(QMainWindow):
         logout_action = menu.addAction("Cikis Yap")
         selected = menu.exec(self._account_button.mapToGlobal(self._account_button.rect().bottomLeft()))
         if selected == profile_action:
-            self._show_profile_dialog()
+            self._open_profile_drawer()
         elif selected == logout_action:
             self._on_logout()
 
-    def _show_profile_dialog(self):
-        lines = []
-        if self._user_email:
-            lines.append(f"E-posta:  {self._user_email}")
-        lines.append(f"Ad:  {_display_username(self._username)}")
-        if self._user_address:
-            lines.append(f"Bu bilgisayarin adresi:  {_format_address(self._user_address)}")
-        lines.append(f"Bilgisayar:  {_desktop_device_name()}")
-        QMessageBox.information(self, "Profil", "\n".join(lines))
+    def _show_profile_modal(self) -> None:
+        if not self._auth_token:
+            self._set_status("Profil icin yeniden giris yapin.", error=True)
+            return
+
+        profile, err = self._backend_api.get_me(self._auth_token, self._ws_client.device_id)
+        if err:
+            self._set_status(err, error=True)
+        p = dict(profile or {})
+        # fallback yerel
+        if not p.get("email") and self._user_email:
+            p["email"] = self._user_email
+        if not p.get("first_name") and self._user_first_name:
+            p["first_name"] = self._user_first_name
+        if not p.get("last_name") and self._user_last_name:
+            p["last_name"] = self._user_last_name
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Profil")
+        dlg.setModal(True)
+        dlg.setMinimumWidth(540)
+        dlg.setStyleSheet(f"""
+            QDialog {{ background-color: {_BG}; }}
+            QLabel {{ background: transparent; }}
+        """)
+
+        root = QVBoxLayout(dlg)
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(12)
+
+        # Header card
+        card = QFrame()
+        card.setStyleSheet(f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 14px;")
+        cl = QHBoxLayout(card)
+        cl.setContentsMargins(16, 16, 16, 16)
+        cl.setSpacing(14)
+
+        fn = str(p.get("first_name") or "").strip()
+        ln = str(p.get("last_name") or "").strip()
+        em = str(p.get("email") or "").strip()
+        ph = str(p.get("phone") or "").strip()
+        full = f"{fn} {ln}".strip() or "Kullanici"
+
+        avatar = QLabel(self._profile_initials(fn, ln, em))
+        avatar.setFixedSize(64, 64)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet(
+            f"background-color: {_ACCENT}; color: white; border-radius: 32px;"
+            f" font-size: 20px; font-weight: 900;"
+        )
+        cl.addWidget(avatar)
+
+        meta_col = QVBoxLayout()
+        meta_col.setSpacing(4)
+        lbl_name = QLabel(full)
+        lbl_name.setStyleSheet(f"color: {_TEXT}; font-size: 18px; font-weight: 800;")
+        meta_col.addWidget(lbl_name)
+        lbl_email = QLabel(em or "—")
+        lbl_email.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 13px;")
+        meta_col.addWidget(lbl_email)
+        lbl_phone = QLabel(ph or "—")
+        lbl_phone.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
+        meta_col.addWidget(lbl_phone)
+        meta_col.addStretch()
+        cl.addLayout(meta_col, stretch=1)
+        root.addWidget(card)
+
+        # Edit panel
+        edit = QFrame()
+        edit.setStyleSheet(f"background-color: {_BG_RAISED}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 14px;")
+        el = QVBoxLayout(edit)
+        el.setContentsMargins(16, 14, 16, 14)
+        el.setSpacing(10)
+
+        section = QLabel("Hesabi duzenle")
+        section.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px; font-weight: 800; letter-spacing: 0.08em;")
+        el.addWidget(section)
+
+        ro = QLabel("Ad ve soyad (degistirilemez)")
+        ro.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 12px; font-weight: 600;")
+        el.addWidget(ro)
+        ro_box = QLabel(full)
+        ro_box.setStyleSheet(
+            f"color: {_TEXT_SEC}; font-size: 13px; padding: 10px 12px;"
+            f" background-color: {_BG_INPUT}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 8px;"
+        )
+        el.addWidget(ro_box)
+
+        def _field(title: str) -> QLabel:
+            l = QLabel(title)
+            l.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 12px; font-weight: 600;")
+            return l
+
+        inp_email = QLineEdit(em)
+        inp_email.setFixedHeight(38)
+        inp_email.setStyleSheet(line_edit_style())
+        el.addWidget(_field("E-posta"))
+        el.addWidget(inp_email)
+
+        inp_phone = QLineEdit(ph)
+        inp_phone.setFixedHeight(38)
+        inp_phone.setStyleSheet(line_edit_style())
+        el.addWidget(_field("Telefon"))
+        el.addWidget(inp_phone)
+
+        pw_section = QLabel("Sifre degistir")
+        pw_section.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px; font-weight: 800; letter-spacing: 0.08em;")
+        el.addWidget(pw_section)
+
+        inp_pw1 = QLineEdit()
+        inp_pw1.setEchoMode(QLineEdit.EchoMode.Password)
+        inp_pw1.setFixedHeight(38)
+        inp_pw1.setStyleSheet(line_edit_style())
+        el.addWidget(_field("Yeni sifre"))
+        el.addWidget(inp_pw1)
+
+        inp_pw2 = QLineEdit()
+        inp_pw2.setEchoMode(QLineEdit.EchoMode.Password)
+        inp_pw2.setFixedHeight(38)
+        inp_pw2.setStyleSheet(line_edit_style())
+        el.addWidget(_field("Yeni sifre (tekrar)"))
+        el.addWidget(inp_pw2)
+
+        hint = QLabel("Bos birakirsaniz sifre degismez. Degistirmek icin iki alani da ayni girin.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        el.addWidget(hint)
+
+        err_lbl = QLabel("")
+        err_lbl.setWordWrap(True)
+        err_lbl.setStyleSheet(f"color: {_RED}; font-size: 12px;")
+        err_lbl.hide()
+        el.addWidget(err_lbl)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save)
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("Vazgec")
+        btns.button(QDialogButtonBox.StandardButton.Save).setText("Kaydet")
+        btns.setStyleSheet("QDialogButtonBox { background: transparent; }")
+        el.addWidget(btns)
+
+        def _on_save():
+            err_lbl.hide()
+            err_lbl.setText("")
+            new_em = inp_email.text().strip().lower()
+            if not new_em or "@" not in new_em or len(new_em) < 5:
+                err_lbl.setText("Gecerli bir e-posta girin.")
+                err_lbl.show()
+                return
+            new_phone = inp_phone.text().strip()
+            p1 = inp_pw1.text()
+            p2 = inp_pw2.text()
+            if p1 or p2:
+                if not p1 or not p2:
+                    err_lbl.setText("Sifre iki kere girilmelidir.")
+                    err_lbl.show()
+                    return
+                if p1 != p2:
+                    err_lbl.setText("Sifreler eslesmiyor.")
+                    err_lbl.show()
+                    return
+                if len(p1) < 6:
+                    err_lbl.setText("Sifre en az 6 karakter olmali.")
+                    err_lbl.show()
+                    return
+
+            data, api_err = self._backend_api.update_profile(
+                self._auth_token,
+                email=new_em,
+                phone=new_phone,
+                password=p1 if (p1 or p2) else None,
+                password2=p2 if (p1 or p2) else None,
+            )
+            if api_err:
+                err_lbl.setText(api_err)
+                err_lbl.show()
+                return
+
+            user = (data or {}).get("user") or {}
+            token = str((data or {}).get("token") or "")
+            if token:
+                self._auth_token = token
+                update_prefs(**{Prefs.KEY_AUTH_TOKEN: token})
+            new_email = str(user.get("email") or new_em).strip().lower()
+            update_prefs(**{Prefs.KEY_USER_EMAIL: new_email})
+            self._user_email = new_email
+            fn2 = str(user.get("first_name") or fn).strip()
+            ln2 = str(user.get("last_name") or ln).strip()
+            self._user_first_name = fn2
+            self._user_last_name = ln2
+            update_prefs(**{Prefs.KEY_USER_FIRST_NAME: fn2, Prefs.KEY_USER_LAST_NAME: ln2})
+            self._refresh_home_summary()
+            self._set_status("Profil guncellendi.")
+            dlg.accept()
+
+        btns.accepted.connect(_on_save)
+        btns.rejected.connect(dlg.reject)
+        root.addWidget(edit)
+
+        dlg.exec()
+
+    # ── Profil Drawer ────────────────────────────────────────────────────────
+    def _build_profile_drawer(self, parent: QWidget) -> QFrame:
+        drawer = QFrame(parent)
+        drawer.setObjectName("profile_drawer")
+        drawer.setStyleSheet(
+            f"QFrame#profile_drawer {{ background-color: {_BG_RAISED}; border-left: 1px solid {_BORDER_SUBTLE}; }}"
+        )
+        drawer.setFixedWidth(self._profile_drawer_width)
+
+        root = QVBoxLayout(drawer)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(0)
+
+        header = QHBoxLayout()
+        title = QLabel("Profil")
+        title.setStyleSheet(f"color: {_TEXT}; font-size: 16px; font-weight: 600;")
+        header.addWidget(title)
+        header.addStretch()
+
+        btn_close = QPushButton("Kapat")
+        btn_close.setFixedHeight(28)
+        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_close.setStyleSheet(outline_button_style())
+        btn_close.clicked.connect(self._close_profile_drawer)
+        header.addWidget(btn_close)
+        root.addLayout(header)
+
+        hint = QLabel("Hesap özeti ve iletişim bilgileri.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 12px; margin-top: 6px;")
+        root.addWidget(hint)
+
+        self._profile_load_err = QLabel("")
+        self._profile_load_err.setWordWrap(True)
+        self._profile_load_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+        self._profile_load_err.hide()
+        root.addWidget(self._profile_load_err)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(inner)
+        lay.setContentsMargins(0, 14, 0, 8)
+        lay.setSpacing(14)
+        scroll.setWidget(inner)
+        root.addWidget(scroll, stretch=1)
+
+        def _field_lbl(text: str) -> QLabel:
+            l = QLabel(text)
+            l.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
+            return l
+
+        def _section_lbl(text: str) -> QLabel:
+            l = QLabel(text)
+            l.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 600;")
+            return l
+
+        card_css = (
+            f"QFrame {{ background-color: {_BG_INPUT}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px; }}"
+        )
+
+        # — Hesap kartı
+        account_card = QFrame()
+        account_card.setStyleSheet(card_css)
+        summary_lay = QVBoxLayout(account_card)
+        summary_lay.setContentsMargins(14, 12, 14, 14)
+        summary_lay.setSpacing(12)
+
+        summary_lay.addWidget(_section_lbl("Hesap"))
+
+        head_row = QHBoxLayout()
+        head_row.setSpacing(12)
+        self._profile_avatar_lbl = QLabel("")
+        self._profile_avatar_lbl.setFixedSize(40, 40)
+        self._profile_avatar_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._profile_avatar_lbl.setStyleSheet(
+            f"QLabel {{ background-color: {_BG_RAISED}; color: {_TEXT_SEC}; font-size: 13px; font-weight: 700;"
+            f" border: 1px solid {_BORDER_SUBTLE}; border-radius: 8px; }}"
+        )
+        head_row.addWidget(self._profile_avatar_lbl, alignment=Qt.AlignmentFlag.AlignTop)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        self._profile_view_name = QLabel("")
+        self._profile_view_name.setWordWrap(True)
+        self._profile_view_name.setStyleSheet(f"color: {_TEXT}; font-size: 15px; font-weight: 600;")
+        title_col.addWidget(self._profile_view_name)
+        acc_lbl = QLabel("Kayıtlı kullanıcı")
+        acc_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
+        title_col.addWidget(acc_lbl)
+        head_row.addLayout(title_col, stretch=1)
+        summary_lay.addLayout(head_row)
+
+        sep1 = QFrame()
+        sep1.setFixedHeight(1)
+        sep1.setStyleSheet(f"background-color: {_BORDER_SUBTLE}; border: none;")
+        summary_lay.addWidget(sep1)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(10)
+        grid.setColumnMinimumWidth(0, 100)
+        grid.setColumnStretch(1, 1)
+
+        def _grid_key(t: str) -> QLabel:
+            w = QLabel(t)
+            w.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 12px;")
+            w.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+            return w
+
+        def _grid_val() -> QLabel:
+            w = QLabel("")
+            w.setWordWrap(True)
+            w.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            w.setStyleSheet(f"color: {_TEXT}; font-size: 13px;")
+            return w
+
+        grid.addWidget(_grid_key("E-posta"), 0, 0)
+        self._profile_view_email = _grid_val()
+        grid.addWidget(self._profile_view_email, 0, 1)
+
+        grid.addWidget(_grid_key("Telefon"), 1, 0)
+        self._profile_view_phone = _grid_val()
+        grid.addWidget(self._profile_view_phone, 1, 1)
+
+        summary_lay.addLayout(grid)
+        lay.addWidget(account_card)
+
+        lay.addWidget(_section_lbl("İşlemler"))
+
+        ops_col = QVBoxLayout()
+        ops_col.setSpacing(8)
+        self._profile_action_edit = QPushButton("Bilgileri düzenle…")
+        self._profile_action_edit.setMinimumHeight(38)
+        self._profile_action_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._profile_action_edit.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._profile_action_edit.setStyleSheet(filled_button_style())
+        self._profile_action_edit.clicked.connect(lambda: self._set_profile_panel("edit"))
+        ops_col.addWidget(self._profile_action_edit)
+
+        self._profile_action_pwd = QPushButton("Şifre değiştir…")
+        self._profile_action_pwd.setMinimumHeight(38)
+        self._profile_action_pwd.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._profile_action_pwd.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._profile_action_pwd.setStyleSheet(outline_button_style())
+        self._profile_action_pwd.clicked.connect(lambda: self._set_profile_panel("password"))
+        ops_col.addWidget(self._profile_action_pwd)
+        lay.addLayout(ops_col)
+
+        # — Düzenleme kartı (email/telefon)
+        self._profile_edit_block = QFrame()
+        self._profile_edit_block.setStyleSheet(
+            f"QFrame {{ background-color: {_BG_INPUT}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 4px; }}"
+        )
+        edit_lay = QVBoxLayout(self._profile_edit_block)
+        edit_lay.setContentsMargins(14, 14, 14, 14)
+        edit_lay.setSpacing(8)
+
+        edit_lay.addWidget(_section_lbl("İletişim bilgileri"))
+
+        edit_lay.addWidget(_field_lbl("Ad ve soyad (salt okunur)"))
+        self._profile_readonly_name = QLabel("")
+        self._profile_readonly_name.setWordWrap(True)
+        self._profile_readonly_name.setMinimumHeight(32)
+        self._profile_readonly_name.setStyleSheet(
+            f"color: {_TEXT_SEC}; font-size: 12px; padding: 8px 10px;"
+            f" background-color: {_BG_INPUT}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+        )
+        edit_lay.addWidget(self._profile_readonly_name)
+
+        cap = QLabel("Kayıt sırasında belirlenir; buradan değiştirilemez.")
+        cap.setWordWrap(True)
+        cap.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
+        edit_lay.addWidget(cap)
+
+        self._profile_inp_email = QLineEdit()
+        self._profile_inp_email.setFixedHeight(34)
+        self._profile_inp_email.setStyleSheet(line_edit_style())
+        edit_lay.addWidget(_field_lbl("E-posta"))
+        edit_lay.addWidget(self._profile_inp_email)
+
+        self._profile_inp_phone = QLineEdit()
+        self._profile_inp_phone.setFixedHeight(34)
+        self._profile_inp_phone.setStyleSheet(line_edit_style())
+        edit_lay.addWidget(_field_lbl("Telefon"))
+        edit_lay.addWidget(self._profile_inp_phone)
+
+        self._profile_err = QLabel("")
+        self._profile_err.setWordWrap(True)
+        self._profile_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+        edit_lay.addWidget(self._profile_err)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        self._profile_btn_cancel = QPushButton("Vazgeç")
+        self._profile_btn_cancel.setFixedHeight(36)
+        self._profile_btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._profile_btn_cancel.setStyleSheet(outline_button_style())
+        self._profile_btn_cancel.clicked.connect(self._on_profile_cancel)
+        btn_row.addWidget(self._profile_btn_cancel)
+        self._profile_btn_save = QPushButton("Kaydet")
+        self._profile_btn_save.setFixedHeight(36)
+        self._profile_btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._profile_btn_save.setStyleSheet(filled_button_style())
+        self._profile_btn_save.clicked.connect(self._save_profile_from_drawer)
+        btn_row.addWidget(self._profile_btn_save)
+        edit_lay.addLayout(btn_row)
+
+        lay.addWidget(self._profile_edit_block)
+        self._profile_edit_block.hide()
+
+        # — Şifre kartı (eski/yeni/yeni2)
+        self._profile_pwd_block = QFrame()
+        self._profile_pwd_block.setStyleSheet(
+            f"QFrame {{ background-color: {_BG_INPUT}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 4px; }}"
+        )
+        pw_lay = QVBoxLayout(self._profile_pwd_block)
+        pw_lay.setContentsMargins(14, 14, 14, 14)
+        pw_lay.setSpacing(8)
+        pw_lay.addWidget(_section_lbl("Şifre değiştirme"))
+
+        self._profile_inp_old = QLineEdit()
+        self._profile_inp_old.setFixedHeight(34)
+        self._profile_inp_old.setEchoMode(QLineEdit.EchoMode.Password)
+        self._profile_inp_old.setStyleSheet(line_edit_style())
+        pw_lay.addWidget(_field_lbl("Mevcut şifre"))
+        pw_lay.addWidget(self._profile_inp_old)
+
+        self._profile_inp_pwd1 = QLineEdit()
+        self._profile_inp_pwd1.setFixedHeight(34)
+        self._profile_inp_pwd1.setEchoMode(QLineEdit.EchoMode.Password)
+        self._profile_inp_pwd1.setStyleSheet(line_edit_style())
+        pw_lay.addWidget(_field_lbl("Yeni şifre"))
+        pw_lay.addWidget(self._profile_inp_pwd1)
+
+        self._profile_inp_pwd2 = QLineEdit()
+        self._profile_inp_pwd2.setFixedHeight(34)
+        self._profile_inp_pwd2.setEchoMode(QLineEdit.EchoMode.Password)
+        self._profile_inp_pwd2.setStyleSheet(line_edit_style())
+        pw_lay.addWidget(_field_lbl("Yeni şifre (tekrar)"))
+        pw_lay.addWidget(self._profile_inp_pwd2)
+
+        self._profile_pwd_err = QLabel("")
+        self._profile_pwd_err.setWordWrap(True)
+        self._profile_pwd_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+        pw_lay.addWidget(self._profile_pwd_err)
+
+        pw_btn = QHBoxLayout()
+        pw_btn.setSpacing(8)
+        self._profile_pwd_cancel = QPushButton("Vazgeç")
+        self._profile_pwd_cancel.setFixedHeight(36)
+        self._profile_pwd_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._profile_pwd_cancel.setStyleSheet(outline_button_style())
+        self._profile_pwd_cancel.clicked.connect(self._on_profile_pwd_cancel)
+        pw_btn.addWidget(self._profile_pwd_cancel)
+        self._profile_pwd_save = QPushButton("Kaydet")
+        self._profile_pwd_save.setFixedHeight(36)
+        self._profile_pwd_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._profile_pwd_save.setStyleSheet(filled_button_style())
+        self._profile_pwd_save.clicked.connect(self._save_password_from_drawer)
+        pw_btn.addWidget(self._profile_pwd_save)
+        pw_lay.addLayout(pw_btn)
+
+        lay.addWidget(self._profile_pwd_block)
+        self._profile_pwd_block.hide()
+
+        lay.addStretch()
+        return drawer
+
+    def _open_profile_drawer(self) -> None:
+        if not self._auth_token:
+            self._set_status("Profil icin yeniden giris yapin.", error=True)
+            return
+        self._profile_err.setText("")
+
+        # Sunucudan en güncel profil
+        profile, err = self._backend_api.get_me(self._auth_token, self._ws_client.device_id)
+        self._profile_cache = dict(profile) if profile else {}
+        self._profile_load_err.hide()
+        self._profile_load_err.setText("")
+        if err:
+            self._profile_load_err.setText(err)
+            self._profile_load_err.show()
+        if profile:
+            fn = str(profile.get("first_name") or "").strip()
+            ln = str(profile.get("last_name") or "").strip()
+            em = str(profile.get("email") or self._user_email or "").strip()
+            ph = str(profile.get("phone") or "").strip()
+            full = f"{fn} {ln}".strip() or "—"
+            self._profile_view_name.setText(full)
+            self._profile_view_email.setText(em or "—")
+            self._profile_view_phone.setText(ph or "—")
+            self._profile_readonly_name.setText(full)
+            self._profile_inp_email.setText(em)
+            self._profile_inp_phone.setText(ph)
+            self._profile_avatar_lbl.setText(self._profile_initials(fn, ln, em))
+        else:
+            fn, ln = self._user_first_name, self._user_last_name
+            full = f"{fn} {ln}".strip() or "—"
+            self._profile_view_name.setText(full)
+            self._profile_view_email.setText(self._user_email or "—")
+            self._profile_view_phone.setText("—")
+            self._profile_readonly_name.setText(full)
+            self._profile_inp_email.setText(self._user_email or "")
+            self._profile_inp_phone.setText("")
+            self._profile_avatar_lbl.setText(self._profile_initials(fn, ln, self._user_email))
+
+        self._profile_inp_old.setText("")
+        self._profile_inp_pwd1.setText("")
+        self._profile_inp_pwd2.setText("")
+
+        self._set_profile_drawer_open(True)
+        self._set_profile_panel(None)
+
+    @staticmethod
+    def _profile_initials(first_name: str, last_name: str, email: str) -> str:
+        a = (first_name or "").strip()[:1].upper()
+        b = (last_name or "").strip()[:1].upper()
+        if a and b:
+            return f"{a}{b}"
+        if a:
+            return a
+        em = (email or "").strip()
+        return em[:1].upper() if em else "?"
+
+    def _on_profile_cancel(self) -> None:
+        self._profile_err.setText("")
+        p = self._profile_cache
+        if p:
+            em = str(p.get("email") or "").strip()
+            ph = str(p.get("phone") or "").strip()
+            fn = str(p.get("first_name") or "").strip()
+            ln = str(p.get("last_name") or "").strip()
+        else:
+            em = (self._user_email or "").strip()
+            ph = ""
+            fn = (self._user_first_name or "").strip()
+            ln = (self._user_last_name or "").strip()
+        self._profile_inp_email.setText(em)
+        self._profile_inp_phone.setText(ph)
+        self._profile_readonly_name.setText(f"{fn} {ln}".strip() or "—")
+        self._profile_inp_pwd1.setText("")
+        self._profile_inp_pwd2.setText("")
+        self._set_profile_panel(None)
+
+    def _on_profile_pwd_cancel(self) -> None:
+        self._profile_pwd_err.setText("")
+        self._profile_inp_old.setText("")
+        self._profile_inp_pwd1.setText("")
+        self._profile_inp_pwd2.setText("")
+        self._set_profile_panel(None)
+
+    def _set_profile_panel(self, which: str | None) -> None:
+        # none => sadece özet
+        self._profile_err.setText("")
+        self._profile_pwd_err.setText("")
+        self._profile_edit_block.setVisible(which == "edit")
+        self._profile_pwd_block.setVisible(which == "password")
+        # buton stilleri
+        if which == "edit":
+            self._profile_action_edit.setStyleSheet(filled_button_style())
+            self._profile_action_pwd.setStyleSheet(outline_button_style())
+        elif which == "password":
+            self._profile_action_edit.setStyleSheet(outline_button_style())
+            self._profile_action_pwd.setStyleSheet(filled_button_style())
+        else:
+            self._profile_action_edit.setStyleSheet(filled_button_style())
+            self._profile_action_pwd.setStyleSheet(outline_button_style())
+
+    def _close_profile_drawer(self) -> None:
+        self._set_profile_drawer_open(False)
+
+    def _set_profile_drawer_open(self, open_: bool) -> None:
+        if self._profile_drawer_open == open_:
+            return
+        self._profile_drawer_open = open_
+
+        # Parent alanı kaplaması için: yükseklik tam olsun
+        parent = self.centralWidget()
+        if parent is not None:
+            self._profile_drawer.setFixedHeight(parent.height())
+
+        if open_:
+            self._profile_drawer.show()
+
+        start_x = self.width() if open_ else (self.width() - self._profile_drawer_width)
+        end_x = (self.width() - self._profile_drawer_width) if open_ else self.width()
+        y = 0
+        start_pos = QPoint(start_x, y)
+        end_pos = QPoint(end_x, y)
+        self._profile_drawer.move(start_pos)
+
+        if self._profile_anim is not None:
+            try:
+                self._profile_anim.stop()
+            except Exception:
+                pass
+
+        anim = QPropertyAnimation(self._profile_drawer, b"pos", self)
+        anim.setDuration(220)
+        anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        anim.setStartValue(start_pos)
+        anim.setEndValue(end_pos)
+
+        def _on_finished():
+            if not self._profile_drawer_open:
+                self._profile_drawer.hide()
+
+        anim.finished.connect(_on_finished)
+        self._profile_anim = anim
+        anim.start()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Drawer açıksa sağa yapışık kalsın.
+        if hasattr(self, "_profile_drawer"):
+            if self._profile_drawer_open:
+                self._profile_drawer.setFixedHeight(self.centralWidget().height() if self.centralWidget() else self.height())
+                self._profile_drawer.move(self.width() - self._profile_drawer_width, 0)
+            else:
+                self._profile_drawer.move(self.width(), 0)
+
+    def _save_profile_from_drawer(self) -> None:
+        if not self._auth_token:
+            self._profile_err.setText("Oturum bulunamadi. Tekrar giris yapin.")
+            return
+        em = self._profile_inp_email.text().strip().lower()
+        if not em or "@" not in em or len(em) < 5:
+            self._profile_err.setText("Gecerli bir e-posta girin.")
+            return
+        phone = self._profile_inp_phone.text().strip()
+
+        data, err = self._backend_api.update_profile(
+            self._auth_token,
+            email=em,
+            phone=phone,
+            old_password=None,
+            password=None,
+            password2=None,
+        )
+        if err:
+            self._profile_err.setText(err)
+            return
+        user = (data or {}).get("user") or {}
+        token = str((data or {}).get("token") or "")
+        if token:
+            self._auth_token = token
+            update_prefs(**{Prefs.KEY_AUTH_TOKEN: token})
+        new_email = str(user.get("email") or em).strip().lower()
+        self._user_email = new_email
+        update_prefs(**{Prefs.KEY_USER_EMAIL: new_email})
+        fn = str(user.get("first_name") or "").strip()
+        ln = str(user.get("last_name") or "").strip()
+        if fn or ln:
+            self._user_first_name = fn
+            self._user_last_name = ln
+            update_prefs(**{Prefs.KEY_USER_FIRST_NAME: fn, Prefs.KEY_USER_LAST_NAME: ln})
+        self._profile_cache = dict(user)
+        full = f"{fn} {ln}".strip() or "—"
+        ph_disp = str(user.get("phone") or phone or "").strip()
+        self._profile_view_name.setText(full)
+        self._profile_view_email.setText(new_email or "—")
+        self._profile_view_phone.setText(ph_disp or "—")
+        self._profile_readonly_name.setText(full)
+        self._profile_avatar_lbl.setText(self._profile_initials(fn, ln, new_email))
+        self._set_status("Profil guncellendi.")
+        self._refresh_home_summary()
+        self._close_profile_drawer()
+
+    def _save_password_from_drawer(self) -> None:
+        if not self._auth_token:
+            self._profile_pwd_err.setText("Oturum bulunamadi. Tekrar giris yapin.")
+            return
+        oldp = self._profile_inp_old.text()
+        p1 = self._profile_inp_pwd1.text()
+        p2 = self._profile_inp_pwd2.text()
+        if not oldp:
+            self._profile_pwd_err.setText("Mevcut sifre gerekli.")
+            return
+        if not p1 or not p2:
+            self._profile_pwd_err.setText("Yeni sifre iki kere girilmelidir.")
+            return
+        if p1 != p2:
+            self._profile_pwd_err.setText("Yeni sifreler eslesmiyor.")
+            return
+        if len(p1) < 6:
+            self._profile_pwd_err.setText("Sifre en az 6 karakter olmali.")
+            return
+
+        # mevcut email/phone korunur
+        email = (self._profile_inp_email.text() or "").strip().lower() or (self._user_email or "")
+        phone = (self._profile_inp_phone.text() or "").strip()
+        data, err = self._backend_api.update_profile(
+            self._auth_token,
+            email=email,
+            phone=phone,
+            old_password=oldp,
+            password=p1,
+            password2=p2,
+        )
+        if err:
+            self._profile_pwd_err.setText(err)
+            return
+        token = str((data or {}).get("token") or "")
+        if token:
+            self._auth_token = token
+            update_prefs(**{Prefs.KEY_AUTH_TOKEN: token})
+        self._set_status("Sifre guncellendi.")
+        self._on_profile_pwd_cancel()
 
     # ── Card actions ─────────────────────────────────────────────────────────
     def _on_card_connect(self, card_key: str):
@@ -1449,6 +2189,8 @@ class MainWindow(QMainWindow):
         self._mjpeg.stop()
         self._ws_client.disconnect()
         self._screen.clear_frame()
+        self._phone_accessibility_enabled = None
+        self._remote_frame_visible = False
         self._set_connected(False)
         self._switch_page(0)
         for card in self._device_cards.values():
@@ -1466,6 +2208,8 @@ class MainWindow(QMainWindow):
         self._manual_disconnect = True
         self._ws_client.disconnect(send_logout=True)
         self._screen.clear_frame()
+        self._phone_accessibility_enabled = None
+        self._remote_frame_visible = False
         clear_logged_in()
         clear_paired_phone_id()
 
@@ -1475,7 +2219,7 @@ class MainWindow(QMainWindow):
         new_db = DbClient()
         login = LoginWindow(new_db)
         if login.exec() == QDialog.DialogCode.Accepted:
-            replacement = MainWindow(new_db)
+            replacement = MainWindow(new_db, backend_api=login.shared_backend_api)
             app = QApplication.instance()
             if app is not None:
                 setattr(app, "_rpc_main_window", replacement)
@@ -1529,6 +2273,8 @@ class MainWindow(QMainWindow):
         self._set_connected(False)
         self._switch_page(0)
         self._screen.clear_frame()
+        self._phone_accessibility_enabled = None
+        self._remote_frame_visible = False
         self._presence_timer.stop()
         self._reconnect_timer.stop()
         for card in self._device_cards.values():
@@ -1545,6 +2291,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
+        self._remote_frame_visible = False
         self._reconnect_timer.stop()
         paired_phone_id = load_paired_phone_id()
         paired_phone_address = load_paired_phone_address()
@@ -1586,22 +2333,23 @@ class MainWindow(QMainWindow):
                 return
             except Exception:
                 logger.exception("MJPEG akisi baslatilamadi")
-        self._set_status(Ui.MSG_PAIRED_WS)
+        QTimer.singleShot(700, self._request_phone_screen_capture)
+        self._refresh_paired_stream_status()
 
-    @pyqtSlot(list, list)
-    def _on_paired_devices_status(self, paired_devices: list, online_devices: list):
-        online_set = {d for x in (online_devices or []) if (d := _address_digits(str(x)))}
-        incoming_paired = {d for x in (paired_devices or []) if (d := _address_digits(str(x)))}
+    @pyqtSlot(list, list, object)
+    def _on_paired_devices_status(self, paired_devices: list, online_devices: list, phone_a11y: object):
+        online_ids = _ws_device_id_set(online_devices)
+        incoming_paired_ids = _ws_device_id_set(paired_devices)
 
         if self._auth_token:
-            current_keys = {_address_digits(k) for k in self._device_cards.keys() if _address_digits(k)}
-            if incoming_paired != current_keys or not self._device_cards:
+            current_ids = {str(k).strip() for k in self._device_cards.keys() if str(k).strip()}
+            if incoming_paired_ids != current_ids or not self._device_cards:
                 devices = self._load_paired_devices()
                 self._populate_device_cards(devices)
             self._online_paired_devices.clear()
             for key, card in self._device_cards.items():
-                ck = _address_digits(key)
-                on = bool(ck) and ck in online_set
+                ck = str(key).strip()
+                on = bool(ck) and ck in online_ids
                 card.set_online(on)
                 if on:
                     self._online_paired_devices.add(key)
@@ -1611,15 +2359,15 @@ class MainWindow(QMainWindow):
                 f"{online_count} aktif / {len(self._device_cards)} cihaz" if self._device_cards else ""
             )
         else:
-            current_ids = {_address_digits(k) for k in self._device_cards.keys() if _address_digits(k)}
-            if incoming_paired != current_ids:
+            current_ids = {str(k).strip() for k in self._device_cards.keys() if str(k).strip()}
+            if incoming_paired_ids != current_ids:
                 devices = self._load_paired_devices()
                 self._populate_device_cards(devices)
 
             self._online_paired_devices.clear()
             for ck_raw, card in self._device_cards.items():
-                ck = _address_digits(ck_raw)
-                on = bool(ck) and ck in online_set
+                ck = str(ck_raw).strip()
+                on = bool(ck) and ck in online_ids
                 card.set_online(on)
                 if on:
                     self._online_paired_devices.add(ck_raw)
@@ -1635,13 +2383,19 @@ class MainWindow(QMainWindow):
                 self._set_status(f"Sunucuya baglandi  —  {online_count} cihaz cevrimici")
             else:
                 self._set_status(Ui.MSG_SERVER_CONNECTED)
+        if phone_a11y is not WsClient.PHONE_A11Y_UNCHANGED:
+            self._phone_accessibility_enabled = None if phone_a11y is None else bool(phone_a11y)
         self._refresh_home_summary()
+        if self._connected:
+            self._refresh_paired_stream_status()
 
     @pyqtSlot()
     def _on_peer_disconnected(self):
         self._ws_mode = "presence"
         self._mjpeg.stop()
         self._screen.clear_frame()
+        self._phone_accessibility_enabled = None
+        self._remote_frame_visible = False
         self._set_connected(False)
         self._switch_page(0)
         if self._auth_token:
@@ -1664,8 +2418,19 @@ class MainWindow(QMainWindow):
             banner_body = text or "Telefonda Erisilebilirlik servisini acmadan baglanti baslatilamaz."
 
             def _apply_banner() -> None:
-                self._show_warning_banner(banner_title, banner_body)
+                # Oturumu duzgun sekilde kapat, anasayfaya don
+                self._mjpeg.stop()
+                self._screen.clear_frame()
+                self._phone_accessibility_enabled = False
+                self._remote_frame_visible = False
+                self._set_connected(False)
                 self._switch_page(0)
+                self._show_warning_banner(banner_title, banner_body)
+                self._refresh_home_summary()
+                # Presence moduna gec (cihaz listesi canli kalsin)
+                if self._ws_mode == "session":
+                    self._ws_mode = "presence"
+                    QTimer.singleShot(300, lambda: self._connect_presence_channel("Cihaz durumu izleniyor..."))
 
             QTimer.singleShot(0, _apply_banner)
         self._set_status(f"Hata: {msg}", error=True)
@@ -1692,19 +2457,30 @@ class MainWindow(QMainWindow):
         if not self._connected:
             self._set_connected(True)
             self._switch_page(1)
-            self._set_status(Ui.MSG_PAIRED_WS)
-            
+        self._remote_frame_visible = True
         self._screen.set_frame(pixmap)
+        self._refresh_paired_stream_status()
+
+    @pyqtSlot(QPixmap)
+    def _on_mjpeg_frame(self, pm: QPixmap):
+        if pm.isNull():
+            return
+        self._remote_frame_visible = True
+        self._screen.set_frame(pm)
+        if self._connected:
+            self._refresh_paired_stream_status()
 
     @pyqtSlot(str)
     def _on_mjpeg_error(self, _: str):
+        self._remote_frame_visible = False
         if self._connected:
-            self._set_status(Ui.MSG_PAIRED_WS)
+            self._refresh_paired_stream_status()
 
     @pyqtSlot()
     def _on_stream_stopped(self):
         if self._connected:
-            self._set_status(Ui.MSG_PAIRED_WS)
+            self._remote_frame_visible = False
+            self._refresh_paired_stream_status()
         else:
             self._screen.clear_frame()
 
@@ -1732,6 +2508,22 @@ class MainWindow(QMainWindow):
         self._lbl_coords.setText(f"({x1:.2f},{y1:.2f}) → ({x2:.2f},{y2:.2f})")
 
     # ── State helpers ────────────────────────────────────────────────────────
+    def _request_phone_screen_capture(self) -> None:
+        if not self._connected:
+            return
+        self._ws_client.send_screen_capture_on()
+
+    def _refresh_paired_stream_status(self) -> None:
+        if not self._connected:
+            return
+        if self._phone_accessibility_enabled is False:
+            self._set_status(Ui.MSG_PAIRED_A11Y_OFF)
+            return
+        if self._remote_frame_visible:
+            self._set_status(Ui.MSG_PAIRED_WS)
+            return
+        self._set_status(Ui.MSG_PAIRED_WAIT_STREAM)
+
     def _set_connected(self, connected: bool):
         self._connected = connected
         self._btn_connect.setEnabled(not connected)

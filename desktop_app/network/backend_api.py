@@ -1,8 +1,3 @@
-"""
-Signaling sunucusu REST API (HTTPS).
-WebSocket URL'den HTTPS tabanı türetilir.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -10,13 +5,13 @@ import time
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectTimeout, ReadTimeout, RequestException
 
 from desktop_app.config import ServerDefaults
 
 logger = logging.getLogger(__name__)
 
-# Render (ve benzeri) soğuk başlatma ilk HTTPS isteğinde 30–90+ sn sürebilir.
 _TIMEOUT_CONNECT = 25
 _TIMEOUT_READ = 90
 _TIMEOUT_READ_AUTH = 180
@@ -34,18 +29,24 @@ def _http_base(ws_url: str) -> str:
 class BackendApi:
     def __init__(self, base_ws_url: str | None = None) -> None:
         self._base = _http_base(base_ws_url or ServerDefaults.DEFAULT_URL)
+        self._session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=4, pool_maxsize=10, max_retries=0)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
+
+    def close(self) -> None:
+        self._session.close()
 
     @staticmethod
     def _timeout_tuple(*, auth: bool = False) -> tuple[float, float]:
         return (_TIMEOUT_CONNECT, _TIMEOUT_READ_AUTH if auth else _TIMEOUT_READ)
 
     def _post_json_with_cold_start_retry(self, url: str, body: dict[str, Any]) -> requests.Response:
-        """İlk istek zaman aşımına düşerse bir kez daha dene (PaaS cold start)."""
         timeout = self._timeout_tuple(auth=True)
         last: Exception | None = None
         for attempt in range(2):
             try:
-                return requests.post(url, json=body, timeout=timeout)
+                return self._session.post(url, json=body, timeout=timeout)
             except (ReadTimeout, ConnectTimeout) as e:
                 last = e
                 if attempt == 0:
@@ -144,7 +145,7 @@ class BackendApi:
         url = f"{self._base}/auth/me"
         params = {"device_id": device_id} if device_id else None
         try:
-            r = requests.get(
+            r = self._session.get(
                 url,
                 headers=self._headers(token),
                 params=params,
@@ -158,10 +159,67 @@ class BackendApi:
             logger.warning("get_me: %s", e)
             return None, str(e)
 
+    def get_phone_device_bundle(
+        self, token: str, pc_device_id: str
+    ) -> tuple[dict[str, Any] | None, str]:
+        """Tek HTTP: devices + recent telefonlar + pairings (masaustu)."""
+        url = f"{self._base}/devices/phone-bundle"
+        try:
+            r = self._session.get(
+                url,
+                headers=self._headers(token),
+                params={"device_id": pc_device_id},
+                timeout=self._timeout_tuple(),
+            )
+            if r.status_code == 404:
+                return None, "bundle_missing"
+            data = r.json() if r.text else {}
+            if r.status_code >= 400 or not data.get("ok"):
+                return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
+            return data, ""
+        except (ReadTimeout, ConnectTimeout, RequestException) as e:
+            logger.warning("get_phone_device_bundle: %s", e)
+            return None, str(e)
+
+    def update_profile(
+        self,
+        token: str,
+        *,
+        email: str | None = None,
+        phone: str | None = None,
+        old_password: str | None = None,
+        password: str | None = None,
+        password2: str | None = None,
+    ) -> tuple[dict[str, Any] | None, str]:
+        url = f"{self._base}/auth/profile"
+        body: dict[str, Any] = {}
+        if email is not None:
+            body["email"] = (email or "").strip().lower()
+        if phone is not None:
+            body["phone"] = (phone or "").strip()
+        if password is not None or password2 is not None:
+            body["old_password"] = old_password or ""
+            body["password"] = password or ""
+            body["password2"] = password2 or ""
+        try:
+            r = self._session.post(
+                url,
+                headers=self._headers(token),
+                json=body,
+                timeout=self._timeout_tuple(),
+            )
+            data = r.json() if r.text else {}
+            if r.status_code >= 400 or not data.get("ok"):
+                return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
+            return data, ""
+        except (ReadTimeout, ConnectTimeout, RequestException) as e:
+            logger.warning("update_profile: %s", e)
+            return None, str(e)
+
     def get_devices(self, token: str) -> tuple[list[dict[str, Any]] | None, str]:
         url = f"{self._base}/devices"
         try:
-            r = requests.get(url, headers=self._headers(token), timeout=self._timeout_tuple())
+            r = self._session.get(url, headers=self._headers(token), timeout=self._timeout_tuple())
             data = r.json() if r.text else {}
             if r.status_code >= 400 or not data.get("ok"):
                 return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
@@ -173,7 +231,7 @@ class BackendApi:
     def get_recent_devices(self, token: str, device_type: str) -> tuple[list[dict[str, Any]] | None, str]:
         url = f"{self._base}/recent-devices"
         try:
-            r = requests.get(
+            r = self._session.get(
                 url,
                 headers=self._headers(token),
                 params={"device_type": device_type},
@@ -190,7 +248,7 @@ class BackendApi:
     def get_pairings(self, token: str, device_id: str) -> tuple[list[dict[str, Any]] | None, str]:
         url = f"{self._base}/pairings"
         try:
-            r = requests.get(
+            r = self._session.get(
                 url,
                 headers=self._headers(token),
                 params={"device_id": device_id},
@@ -215,7 +273,7 @@ class BackendApi:
         url = f"{self._base}/pairings/delete"
         body = {"device_id": device_id, "partner_device_id": partner_device_id}
         try:
-            r = requests.post(
+            r = self._session.post(
                 url,
                 headers=self._headers(token),
                 json=body,

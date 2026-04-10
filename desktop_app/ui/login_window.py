@@ -79,6 +79,11 @@ class LoginWindow(QDialog):
         self._pending_close = False
         self._build_ui()
 
+    @property
+    def shared_backend_api(self) -> BackendApi:
+        """Giris sonrasi MainWindow ile ayni requests.Session (TCP yeniden kullanimi)."""
+        return self._backend_api
+
     # ──────── UI ──────────────────────────────────────────────────────────────
 
     def _build_ui(self):
@@ -445,11 +450,15 @@ class LoginWindow(QDialog):
             }
         username = str(user.get("username") or email)
         address = str(user.get("address") or "")
+        first_name = str(user.get("first_name") or "").strip()
+        last_name = str(user.get("last_name") or "").strip()
         return {
             "auth_result": (int(uid), username),
             "auth_error": "",
             "token": token,
             "address": address,
+            "first_name": first_name,
+            "last_name": last_name,
         }
 
     def _register_via_api(
@@ -528,9 +537,11 @@ class LoginWindow(QDialog):
         save_remembered_login_email(em)
         token = result.get("token", "")
         address = result.get("address", "")
+        first_name = str(result.get("first_name") or "").strip()
+        last_name = str(result.get("last_name") or "").strip()
         if token:
             save_auth_token(token)
-        self._save_session(user_id, username, address, em)
+        self._save_session(user_id, username, address, em, first_name, last_name)
         self.accept()
 
     def _on_register(self):
@@ -577,5 +588,13 @@ class LoginWindow(QDialog):
         else:
             self._lbl_reg_err.setText(msg)
 
-    def _save_session(self, user_id: int, username: str, address: str = "", login_email: str = ""):
-        save_session(user_id, username, address, login_email)
+    def _save_session(
+        self,
+        user_id: int,
+        username: str,
+        address: str = "",
+        login_email: str = "",
+        first_name: str = "",
+        last_name: str = "",
+    ):
+        save_session(user_id, username, address, login_email, first_name, last_name)

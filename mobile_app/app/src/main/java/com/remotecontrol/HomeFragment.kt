@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.remotecontrol.databinding.FragmentHomeBinding
 
@@ -22,14 +23,8 @@ class HomeFragment : Fragment(), DashboardFragment {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        binding.btnConnect.setOnClickListener {
-            (activity as? MainActivity)?.reconnect()
-        }
-        binding.btnStartStream.setOnClickListener {
-            (activity as? MainActivity)?.startScreenShareFromUser()
-        }
-        binding.btnStopStream.setOnClickListener {
-            (activity as? MainActivity)?.stopStreamsFromUi()
+        binding.btnHomeAccessibility.setOnClickListener {
+            (activity as? MainActivity)?.openAccessibilitySettingsScreen()
         }
         refreshContent()
     }
@@ -41,15 +36,18 @@ class HomeFragment : Fragment(), DashboardFragment {
 
     override fun refreshContent() {
         val host = activity as? MainActivity ?: return
-        binding.tvUser.text = host.usernameText()
+        binding.tvUser.text = host.fullNameText()
         binding.tvCode.text = host.currentCodeText()
-        binding.tvStatus.text = host.statusText()
-        binding.tvStatusDetail.text = host.statusDetailText()
-        binding.btnConnect.isEnabled = host.canReconnect()
-        val showStart = host.canStartScreenShare()
-        binding.btnStartStream.visibility = if (showStart) View.VISIBLE else View.GONE
-        binding.btnStartStream.isEnabled = showStart
-        binding.btnStopStream.isEnabled = host.canStopStream()
+        binding.tvHomeAccessibility.text = host.accessibilitySummaryText()
+        val a11yOn = host.isAccessibilityServiceEnabledForUi()
+        val ctx = requireContext()
+        binding.layoutHomeAccessibilityCard.setBackgroundResource(
+            if (a11yOn) R.drawable.home_accessibility_success_bg else R.drawable.card_warning_bg,
+        )
+        binding.tvHomeAccessibility.setTextColor(
+            ContextCompat.getColor(ctx, if (a11yOn) R.color.success else R.color.warning),
+        )
+        binding.btnHomeAccessibility.visibility = if (a11yOn) View.GONE else View.VISIBLE
     }
 
     override fun onDestroyView() {

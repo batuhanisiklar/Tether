@@ -11,10 +11,9 @@ import java.util.concurrent.TimeUnit
 /**
  * Signaling sunucusuyla WebSocket üzerinden haberleşir.
  *
- * Kalici kimlik + manuel oturum akisi:
+ * Kalici kimlik:
  *  - device_hello: cihaz cevrimici ve presence takibi
- *  - register(code=deviceAddress): diger cihazlar bu adrese join olur
- *  - join(code=partnerAddress): manuel baglanti baslatir
+ *  - register(code=deviceAddress): telefon bu adreste bekler; eslestirmeyi bilgisayar join ile baslatir
  */
 class SignalingClient(
     private val serverUrl: String,
@@ -24,7 +23,10 @@ class SignalingClient(
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>, partnerOnline: Boolean) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
-    private val onDisconnected: () -> Unit,
+    /** PC oturumu kapandi; WebSocket acik kalir (yeniden baglanti telefondan yapilmaz). */
+    private val onPeerSessionEnded: () -> Unit,
+    /** Soket hatasi / sunucu kapandi — otomatik transport yenilemesi. */
+    private val onTransportDisconnected: () -> Unit,
 ) {
     companion object {
         private const val TAG = "SignalingClient"
@@ -52,15 +54,13 @@ class SignalingClient(
 
     val sessionCode: String = generateCode()
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var ws: WebSocket? = null
     private var disconnectNotified = false
     private var manualClose = false
-    private var pendingJoinCode: String? = null
     private var lastNullWsLogMs: Long = 0L
-
-    /** Cok buyuk JSON base64 cerceveleri proxy/WebSocket limitinde dusebilir; binary genelde sorunsuz. */
+    private var consecutiveDrops: Int = 0
     private val maxJsonFrameBytes = 70_000
 
     /** Erisilebilirlik acildiktan sonra (ayarlardan donus vb.) sunucudaki bayragi gunceller. */
@@ -79,10 +79,30 @@ class SignalingClient(
         }
     }
 
+    /** Erisilebilirlik kapali — eslesen PC'ye hata mesaji gonder (command relay uzerinden). */
+    fun sendAccessibilityError() {
+        val socket = ws ?: return
+        try {
+            socket.send(
+                JSONObject().apply {
+                    put("type", "command")
+                    put("action", "accessibility_error")
+                    put("code", "accessibility_required")
+                    put("message", "Telefonda Erisilebilirlik servisi kapali. Ayarlardan acin ve tekrar deneyin.")
+                }.toString(),
+            )
+        } catch (_: Exception) {
+        }
+    }
+
     fun connect() {
         disconnectNotified = false
         manualClose = false
         instance = this
+        // scope cancel edilmisse yenile
+        if (!scope.isActive) {
+            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        }
         val request = Request.Builder().url(serverUrl).build()
         ws = sharedHttpClient.newWebSocket(request, object : WebSocketListener() {
 
@@ -100,6 +120,7 @@ class SignalingClient(
                 webSocket.send(helloMsg.toString())
 
                 val registerCode = deviceAddress.filter(Char::isDigit).take(12).ifBlank { sessionCode }
+                Log.i(TAG, "Registering with code=$registerCode (deviceAddress-based)")
                 val registerMsg = JSONObject().apply {
                     put("type", "register")
                     put("code", registerCode)
@@ -108,18 +129,6 @@ class SignalingClient(
                     put("accessibility_enabled", isAccessibilityEnabled())
                 }
                 webSocket.send(registerMsg.toString())
-                pendingJoinCode?.let { joinCode ->
-                    val joinMsg = JSONObject().apply {
-                        put("type", "join")
-                        put("code", joinCode)
-                        put("role", "phone")
-                        put("device_id", deviceId)
-                        put("accessibility_enabled", isAccessibilityEnabled())
-                    }
-                    webSocket.send(joinMsg.toString())
-                    Log.i(TAG, "Sent deferred join for address=$joinCode")
-                    pendingJoinCode = null
-                }
 
                 if (!scope.isActive) return
 
@@ -147,7 +156,10 @@ class SignalingClient(
                 try {
                     val json = JSONObject(text)
                     when (json.getString("type")) {
-                        "registered" -> Log.i(TAG, "Registered with code=$sessionCode")
+                        "registered" -> {
+                            val regCode = json.optString("code", sessionCode)
+                            Log.i(TAG, "Registered with code=$regCode")
+                        }
 
                         "device_ack" -> {
                             val pairedWith = json.optString("paired_with", "")
@@ -191,8 +203,8 @@ class SignalingClient(
                         }
 
                         "peer_disconnected" -> {
-                            Log.i(TAG, "PC disconnected")
-                            notifyDisconnectedOnce()
+                            Log.i(TAG, "PC oturumu kapandi (signaling acik)")
+                            onPeerSessionEnded()
                         }
 
                         "error" -> Log.e(TAG, "Server error: ${json.optString("message")}")
@@ -210,7 +222,7 @@ class SignalingClient(
                 ws = null
                 if (instance === this@SignalingClient) instance = null
                 Log.e(TAG, "WS failure: $t")
-                notifyDisconnectedOnce()
+                notifyTransportDisconnectedOnce()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -219,7 +231,7 @@ class SignalingClient(
                 ws = null
                 if (instance === this@SignalingClient) instance = null
                 Log.i(TAG, "WS closed: $code $reason")
-                notifyDisconnectedOnce()
+                notifyTransportDisconnectedOnce()
             }
         })
     }
@@ -236,27 +248,6 @@ class SignalingClient(
         }
         ws?.send(msg.toString())
         Log.i(TAG, "Sent pair_confirm: $deviceId <-> $pcDeviceId")
-    }
-
-    fun joinByAddress(rawAddress: String) {
-        val joinCode = rawAddress.filter(Char::isDigit).take(12)
-        if (joinCode.length != 12) return
-        pendingJoinCode = joinCode
-        val msg = JSONObject().apply {
-            put("type", "join")
-            put("code", joinCode)
-            put("role", "phone")
-            put("device_id", deviceId)
-            put("accessibility_enabled", isAccessibilityEnabled())
-        }
-        val socket = ws
-        if (socket != null) {
-            socket.send(msg.toString())
-            Log.i(TAG, "Sent join for address=$joinCode")
-            pendingJoinCode = null
-        } else {
-            Log.i(TAG, "Join queued until websocket open: $joinCode")
-        }
     }
 
     /**
@@ -276,11 +267,13 @@ class SignalingClient(
         try {
             val queuedBytes = currentWs.queueSize()
             if (queuedBytes > MAX_PENDING_FRAME_BYTES) {
-                if (Log.isLoggable(TAG, Log.DEBUG)) {
-                    Log.d(TAG, "Frame atlandi: websocket kuyrugu dolu ($queuedBytes bytes)")
+                consecutiveDrops++
+                if (consecutiveDrops == 1 || consecutiveDrops % 50 == 0) {
+                    Log.w(TAG, "Frame atlandi: websocket kuyrugu dolu ($queuedBytes bytes, art arda $consecutiveDrops drop)")
                 }
                 return
             }
+            consecutiveDrops = 0
 
             var sent = currentWs.send(jpeg.toByteString())
             if (!sent && jpeg.size <= maxJsonFrameBytes) {
@@ -337,10 +330,10 @@ class SignalingClient(
         scope.cancel()
     }
 
-    private fun notifyDisconnectedOnce() {
+    private fun notifyTransportDisconnectedOnce() {
         if (manualClose) return
         if (disconnectNotified) return
         disconnectNotified = true
-        onDisconnected()
+        onTransportDisconnected()
     }
 }

@@ -28,6 +28,11 @@ class DevicesFragment : Fragment(), DashboardFragment {
         return binding.root
     }
 
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        refreshContent()
+    }
+
     override fun onResume() {
         super.onResume()
         refreshContent()
@@ -118,26 +123,15 @@ class DevicesFragment : Fragment(), DashboardFragment {
             }
         }
 
-        if (device.online) {
-            val connectButton = AppCompatButton(
-                ContextThemeWrapper(requireContext(), R.style.WidgetRemoteControlPrimaryButton),
-                null, 0,
-            ).apply {
-                text = getString(R.string.connect_device)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                setOnClickListener { host.connectToPairedDevice(device.deviceId, device.address) }
-            }
-            actions.addView(connectButton)
-        }
-
         val forgetButton = AppCompatButton(
             ContextThemeWrapper(requireContext(), R.style.WidgetRemoteControlSecondaryButton),
             null, 0,
         ).apply {
             text = getString(R.string.remove_device)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                if (device.online) marginStart = dp(8)
-            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
             setOnClickListener {
                 AlertDialog.Builder(requireContext())
                     .setMessage(getString(R.string.forget_pairing_confirm))

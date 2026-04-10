@@ -1,4 +1,3 @@
-# ws_client.py
 from __future__ import annotations
 
 import json
@@ -18,16 +17,19 @@ from desktop_app.config.prefs_store import (
 
 logger = logging.getLogger(__name__)
 
+
 class WsClient(QObject):
+    """Eski sunucu device_ack'ta phone_accessibility_enabled yoksa emit'te bu sentinel kullanilir."""
+    PHONE_A11Y_UNCHANGED = object()
+
     connected = pyqtSignal()
     disconnected = pyqtSignal(str)
     paired = pyqtSignal(str)
     peer_disconnected = pyqtSignal()
     command_received = pyqtSignal(dict)
     error_occurred = pyqtSignal(str, str)
-    # Ham JPEG — QPixmap/QImage sadece ana is parcaciginda olusturulmali (Qt kurali).
     frame_received = pyqtSignal(bytes)
-    paired_devices_status = pyqtSignal(list, list)
+    paired_devices_status = pyqtSignal(list, list, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,7 +42,6 @@ class WsClient(QObject):
 
     @property
     def join_session_code(self) -> str:
-        """Son connect_to_server ile kullanilan 12 haneli oda kodu (yeniden baglanti icin)."""
         return self._session_code
 
     def connect_to_server(self, url: str, code: str) -> None:
@@ -101,6 +102,10 @@ class WsClient(QObject):
     def send_camera_off(self) -> None:
         self.send_command({"action": "camera_off"})
 
+    def send_screen_capture_on(self) -> None:
+        """Telefonda ekran paylasim iznini baslatir (eslesme sonrasi)."""
+        self.send_command({"action": "screen_capture_on"})
+
     def send_key_event(self, key_code: int) -> None:
         self.send_command({"action": "key_event", "key_code": key_code})
 
@@ -117,7 +122,7 @@ class WsClient(QObject):
         self._ws = websocket.WebSocketApp(
             url,
             on_open=on_open,
-            on_message=self._on_message,  # <-- on_data TAMAMEN SİLİNDİ, HER ŞEY BURADAN GEÇECEK
+            on_message=self._on_message,
             on_error=self._on_error,
             on_close=self._on_close,
         )
@@ -125,8 +130,8 @@ class WsClient(QObject):
             target=self._ws.run_forever,
             kwargs={
                 "skip_utf8_validation": True,
-                "ping_interval": 45,
-                "ping_timeout": 30,
+                "ping_interval": 20,
+                "ping_timeout": 15,
             },
             daemon=True,
         )
@@ -174,7 +179,7 @@ class WsClient(QObject):
         ws.send(_s({"type": "device_hello", "device_id": self.device_id, "role": "pc"}))
         address = getattr(self, "_device_address", None) or self.device_id
         ws.send(_s({
-            "type": "register",
+            "type": "join",
             "code": address,
             "role": "pc",
             "device_id": self.device_id,
@@ -184,18 +189,13 @@ class WsClient(QObject):
         if ws is not self._ws:
             return
 
-        # 1. BİLGİ: EKRAN GÖRÜNTÜSÜ / JSON AYRIMI
-        # 'skip_utf8_validation=True' nedeniyle JSON metinleri de byte olarak gelebiliyor.
         if isinstance(raw, (bytes, bytearray)):
-            # Eğer gelen veri JSON formatındaysa (süslü parantez ile başlıyorsa) metne çevir
             if raw.startswith(b"{"):
                 raw = raw.decode("utf-8", errors="ignore")
             else:
-                # Süslü parantez ile BAŞLAMIYORSA, bu Android'den gelen Binary(Resim) verisidir!
                 self._handle_frame_bytes(bytes(raw))
                 return
 
-        # 2. BİLGİ: JSON MESAJ YAKALAYICI (Artık raw değişkeni bir string)
         try:
             msg = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -215,7 +215,12 @@ class WsClient(QObject):
         elif msg_type == "device_ack":
             paired_devices = msg.get("paired_devices", []) or []
             online_paired_devices = msg.get("online_paired_devices", []) or []
-            self.paired_devices_status.emit(paired_devices, online_paired_devices)
+            if "phone_accessibility_enabled" in msg:
+                raw_a11y = msg.get("phone_accessibility_enabled")
+                phone_a11y = None if raw_a11y is None else bool(raw_a11y)
+            else:
+                phone_a11y = WsClient.PHONE_A11Y_UNCHANGED
+            self.paired_devices_status.emit(paired_devices, online_paired_devices, phone_a11y)
 
         elif msg_type == "stream_info":
             url = msg.get("url", "")
@@ -237,11 +242,20 @@ class WsClient(QObject):
             self.peer_disconnected.emit()
 
         elif msg_type == "command":
-            self.command_received.emit(msg)
+            action = str(msg.get("action") or "").strip()
+            if action == "accessibility_error":
+                code = str(msg.get("code") or "accessibility_required").strip()
+                text = msg.get("message", "Telefonda Erisilebilirlik servisi kapali.")
+                logger.warning("Telefon erisilebilirlik hatasi: %s", text)
+                self.error_occurred.emit(text, code)
+            else:
+                self.command_received.emit(msg)
 
         elif msg_type == "error":
             code = str(msg.get("code") or "").strip()
-            self.error_occurred.emit(msg.get("message", "Bilinmeyen hata"), code)
+            text = msg.get("message", "Bilinmeyen hata")
+            logger.warning("Sunucu WS hata mesaji: %s (code=%s)", text, code or "-")
+            self.error_occurred.emit(text, code)
 
     def _on_error(self, ws, error) -> None:
         if ws is not self._ws:
@@ -267,9 +281,6 @@ class WsClient(QObject):
     def _handle_frame_bytes(self, frame_bytes: bytes) -> None:
         if not frame_bytes:
             return
-            
-        logger.info(f"MÜKEMMEL! Android'den {len(frame_bytes)} byte görüntü verisi masaüstüne ulaştı!")
-        
         try:
             self.frame_received.emit(bytes(frame_bytes))
         except Exception as e:

@@ -38,6 +38,8 @@ class Prefs:
     KEY_REMEMBERED_USERNAME: str = "remembered_username"  # geriye uyumluluk (eski tercih)
     KEY_REMEMBERED_EMAIL: str = "remembered_email"
     KEY_USER_EMAIL: str = "user_email"  # oturum acikken baslikta gosterilen e-posta
+    KEY_USER_FIRST_NAME: str = "user_first_name"
+    KEY_USER_LAST_NAME: str = "user_last_name"
     KEY_DEVICE_ID: str     = "device_id"
     KEY_PAIRED_PHONE: str  = "paired_phone_id"
     KEY_PAIRED_PHONE_ADDRESS: str = "paired_phone_address"
@@ -217,6 +219,8 @@ class Ui:
     MSG_CONNECTING:            str = "Sunucuya bağlanıyor..."
     MSG_SERVER_CONNECTED:      str = "Sunucuya bağlandı  —  Telefon bekleniyor..."
     MSG_PAIRED_WS:             str = "Bağlandı  —  Ekran görüntüsü aktarılıyor"
+    MSG_PAIRED_WAIT_STREAM:    str = "Bağlandı  —  Yayın bekleniyor"
+    MSG_PAIRED_A11Y_OFF:       str = "Bağlandı  —  Telefonda erişilebilirlik kapalı; ekran paylaşımı için açın"
     MSG_DISCONNECT_TIMEOUT:    str = "Bağlantı kesildi  —  Sunucu yanıt vermiyor."
     MSG_PEER_DISCONNECTED:     str = "Telefon bağlantısı kesildi."
     MSG_STREAM_STOPPED:        str = "Akış durdu."

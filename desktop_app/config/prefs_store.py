@@ -90,6 +90,8 @@ def save_session(
     username: str,
     user_address: str = "",
     login_email: str = "",
+    first_name: str = "",
+    last_name: str = "",
 ) -> None:
     digits = "".join(ch for ch in user_address if ch.isdigit())[:12]
     em = (login_email or "").strip().lower()
@@ -101,6 +103,8 @@ def save_session(
             Prefs.KEY_USER_ADDRESS: digits,
             Prefs.KEY_DEVICE_ID: digits,
             **({Prefs.KEY_USER_EMAIL: em} if em else {}),
+            Prefs.KEY_USER_FIRST_NAME: (first_name or "").strip(),
+            Prefs.KEY_USER_LAST_NAME: (last_name or "").strip(),
         }
     )
 

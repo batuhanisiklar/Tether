@@ -19,12 +19,10 @@ def main():
     app.setApplicationName(AppMeta.NAME)
     app.setApplicationVersion(AppMeta.VERSION)
 
-    # DB bağlantısı ve schema init
     db = DbClient()
     if not db.init_schema():
-        # DB başarısız olsa da devam et (offline mod)
         import logging
-        logging.getLogger(__name__).warning("DB schema init başarısız — offline modda devam ediliyor")
+        logging.getLogger(__name__).warning("DB schema init başarısız")
 
     from desktop_app.ui.login_window import LoginWindow
     login = LoginWindow(db)
@@ -33,7 +31,7 @@ def main():
         sys.exit(0)
 
     from desktop_app.ui.app_window import MainWindow
-    window = MainWindow(db)
+    window = MainWindow(db, backend_api=login.shared_backend_api)
     window.show()
     sys.exit(app.exec())
 

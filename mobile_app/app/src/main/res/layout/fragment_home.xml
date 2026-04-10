@@ -2,168 +2,281 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
     android:background="@color/bg_app"
-    android:paddingHorizontal="18dp"
-    android:paddingTop="18dp"
-    android:paddingBottom="24dp">
+    android:fillViewport="true"
+    android:paddingHorizontal="20dp"
+    android:paddingTop="20dp"
+    android:paddingBottom="28dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- Kullanici Bilgisi -->
+        <!-- Baslik + sabit adres -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/card_soft_bg"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:padding="18dp"
-            android:layout_marginBottom="14dp">
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/home_hero_bg"
+            android:orientation="vertical"
+            android:padding="20dp">
 
-            <View
-                android:layout_width="10dp"
-                android:layout_height="10dp"
-                android:background="@color/success" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.04"
+                android:text="@string/home_greeting_label"
+                android:textAllCaps="true"
+                android:textColor="@color/text_tertiary"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_user"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/home_hero_tagline"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                android:lineSpacingMultiplier="1.2" />
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
+                android:layout_marginTop="20dp"
+                android:background="@drawable/home_code_inner_bg"
+                android:gravity="center_horizontal"
                 android:orientation="vertical"
-                android:layout_marginStart="12dp">
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="20dp">
 
                 <TextView
                     style="@style/TextRemoteControlSectionLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/home_account_title"
-                    android:layout_marginBottom="4dp" />
+                    android:text="@string/connection_code_title"
+                    android:textColor="@color/primary"
+                    android:layout_marginBottom="10dp" />
 
                 <TextView
-                    android:id="@+id/tv_user"
+                    android:id="@+id/tv_code"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/text_primary"
-                    android:textSize="17sp"
+                    android:ellipsize="none"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.06"
+                    android:maxLines="1"
+                    android:scrollHorizontally="false"
+                    android:singleLine="true"
+                    android:text="@string/connection_code_placeholder"
+                    android:textColor="@color/primary"
+                    android:textSize="28sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    style="@style/TextRemoteControlCaption"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:text="@string/connection_code_help" />
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Sabit Adres -->
+        <!-- Erisilebilirlik -->
         <LinearLayout
+            android:id="@+id/layout_home_accessibility_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/card_accent_bg"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/card_warning_bg"
             android:orientation="vertical"
-            android:gravity="center"
-            android:paddingHorizontal="24dp"
-            android:paddingVertical="28dp"
-            android:layout_marginBottom="14dp">
+            android:padding="16dp">
 
             <TextView
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/connection_code_title"
-                android:textColor="@color/primary"
-                android:layout_marginBottom="12dp" />
-
-            <TextView
-                android:id="@+id/tv_code"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/connection_code_placeholder"
-                android:textSize="32sp"
-                android:textStyle="bold"
-                android:textColor="@color/primary"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.06"
-                android:maxLines="1"
-                android:singleLine="true"
-                android:scrollHorizontally="false"
-                android:ellipsize="none" />
-
-            <TextView
-                style="@style/TextRemoteControlCaption"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/connection_code_help"
-                android:layout_marginTop="12dp"
-                android:gravity="center" />
-        </LinearLayout>
-
-        <!-- Durum -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/card_soft_bg"
-            android:orientation="vertical"
-            android:padding="18dp"
-            android:layout_marginBottom="14dp">
-
-            <TextView
-                style="@style/TextRemoteControlSectionLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/status_title"
+                android:text="@string/home_accessibility_section_title"
                 android:layout_marginBottom="8dp" />
 
             <TextView
-                android:id="@+id/tv_status"
+                android:id="@+id/tv_home_accessibility"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/status_initializing"
-                android:textColor="@color/text_primary"
-                android:textSize="15sp"
-                android:textStyle="bold" />
+                android:textColor="@color/warning"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:lineSpacingMultiplier="1.15" />
 
-            <TextView
-                android:id="@+id/tv_status_detail"
+            <Button
+                android:id="@+id/btn_home_accessibility"
+                style="@style/WidgetRemoteControlSecondaryButton"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp"
-                android:layout_marginTop="4dp" />
+                android:layout_marginTop="12dp"
+                android:text="@string/open_accessibility_settings"
+                android:textAllCaps="false" />
         </LinearLayout>
 
-        <!-- Hizli Islemler -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:letterSpacing="0.06"
+            android:text="@string/home_tips_heading"
+            android:textAllCaps="true"
+            android:textColor="@color/text_tertiary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <!-- Kisa rehber: 2 sutun, satir basina 2 esit kutu -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/card_soft_bg"
-            android:orientation="vertical"
-            android:padding="18dp">
+            android:layout_height="172dp"
+            android:layout_marginBottom="10dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal">
 
-            <TextView
-                style="@style/TextRemoteControlSectionLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/home_quick_actions_title"
-                android:layout_marginBottom="12dp" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/home_info_tile_1_bg"
+                android:orientation="vertical"
+                android:padding="12dp">
 
-            <Button
-                android:id="@+id/btn_connect"
-                style="@style/WidgetRemoteControlPrimaryButton"
-                android:layout_width="match_parent"
-                android:text="@string/retry_connect"
-                android:layout_marginBottom="10dp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:text="@string/home_info_tile_1_title"
+                    android:textColor="@color/text_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
 
-            <Button
-                android:id="@+id/btn_start_stream"
-                style="@style/WidgetRemoteControlPrimaryButton"
-                android:layout_width="match_parent"
-                android:text="@string/restart_screen_broadcast"
-                android:layout_marginBottom="10dp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="top"
+                    android:lineSpacingMultiplier="1.15"
+                    android:maxLines="8"
+                    android:text="@string/home_info_tile_1_body"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+            </LinearLayout>
 
-            <Button
-                android:id="@+id/btn_stop_stream"
-                style="@style/WidgetRemoteControlDangerButton"
-                android:layout_width="match_parent"
-                android:text="@string/stop_stream" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/home_info_tile_2_bg"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:text="@string/home_info_tile_2_title"
+                    android:textColor="@color/text_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="top"
+                    android:lineSpacingMultiplier="1.15"
+                    android:maxLines="8"
+                    android:text="@string/home_info_tile_2_body"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+            </LinearLayout>
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="172dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/home_info_tile_3_bg"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:text="@string/home_info_tile_3_title"
+                    android:textColor="@color/text_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="top"
+                    android:lineSpacingMultiplier="1.15"
+                    android:maxLines="8"
+                    android:text="@string/home_info_tile_3_body"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/card_soft_bg"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:text="@string/home_info_tile_4_title"
+                    android:textColor="@color/text_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="top"
+                    android:lineSpacingMultiplier="1.15"
+                    android:maxLines="8"
+                    android:text="@string/home_info_tile_4_body"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

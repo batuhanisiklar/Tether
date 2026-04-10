@@ -1,12 +1,3 @@
-"""
-Desktop DB client (PostgreSQL).
-
-Hedef:
-- Eski/yeni semalarla uyumlu kalmak.
-- `devices.last_seen` gibi eksik kolonlarda patlamamak.
-- pairings tarafinda hem `phone/pc` hem `controller/target` kolonlarini tolere etmek.
-"""
-
 from __future__ import annotations
 
 import logging
