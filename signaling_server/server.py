@@ -122,17 +122,57 @@ async def _send_device_ack(app: web.Application, device_id: str) -> None:
         paired_ids.append(cid)
 
     online_paired = [candidate for candidate in paired_ids if candidate in app["online_devices"]]
-    await _send_json(
-        ws,
-        {
-            "type": MessageTypes.DEVICE_ACK,
-            "device_id": device_id,
-            "paired_with": paired_ids[0] if paired_ids else "",
-            "paired_devices": paired_ids,
-            "online_paired_devices": online_paired,
-            "partner_online": bool(online_paired),
-        },
-    )
+
+    phone_accessibility_enabled: bool | None = None
+    if str(entry.get("role") or "") == "pc":
+        states: list[Any] = []
+        for pid in online_paired:
+            dev = await asyncio.to_thread(db.get_device_by_id, pid)
+            if not dev or str(dev.get("device_type") or "") != "phone":
+                continue
+            pent = app["online_devices"].get(pid)
+            if not pent or not pent.get("ws"):
+                continue
+            pmeta = app["ws_meta"].get(id(pent["ws"]))
+            states.append(pmeta.get("accessibility_enabled") if pmeta else None)
+        if states:
+            if any(v is False for v in states):
+                phone_accessibility_enabled = False
+            elif any(v is True for v in states):
+                phone_accessibility_enabled = True
+            else:
+                phone_accessibility_enabled = None
+
+    payload: dict[str, Any] = {
+        "type": MessageTypes.DEVICE_ACK,
+        "device_id": device_id,
+        "paired_with": paired_ids[0] if paired_ids else "",
+        "paired_devices": paired_ids,
+        "online_paired_devices": online_paired,
+        "partner_online": bool(online_paired),
+    }
+    if str(entry.get("role") or "") == "pc":
+        payload["phone_accessibility_enabled"] = phone_accessibility_enabled
+
+    await _send_json(ws, payload)
+
+
+async def _refresh_device_ack_for_paired_pcs(app: web.Application, phone_device_id: str) -> None:
+    """Telefon meta/oturumu degisince eslesmis cevrimici PC'lere guncel device_ack gonder."""
+    did = _normalize_device_id(phone_device_id)
+    if not did:
+        return
+    db: ServerDbClient = app["db"]
+    as_ctrl = await asyncio.to_thread(db.get_connected_devices_as_controller, did)
+    as_tgt = await asyncio.to_thread(db.get_connected_devices_as_target, did)
+    for raw in list(as_ctrl) + list(as_tgt):
+        pid = _normalize_device_id(str(raw))
+        if not pid or pid not in app["online_devices"]:
+            continue
+        ent = app["online_devices"][pid]
+        if str(ent.get("role") or "") != "pc":
+            continue
+        await _send_device_ack(app, pid)
 
 
 async def _broadcast_presence_for_devices(app: web.Application, *device_ids: str) -> None:
@@ -310,6 +350,8 @@ async def _handle_device_hello(
             "device_id": normalized_device_id,
         }
         await _send_device_ack(app, normalized_device_id)
+        if role == "phone":
+            await _refresh_device_ack_for_paired_pcs(app, normalized_device_id)
         return
     if str(binding.get("device_type") or "") != role:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz tipi bu oturumla eslesmiyor"})
@@ -329,6 +371,8 @@ async def _handle_device_hello(
     await asyncio.to_thread(app["db"].set_device_online, normalized_device_id, True)
 
     await _send_device_ack(app, normalized_device_id)
+    if role == "phone":
+        await _refresh_device_ack_for_paired_pcs(app, normalized_device_id)
 
 
 async def _handle_register_or_join(
@@ -417,6 +461,11 @@ async def _handle_register_or_join(
         await _notify_paired(app, code)
     elif message.get("type") == MessageTypes.JOIN:
         await _send_json(ws, {"type": MessageTypes.WAITING, "message": "Partner baglanmayi bekliyor..."})
+
+    if role == "phone":
+        pid = _normalize_device_id(str(meta.get("device_id") or ""))
+        if pid:
+            await _refresh_device_ack_for_paired_pcs(app, pid)
 
 
 async def _notify_paired(app: web.Application, code: str) -> None:
@@ -555,6 +604,8 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 device_id = _normalize_device_id(str(meta.get("device_id") or ""))
                 if device_id:
                     await _send_device_ack(app, device_id)
+                    if message_type == MessageTypes.REQUEST_PRESENCE and meta.get("role") == "phone":
+                        await _refresh_device_ack_for_paired_pcs(app, device_id)
                 if message_type == MessageTypes.HEARTBEAT and meta.get("peer_code"):
                     peer_ws = _session_peer_ws_only(app, ws, meta)
                     if peer_ws:
