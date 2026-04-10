@@ -4,6 +4,7 @@ import logging
 import os
 import secrets
 import sys
+import time
 from typing import Any
 
 from aiohttp import WSMsgType, web
@@ -289,6 +290,11 @@ async def _relay_message(
     await peer_ws.send_str(raw_text if raw_text is not None else json.dumps(message, separators=(",", ":")))
 
 
+# Throttle: binary relay sirasinda peer bulunamadiginda DB sorgusunu saniyede 1 kez ile sinirla
+_binary_relay_db_cache: dict[str, tuple[float, list[str]]] = {}
+_BINARY_RELAY_DB_TTL = 2.0  # saniye
+
+
 async def _relay_binary_frame(
     app: web.Application,
     ws: web.WebSocketResponse,
@@ -306,24 +312,28 @@ async def _relay_binary_frame(
                         meta["device_id"] = device_id
                     break
         if device_id:
+            # Once: cevrimici cihazlar arasindan peer bul (DB'ye gitme)
             db: ServerDbClient = app["db"]
-            paired_ctrl = await asyncio.to_thread(db.get_connected_devices_as_controller, device_id)
-            paired_tgt = await asyncio.to_thread(db.get_connected_devices_as_target, device_id)
-            for partner_id_raw in list(paired_ctrl) + list(paired_tgt):
-                partner_id = _normalize_device_id(str(partner_id_raw))
-                if not partner_id or partner_id == device_id:
-                    continue
+            now = time.monotonic()
+            cached = _binary_relay_db_cache.get(device_id)
+            if cached and (now - cached[0]) < _BINARY_RELAY_DB_TTL:
+                partner_ids = cached[1]
+            else:
+                paired_ctrl = await asyncio.to_thread(db.get_connected_devices_as_controller, device_id)
+                paired_tgt = await asyncio.to_thread(db.get_connected_devices_as_target, device_id)
+                partner_ids = []
+                for raw in list(paired_ctrl) + list(paired_tgt):
+                    pid = _normalize_device_id(str(raw))
+                    if pid and pid != device_id:
+                        partner_ids.append(pid)
+                _binary_relay_db_cache[device_id] = (now, partner_ids)
+            for partner_id in partner_ids:
                 entry = app["online_devices"].get(partner_id)
                 cand = entry.get("ws") if entry else None
                 if cand is not None and cand is not ws and not _websocket_is_closed(cand):
                     peer_ws = cand
                     break
     if not peer_ws:
-        logger.debug(
-            "Binary frame relay yok: peer bulunamadi (device_id=%s peer_code=%s)",
-            meta.get("device_id"),
-            meta.get("peer_code"),
-        )
         return
     try:
         await peer_ws.send_bytes(payload)
@@ -474,9 +484,7 @@ async def _handle_register_or_join(
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id missing"})
         return
 
-    session = _session_entry(app, code)
     _prune_closed_peers_from_session(app, code)
-    session = _session_entry(app, code)
     await _evict_stale_session_slots_for_device(app, code, normalized_device_id, ws)
     session = _session_entry(app, code)
 
@@ -655,9 +663,11 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                         await _refresh_device_ack_for_paired_pcs(app, device_id)
                 if message_type == MessageTypes.HEARTBEAT and meta.get("peer_code"):
                     peer_ws = _session_peer_ws_only(app, ws, meta)
-                    if peer_ws:
+                    if peer_ws and not _websocket_is_closed(peer_ws):
                         try:
                             await peer_ws.send_str(raw.data)
+                        except ConnectionResetError:
+                            logger.debug("Heartbeat relay: peer baglantisi kapanmis")
                         except Exception:
                             pass
             elif message_type in MessageTypes.RELAY_TYPES:

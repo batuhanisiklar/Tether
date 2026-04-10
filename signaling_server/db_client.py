@@ -43,7 +43,17 @@ class ServerDbClient:
         conn.autocommit = False
         try:
             yield conn
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
         finally:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             self._pool.putconn(conn)
 
     def init_schema(self) -> bool:
