@@ -407,7 +407,7 @@ async def _handle_register_or_join(
     meta["peer_slot"] = slot
     meta["peer_role"] = role
     meta["session_initiator"] = bool(message.get("type") == MessageTypes.JOIN)
-    if role == "phone" and "accessibility_enabled" in message:
+    if "accessibility_enabled" in message:
         meta["accessibility_enabled"] = bool(message.get("accessibility_enabled"))
 
     ack_type = MessageTypes.REGISTERED if message.get("type") == MessageTypes.REGISTER else MessageTypes.JOINED
@@ -417,34 +417,6 @@ async def _handle_register_or_join(
         await _notify_paired(app, code)
     elif message.get("type") == MessageTypes.JOIN:
         await _send_json(ws, {"type": MessageTypes.WAITING, "message": "Partner baglanmayi bekliyor..."})
-
-
-def _accessibility_blocks_pairing(left_meta: dict[str, Any], right_meta: dict[str, Any]) -> bool:
-    """Yalnizca telefon acikca accessibility_enabled=False ise engelle; None/eksik = engelleme."""
-    for meta in (left_meta, right_meta):
-        if str(meta.get("role") or "") != "phone":
-            continue
-        if meta.get("accessibility_enabled") is False:
-            return True
-    return False
-
-
-async def _clear_code_session(app: web.Application, code: str) -> None:
-    """Ayni kodlu oturumdaki tum yuvalari bosalt; tekrar register/join denemelerinde 'Oturum dolu' olusmasin."""
-    session = app["sessions"].get(code)
-    if not session:
-        app["session_devices"].pop(code, None)
-        return
-    for _slot, slot_ws in list(session.items()):
-        m = app["ws_meta"].get(id(slot_ws))
-        if m:
-            m["peer_code"] = None
-            m["peer_slot"] = None
-            m["peer_role"] = None
-            m["session_initiator"] = False
-    session.clear()
-    app["session_devices"].pop(code, None)
-    app["sessions"].pop(code, None)
 
 
 async def _notify_paired(app: web.Application, code: str) -> None:
@@ -460,16 +432,15 @@ async def _notify_paired(app: web.Application, code: str) -> None:
     left_meta = app["ws_meta"].get(id(left_ws)) or {}
     right_meta = app["ws_meta"].get(id(right_ws)) or {}
 
-    if _accessibility_blocks_pairing(left_meta, right_meta):
-        payload = {
-            "type": MessageTypes.ERROR,
-            "code": "accessibility_required",
-            "message": "Telefonda Erisilebilirlik servisi kapali. Baglanti baslatilamadi.",
-        }
-        await _send_json(left_ws, payload)
-        await _send_json(right_ws, payload)
-        await _clear_code_session(app, code)
-        return
+    # Erisilebilirlik kontrolu sunucuda eslestirmeyi BLOK ETMEZ; telefon istemcisi zaten komutlari
+    # servis kapaliyken reddeder. Sunucu tarafinda bloklamak joined+error yaratarak PC/telefon
+    # oturumunu kirabiliyordu.
+
+    _phone_a11y = next(
+        (m.get("accessibility_enabled") for m in (left_meta, right_meta) if str(m.get("role") or "") == "phone"),
+        None,
+    )
+    logger.info("paired code=%s slots=%s phone_accessibility_enabled=%s", code, list(session.keys()), _phone_a11y)
 
     controller_slot = left_slot
     for slot_name, slot_ws in session.items():
