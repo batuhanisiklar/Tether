@@ -905,6 +905,72 @@ async def list_recent_devices(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "devices": devices_payload})
 
 
+async def desktop_phone_bundle(request: web.Request) -> web.Response:
+    """
+    Masaustu istemci: /devices + /recent-devices?phone + /pairings tek round-trip.
+    """
+    user = await _require_user(request)
+    if not user:
+        return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
+    user_id, _ = user
+    pc_id = _normalize_device_id(request.query.get("device_id") or "")
+    if not pc_id:
+        return web.json_response({"ok": False, "message": "device_id gerekli."}, status=400)
+
+    own = await asyncio.to_thread(request.app["db"].get_device_by_id, pc_id)
+    if not own or int(own.get("user_id")) != int(user_id):
+        return web.json_response({"ok": False, "message": "Bu cihaza erisim yetkiniz yok."}, status=403)
+
+    online = request.app["online_devices"]
+
+    devices = await asyncio.to_thread(request.app["db"].get_devices_for_user, int(user_id))
+    devices_payload = [_device_payload(device, online) for device in devices]
+
+    partner_ids_raw = await asyncio.to_thread(request.app["db"].get_connected_devices_as_controller, pc_id)
+    partner_ids_raw += await asyncio.to_thread(request.app["db"].get_connected_devices_as_target, pc_id)
+    seen_pair: set[str] = set()
+    pairings_payload: list[dict[str, Any]] = []
+    for raw_partner_id in partner_ids_raw:
+        partner_id = _normalize_device_id(str(raw_partner_id))
+        if not partner_id or partner_id in seen_pair:
+            continue
+        seen_pair.add(partner_id)
+        partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
+        if not partner_device:
+            continue
+        pairings_payload.append(_device_payload(partner_device, online))
+
+    partner_ids: set[str] = set()
+    for dev in devices:
+        own_id = _normalize_device_id(str(dev.get("device_id") or ""))
+        if not own_id:
+            continue
+        as_controller = await asyncio.to_thread(request.app["db"].get_connected_devices_as_controller, own_id)
+        as_target = await asyncio.to_thread(request.app["db"].get_connected_devices_as_target, own_id)
+        for raw_partner_id in list(as_controller) + list(as_target):
+            normalized_partner_id = _normalize_device_id(str(raw_partner_id))
+            if normalized_partner_id:
+                partner_ids.add(normalized_partner_id)
+
+    recent_payload: list[dict[str, Any]] = []
+    for partner_id in partner_ids:
+        partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
+        if not partner_device:
+            continue
+        if str(partner_device.get("device_type") or "") != "phone":
+            continue
+        recent_payload.append(_device_payload(partner_device, online))
+
+    return web.json_response(
+        {
+            "ok": True,
+            "devices": devices_payload,
+            "recent_devices": recent_payload,
+            "pairings": pairings_payload,
+        }
+    )
+
+
 async def delete_pairing(request: web.Request) -> web.Response:
     user = await _require_user(request)
     if not user:
@@ -955,6 +1021,7 @@ def create_app() -> web.Application:
             web.post("/auth/profile", auth_profile_update),
             web.post("/devices/upsert", upsert_device),
             web.get("/devices", list_devices),
+            web.get("/devices/phone-bundle", desktop_phone_bundle),
             web.get("/recent-devices", list_recent_devices),
             web.get("/pairings", list_pairings),
             web.post("/pairings/delete", delete_pairing),
