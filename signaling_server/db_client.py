@@ -1,8 +1,3 @@
-"""
-Neon PostgreSQL — kullanıcılar, cihazlar (device_id), eşleşmeler ve bağlantı geçmişi.
-Kimlik doğrulama: e-posta + şifre. Bağlantılar device_id üzerinden.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -19,10 +14,6 @@ from psycopg2.pool import ThreadedConnectionPool
 logger = logging.getLogger(__name__)
 
 def _resolve_db_url() -> str:
-    """
-    Render gibi platformlar genelde `DATABASE_URL` saglar.
-    Projede geriye uyumluluk icin `NEON_DB_URL` da desteklenir.
-    """
     db_url = (os.environ.get("DATABASE_URL") or "").strip()
     if not db_url:
         db_url = (os.environ.get("NEON_DB_URL") or "").strip()
@@ -55,8 +46,6 @@ class ServerDbClient:
         finally:
             self._pool.putconn(conn)
 
-    # ─── Şema ─────────────────────────────────────────────────────────────────
-
     def init_schema(self) -> bool:
         try:
             with self._get_conn() as conn:
@@ -67,12 +56,15 @@ class ServerDbClient:
                             user_id SERIAL PRIMARY KEY,
                             first_name TEXT NOT NULL DEFAULT '',
                             last_name TEXT NOT NULL DEFAULT '',
+                            phone TEXT,
                             email TEXT NOT NULL UNIQUE,
                             password_h TEXT NOT NULL,
                             created_at TIMESTAMPTZ DEFAULT now()
                         );
                         """
                     )
+                    # Migration safety: eski DB'lerde phone kolonu yoksa ekle.
+                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT")
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS devices (
@@ -105,21 +97,26 @@ class ServerDbClient:
             logger.exception("init_schema: %s", e)
             return False
 
-    # ─── Kullanıcı Yönetimi ───────────────────────────────────────────────────
-
-    def register_user(self, email: str, password: str, first_name: str = '', last_name: str = '') -> Optional[int]:
-        """Yeni kullanıcı kaydı oluşturur. Başarılıysa user_id döner."""
+    def register_user(
+        self,
+        email: str,
+        password: str,
+        first_name: str = '',
+        last_name: str = '',
+        phone: str | None = None,
+    ) -> Optional[int]:
         password_h = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        phone_norm = (phone or "").strip() or None
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO users (first_name, last_name, email, password_h)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO users (first_name, last_name, phone, email, password_h)
+                        VALUES (%s, %s, %s, %s, %s)
                         RETURNING user_id
                         """,
-                        (first_name, last_name, email, password_h)
+                        (first_name, last_name, phone_norm, email, password_h)
                     )
                     user_id = cur.fetchone()[0]
                 conn.commit()
@@ -132,7 +129,6 @@ class ServerDbClient:
             return None
 
     def authenticate_user(self, email: str, password: str) -> Optional[int]:
-        """Kullanıcı e-posta/şifre doğrulaması. Başarılıysa user_id döner."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -160,10 +156,63 @@ class ServerDbClient:
             logger.exception("get_user_by_id: %s", e)
             return None
 
-    # ─── Cihaz Yönetimi ──────────────────────────────────────────────────────
+    def update_user_profile(
+        self,
+        user_id: int,
+        *,
+        email: str | None = None,
+        phone: str | None = None,
+        new_password: str | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Kullanıcı profil alanlarını günceller.
+        - email UNIQUE olduğu için çakışma olursa hata döner.
+        - Boş string gelirse ilgili alanı temizler (phone için None/'' -> NULL).
+        """
+        if user_id <= 0:
+            return False, "Gecersiz kullanici."
+
+        email_norm = (email or "").strip().lower() if email is not None else None
+        phone_norm = (phone or "").strip() if phone is not None else None
+        if phone_norm is not None and not phone_norm:
+            phone_norm = None
+        password_norm = (new_password or "").strip() if new_password is not None else None
+        if password_norm is not None and len(password_norm) < 6:
+            return False, "Sifre en az 6 karakter olmali."
+
+        fields: list[str] = []
+        values: list[Any] = []
+        if email_norm is not None:
+            fields.append("email = %s")
+            values.append(email_norm)
+        if phone is not None:
+            fields.append("phone = %s")
+            values.append(phone_norm)
+        if password_norm is not None:
+            password_h = bcrypt.hashpw(password_norm.encode(), bcrypt.gensalt()).decode()
+            fields.append("password_h = %s")
+            values.append(password_h)
+
+        if not fields:
+            return True, ""
+
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"UPDATE users SET {', '.join(fields)} WHERE user_id = %s",
+                        tuple(values + [int(user_id)]),
+                    )
+                conn.commit()
+            return True, ""
+        except psycopg2.IntegrityError:
+            logger.info("update_user_profile: email conflict for user_id=%s email=%s", user_id, email_norm)
+            return False, "Bu e-posta zaten kayitli."
+        except Exception as e:
+            logger.exception("update_user_profile: %s", e)
+            return False, "Profil guncellenemedi."
 
     def register_device(self, device_id: str, device_name: str, device_type: str, user_id: int, mac_address: str) -> bool:
-        """Yeni cihaz kaydı oluşturur. Başarılıysa True döner."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -219,10 +268,7 @@ class ServerDbClient:
             logger.exception("get_devices_for_user: %s", e)
             return []
 
-    # ─── Bağlantı Sorguları ──────────────────────────────────────────────────
-
     def create_connection(self, controller_device_id: str, target_device_id: str) -> bool:
-        """Yeni bağlantı kaydı oluşturur."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -240,7 +286,6 @@ class ServerDbClient:
             return False
 
     def delete_connection(self, controller_device_id: str, target_device_id: str) -> bool:
-        """Belirli bir bağlantıyı siler."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -258,10 +303,6 @@ class ServerDbClient:
             return False
 
     def get_connected_devices_as_controller(self, my_device_id: str) -> list[str]:
-        """
-        Controller (kontrol eden) olarak bu cihazın bağlantı kurduğu hedef cihazlarının id'lerini döndürür.
-        Sadece connections tablosuna bakar.
-        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -277,10 +318,6 @@ class ServerDbClient:
             return []
 
     def get_connected_devices_as_target(self, my_device_id: str) -> list[str]:
-        """
-        Target (hedef) olarak bu cihazın bağlantılı olduğu controller cihazlarının id'lerini döndürür.
-        Sadece connections tablosuna bakar.
-        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -296,9 +333,6 @@ class ServerDbClient:
             return []
 
     def get_all_connections_for_device(self, device_id: str) -> list[dict]:
-        """
-        Bu cihazın controller olduğu veya hedef olduğu tüm bağlantı kayıtlarını döndür.
-        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
