@@ -103,6 +103,47 @@ def _prune_closed_peers_from_session(app: web.Application, code: str) -> None:
         app["session_devices"].pop(code, None)
 
 
+async def _evict_stale_session_slots_for_device(
+    app: web.Application,
+    code: str,
+    device_id: str,
+    current_ws: web.WebSocketResponse,
+) -> None:
+    """
+    Ayni device_id ile yeni WebSocket geldiginde oturumdaki eski soketi cikar.
+    Istemci hizli yeniden baglandiginda veya presence -> session gecisinde eski TCP
+    henuz kapanmamis olabilir; ws.closed False kalir ve 'Oturum dolu' olusur.
+    """
+    norm = _normalize_device_id(device_id)
+    if not norm:
+        return
+    session = app["sessions"].get(code)
+    if not session:
+        return
+    devices = app["session_devices"].get(code, {})
+    for slot in list(session.keys()):
+        slot_did = _normalize_device_id(str(devices.get(slot) or ""))
+        if slot_did != norm:
+            continue
+        old_ws = session.get(slot)
+        if old_ws is None or old_ws is current_ws:
+            continue
+        session.pop(slot, None)
+        devices.pop(slot, None)
+        logger.info(
+            "Oturum kodu=%s: ayni cihaz icin eski slot temizlendi (device_id=%s)",
+            code,
+            norm,
+        )
+        try:
+            await old_ws.close(code=4000)
+        except Exception:
+            pass
+    if not session:
+        app["sessions"].pop(code, None)
+        app["session_devices"].pop(code, None)
+
+
 async def _send_device_ack(app: web.Application, device_id: str) -> None:
     entry = app["online_devices"].get(device_id)
     if not entry:
@@ -428,8 +469,15 @@ async def _handle_register_or_join(
             await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz bulunamadi"})
             return
 
+    normalized_device_id = _normalize_device_id(str(meta.get("device_id") or message.get("device_id") or ""))
+    if not normalized_device_id:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id missing"})
+        return
+
     session = _session_entry(app, code)
     _prune_closed_peers_from_session(app, code)
+    session = _session_entry(app, code)
+    await _evict_stale_session_slots_for_device(app, code, normalized_device_id, ws)
     session = _session_entry(app, code)
 
     if len(session) >= 2 and ws not in session.values():
@@ -445,7 +493,6 @@ async def _handle_register_or_join(
         else:
             slot = f"{role}_2"
     session[slot] = ws
-    normalized_device_id = _normalize_device_id(str(meta.get("device_id") or message.get("device_id") or ""))
     app["session_devices"][code][slot] = normalized_device_id
     meta["peer_code"] = code
     meta["peer_slot"] = slot
