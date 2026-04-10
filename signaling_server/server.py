@@ -419,6 +419,34 @@ async def _handle_register_or_join(
         await _send_json(ws, {"type": MessageTypes.WAITING, "message": "Partner baglanmayi bekliyor..."})
 
 
+def _accessibility_blocks_pairing(left_meta: dict[str, Any], right_meta: dict[str, Any]) -> bool:
+    """Yalnizca telefon acikca accessibility_enabled=False ise engelle; None/eksik = engelleme."""
+    for meta in (left_meta, right_meta):
+        if str(meta.get("role") or "") != "phone":
+            continue
+        if meta.get("accessibility_enabled") is False:
+            return True
+    return False
+
+
+async def _clear_code_session(app: web.Application, code: str) -> None:
+    """Ayni kodlu oturumdaki tum yuvalari bosalt; tekrar register/join denemelerinde 'Oturum dolu' olusmasin."""
+    session = app["sessions"].get(code)
+    if not session:
+        app["session_devices"].pop(code, None)
+        return
+    for _slot, slot_ws in list(session.items()):
+        m = app["ws_meta"].get(id(slot_ws))
+        if m:
+            m["peer_code"] = None
+            m["peer_slot"] = None
+            m["peer_role"] = None
+            m["session_initiator"] = False
+    session.clear()
+    app["session_devices"].pop(code, None)
+    app["sessions"].pop(code, None)
+
+
 async def _notify_paired(app: web.Application, code: str) -> None:
     session = app["sessions"].get(code, {})
     session_devices = app["session_devices"].get(code, {})
@@ -432,10 +460,7 @@ async def _notify_paired(app: web.Application, code: str) -> None:
     left_meta = app["ws_meta"].get(id(left_ws)) or {}
     right_meta = app["ws_meta"].get(id(right_ws)) or {}
 
-    if (
-        (left_meta.get("role") == "phone" and left_meta.get("accessibility_enabled") is False)
-        or (right_meta.get("role") == "phone" and right_meta.get("accessibility_enabled") is False)
-    ):
+    if _accessibility_blocks_pairing(left_meta, right_meta):
         payload = {
             "type": MessageTypes.ERROR,
             "code": "accessibility_required",
@@ -443,6 +468,7 @@ async def _notify_paired(app: web.Application, code: str) -> None:
         }
         await _send_json(left_ws, payload)
         await _send_json(right_ws, payload)
+        await _clear_code_session(app, code)
         return
 
     controller_slot = left_slot
