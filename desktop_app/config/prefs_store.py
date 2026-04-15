@@ -136,3 +136,16 @@ def remembered_login_email() -> str:
 def save_remembered_login_email(email: str) -> None:
     em = email.strip().lower()
     update_prefs(**{Prefs.KEY_REMEMBERED_EMAIL: em})
+
+
+def clear_remembered_login_email() -> None:
+    prefs = read_prefs()
+    changed = False
+    if Prefs.KEY_REMEMBERED_EMAIL in prefs:
+        prefs.pop(Prefs.KEY_REMEMBERED_EMAIL, None)
+        changed = True
+    if Prefs.KEY_REMEMBERED_USERNAME in prefs:
+        prefs.pop(Prefs.KEY_REMEMBERED_USERNAME, None)
+        changed = True
+    if changed:
+        write_prefs(prefs)

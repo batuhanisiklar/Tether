@@ -2,14 +2,17 @@
 <resources>
     <string name="app_name">Remote Control</string>
     <string name="accessibility_description">Bilgisayardan dokunma ve kaydırma kontrolü sağlar</string>
-    <string name="login_icon">Bağlantı</string>
-    <string name="login_title">Remote Control</string>
-    <string name="login_subtitle">Telefonunuzu ve masaustunuzu ayni hesapta bulusturun</string>
+    <string name="login_icon">Uygulama logosu</string>
+    <string name="login_title">Hoş geldiniz</string>
+    <string name="login_subtitle">Devam etmek için giriş yapın veya\nyeni bir hesap oluşturun</string>
     <string name="login_first_name_label">Ad</string>
+    <string name="login_first_name_hint">Adınız</string>
     <string name="login_last_name_label">Soyad</string>
+    <string name="login_last_name_hint">Soyadınız</string>
     <string name="login_email_label">E-posta</string>
     <string name="login_email_hint">ornek@eposta.com</string>
-    <string name="login_phone_label">Telefon (istege bagli)</string>
+    <string name="login_phone_label">Telefon (isteğe bağlı)</string>
+    <string name="login_phone_hint">0(312) 456 78 90</string>
     <string name="login_username_label">E-posta</string>
     <string name="login_username_hint">ornek@eposta.com</string>
     <string name="login_password_label">Şifre</string>
@@ -19,12 +22,13 @@
     <string name="login_switch_to_register">Hesabın yok mu? Kayıt ol</string>
     <string name="login_switch_to_login">Zaten hesabın var mı? Giriş yap</string>
     <string name="login_button">Giriş Yap</string>
+    <string name="login_remember_me">Beni hatırla</string>
+    <string name="toggle_password_visibility">Şifreyi göster veya gizle</string>
     <string name="login_loading">Giris yapiliyor...</string>
-    <string name="register_button">Kayit ekranina git</string>
-    <string name="register_submit_button">Kaydi tamamla</string>
+    <string name="register_button">Kayıt ekranına git</string>
+    <string name="register_submit_button">Kayıt Ol</string>
     <string name="register_loading">Kayit olusturuluyor...</string>
-    <string name="login_helper">Ilk kullanimda kayit olun, sonraki acilislarda oturumunuz korunur.</string>
-    <string name="login_footer">© 2026 Remote Phone Control</string>
+    <string name="login_footer">© 2026  ·  Remote Phone Control  ·  Batuhan Isiklar</string>
 
     <string name="main_title">Remote Control</string>
     <string name="main_subtitle">Telefonunuzu bilgisayardan yönetin</string>
