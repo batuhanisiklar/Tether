@@ -602,11 +602,15 @@ async def _notify_paired(app: web.Application, code: str) -> None:
 
 
 async def _handle_pair_confirm(app: web.Application, meta: dict[str, Any], message: dict[str, Any]) -> None:
+    """
+    Telefon, pair_confirm gonderdiginde cagirilir.
+    Baglanti kaydi _notify_paired tarafindan zaten PC→telefon yonunde yapildi;
+    burada tekrar kaydetmiyoruz (cift kayit ve ters yon engellemesi).
+    """
     first_device_id = _normalize_device_id(str(message.get("my_device_id") or ""))
     second_device_id = _normalize_device_id(str(message.get("paired_with") or ""))
     if not first_device_id or not second_device_id:
         return
-    await _save_connection_pair(app, first_device_id, second_device_id)
     await _broadcast_presence_for_devices(app, first_device_id, second_device_id)
 
 
