@@ -40,7 +40,6 @@ from desktop_app.config.prefs_store import (
     read_prefs,
     update_prefs,
 )
-from desktop_app.database.db_client import DbClient
 from desktop_app.network.backend_api import BackendApi
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
 from desktop_app.network.ws_client import WsClient
@@ -315,9 +314,8 @@ class DeviceCard(QFrame):
 # MainWindow
 # ─────────────────────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
-    def __init__(self, db: DbClient, backend_api: BackendApi | None = None):
+    def __init__(self, backend_api: BackendApi | None = None):
         super().__init__()
-        self.db = db
         self._ws_client = WsClient()
         self._mjpeg = MjpegReceiver()
         self._connected = False
@@ -342,6 +340,7 @@ class MainWindow(QMainWindow):
         self._account_button: QPushButton | None = None
         self._backend_api = backend_api if backend_api is not None else BackendApi()
         self._reconnect_session_code: str | None = None
+        self._a11y_pending_reconnect_code: str | None = None  # erişilebilirlik açılınca otomatik yeniden bağlantı için
         self._profile_drawer_open = False
         self._profile_drawer_width = 432
         self._profile_cache: dict = {}
@@ -391,7 +390,8 @@ class MainWindow(QMainWindow):
                     self._user_last_name = ln
                     update_prefs(**{Prefs.KEY_USER_FIRST_NAME: fn, Prefs.KEY_USER_LAST_NAME: ln})
         if not self._user_address and self._user_id:
-            self._user_address = self.db.get_user_address(self._user_id) or ""
+            # BackendAPI başarısız olduysa prefs'teki cached değeri kullan
+            self._user_address = load_user_address() or ""
         if not self._user_email:
             self._user_email = self._username
         self._ws_client.set_device_address(self._user_address)
@@ -417,7 +417,7 @@ class MainWindow(QMainWindow):
                 _ingest_phone_rows(list(bundle.get("pairings") or []))
                 if merged:
                     return list(merged.values())
-                return self.db.get_paired_devices(pc_id)
+                return []  # API başarısız, boş liste dön
             if bundle_err and bundle_err != "bundle_missing":
                 logger.warning("phone-bundle alinamadi: %s", bundle_err)
 
@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
 
             if merged:
                 return list(merged.values())
-        return self.db.get_paired_devices(pc_id)
+        return []  # Auth token yok ya da API başarısız
 
     def _connect_presence_mode(self, status_message: str | None = None):
         if self._logging_out:
@@ -1189,8 +1189,6 @@ class MainWindow(QMainWindow):
     # ── Data loading ─────────────────────────────────────────────────────────
     @pyqtSlot()
     def _load_devices_from_db(self):
-        if self._user_id:
-            self.db.upsert_device(self._user_id, self._ws_client.device_id, "pc", _desktop_device_name())
         devices = self._load_paired_devices()
         self._populate_device_cards(devices)
         if self._ws_mode == "session":
@@ -2183,6 +2181,7 @@ class MainWindow(QMainWindow):
     def _on_disconnect(self):
         self._ws_mode = "presence"
         self._reconnect_session_code = None
+        self._a11y_pending_reconnect_code = None  # manuel disconnect → otomatik yeniden bağlantı iptal
         self._reconnect_timer.stop()
         self._presence_timer.stop()
         self._manual_disconnect = True
@@ -2216,17 +2215,15 @@ class MainWindow(QMainWindow):
         from desktop_app.ui.login_window import LoginWindow
 
         self.hide()
-        new_db = DbClient()
-        login = LoginWindow(new_db)
+        login = LoginWindow()
         if login.exec() == QDialog.DialogCode.Accepted:
-            replacement = MainWindow(new_db, backend_api=login.shared_backend_api)
+            replacement = MainWindow(backend_api=login.shared_backend_api)
             app = QApplication.instance()
             if app is not None:
                 setattr(app, "_rpc_main_window", replacement)
             replacement.show()
             self.close()
         else:
-            new_db.close()
             app = QApplication.instance()
             self.close()
             if app is not None:
@@ -2383,8 +2380,12 @@ class MainWindow(QMainWindow):
                 self._set_status(f"Sunucuya baglandi  —  {online_count} cihaz cevrimici")
             else:
                 self._set_status(Ui.MSG_SERVER_CONNECTED)
+
+        # Erişilebilirlik False→True geçişini yakala
+        prev_a11y = self._phone_accessibility_enabled
         if phone_a11y is not WsClient.PHONE_A11Y_UNCHANGED:
             self._phone_accessibility_enabled = None if phone_a11y is None else bool(phone_a11y)
+
         self._refresh_home_summary()
         if self._connected:
             self._refresh_paired_stream_status()
@@ -2416,6 +2417,16 @@ class MainWindow(QMainWindow):
         if _is_accessibility_ws_error(text, code):
             banner_title = "Erisilebilirlik kapali"
             banner_body = text or "Telefonda Erisilebilirlik servisini acmadan baglanti baslatilamaz."
+
+            # Erişilebilirlik sonrası otomatik yeniden bağlantı için session kodunu sakla
+            session_code = _address_digits(self._paired_phone_address or "")
+            if len(session_code) != 12:
+                session_code = _address_digits(load_paired_phone_address() or "")
+            if len(session_code) != 12:
+                session_code = _address_digits(self._ws_client.join_session_code or "")
+            if len(session_code) == 12:
+                self._a11y_pending_reconnect_code = session_code
+                logger.info("Erisilebilirlik hatası — yeniden baglanti kodu saklandı: %s", session_code)
 
             def _apply_banner() -> None:
                 # Oturumu duzgun sekilde kapat, anasayfaya don
@@ -2554,5 +2565,4 @@ class MainWindow(QMainWindow):
         self._reconnect_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect()
-        self.db.close()
         super().closeEvent(event)

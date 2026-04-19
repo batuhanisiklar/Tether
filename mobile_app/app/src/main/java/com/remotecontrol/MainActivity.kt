@@ -499,6 +499,9 @@ class MainActivity : AppCompatActivity() {
         }
         streamRunning = true
         updateStatus("Ekran yayini aktif")
+
+        // Uygulama arka plana alinsin; bilgisayara gerçek telefon ekranı gönderilsin
+        moveTaskToBack(true)
     }
 
     private fun requestCameraAccess(useFront: Boolean) {

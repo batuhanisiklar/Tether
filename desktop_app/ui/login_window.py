@@ -25,7 +25,6 @@ from desktop_app.config.prefs_store import (
     save_remembered_login_email,
     save_session,
 )
-from desktop_app.database.db_client import DbClient
 from desktop_app.network.backend_api import BackendApi
 from desktop_app.network.hardware_id import get_mac_fingerprint
 from desktop_app.ui.theme import (
@@ -62,9 +61,8 @@ class LoginWindow(QDialog):
     exec() → Accepted: giriş/kayıt başarılı, prefs'e user_id yazılmış.
     """
 
-    def __init__(self, db: DbClient, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.db = db
         self._backend_api = BackendApi()
         self.setWindowTitle(AppMeta.NAME)
         # Windows DWM/DPI bazen sabit yüksekliği 2–8 px farkla uygular; min==max uyarı ve log üretir.
