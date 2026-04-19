@@ -233,13 +233,15 @@ async def _broadcast_presence_for_devices(app: web.Application, *device_ids: str
 
 
 async def _save_connection_pair(app: web.Application, controller_device_id: str, target_device_id: str) -> None:
+    """
+    PC (controller) → Telefon (target) bağlantısını kaydet.
+    DB'de ON CONFLICT DO NOTHING ile duplicate otomatik engellenir.
+    """
     controller_id = _normalize_device_id(controller_device_id) or controller_device_id
     target_id = _normalize_device_id(target_device_id) or target_device_id
     if not controller_id or not target_id or controller_id == target_id:
         return
-    exists = await asyncio.to_thread(app["db"].connection_exists, controller_id, target_id)
-    if not exists:
-        await asyncio.to_thread(app["db"].create_connection, controller_id, target_id)
+    await asyncio.to_thread(app["db"].create_connection, controller_id, target_id)
 
 
 def _session_peer_ws_only(
@@ -1118,9 +1120,13 @@ async def delete_pairing(request: web.Request) -> web.Response:
     if not own_device or int(own_device.get("user_id")) != int(user_id):
         return web.json_response({"ok": False, "message": "Bu cihaza erisim yetkiniz yok."}, status=403)
 
-    deleted_ab = await asyncio.to_thread(request.app["db"].delete_connection, device_id, partner_device_id)
-    deleted_ba = await asyncio.to_thread(request.app["db"].delete_connection, partner_device_id, device_id)
-    if not (deleted_ab or deleted_ba):
+    # Tek yönlü kayıt: PC (controller) → telefon (target)
+    # Sadece bu yönde sil — ters yön ayrı kayıt içermez
+    deleted = await asyncio.to_thread(request.app["db"].delete_connection, device_id, partner_device_id)
+    if not deleted:
+        # Belki bu cihaz target rolündeydi; ters yönü dene
+        deleted = await asyncio.to_thread(request.app["db"].delete_connection, partner_device_id, device_id)
+    if not deleted:
         return web.json_response({"ok": False, "message": "Eslesme silinemedi."}, status=500)
 
     await _broadcast_presence_for_devices(request.app, device_id, partner_device_id)

@@ -150,15 +150,33 @@ class ServerDbClient:
                     )
 
                     # ── connections tablosu ─────────────────────────────────
-                    # FK'lar devices(device_id)'ye değil; device_id TEXT olarak tutulur.
+                    # PC (controller) → telefon (target) tek yönlü bağlantı kaydı.
+                    # UNIQUE kısıtı ile duplicate girdi imkânsız.
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS connections (
                             id SERIAL PRIMARY KEY,
-                            target_device_id TEXT NOT NULL,
                             controller_device_id TEXT NOT NULL,
-                            created_at TIMESTAMPTZ DEFAULT now()
+                            target_device_id TEXT NOT NULL,
+                            created_at TIMESTAMPTZ DEFAULT now(),
+                            UNIQUE (controller_device_id, target_device_id)
                         );
+                        """
+                    )
+                    # Migration: eski tabloda UNIQUE yoksa ekle
+                    cur.execute(
+                        """
+                        DO $$ BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'connections_controller_target_unique'
+                                  AND conrelid = 'connections'::regclass
+                            ) THEN
+                                ALTER TABLE connections
+                                    ADD CONSTRAINT connections_controller_target_unique
+                                    UNIQUE (controller_device_id, target_device_id);
+                            END IF;
+                        END $$;
                         """
                     )
                 conn.commit()
@@ -417,6 +435,10 @@ class ServerDbClient:
             return []
 
     def create_connection(self, controller_device_id: str, target_device_id: str) -> bool:
+        """
+        PC (controller) → telefon (target) bağlantısını kaydet.
+        Aynı çift zaten varsa sessizce geçer (ON CONFLICT DO NOTHING).
+        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -424,6 +446,7 @@ class ServerDbClient:
                         """
                         INSERT INTO connections (controller_device_id, target_device_id)
                         VALUES (%s, %s)
+                        ON CONFLICT (controller_device_id, target_device_id) DO NOTHING
                         """,
                         (controller_device_id, target_device_id)
                     )
@@ -466,6 +489,7 @@ class ServerDbClient:
             return []
 
     def get_connected_devices_as_target(self, my_device_id: str) -> list[str]:
+        """Bu cihaz telefon (target) olarak bağlı olan PC'lerin ID listesi."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -481,6 +505,7 @@ class ServerDbClient:
             return []
 
     def get_all_connections_for_device(self, device_id: str) -> list[dict]:
+        """Bir cihazın controller veya target olarak yer aldığı tüm bağlantılar."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -494,16 +519,3 @@ class ServerDbClient:
         except Exception as e:
             logger.exception("get_all_connections_for_device: %s", e)
             return []
-
-    def connection_exists(self, controller_device_id: str, target_device_id: str) -> bool:
-        try:
-            with self._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT 1 FROM connections WHERE controller_device_id = %s AND target_device_id = %s",
-                        (controller_device_id, target_device_id)
-                    )
-                    return cur.fetchone() is not None
-        except Exception as e:
-            logger.exception("connection_exists: %s", e)
-            return False
