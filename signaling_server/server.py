@@ -349,25 +349,51 @@ async def _register_or_reuse_device(
     device_name: str,
     mac_address: str | None,
 ) -> tuple[str | None, str]:
+    """
+    Bu kullanıcı için cihazı bul veya oluştur.
+
+    Arama sırası:
+    1. Eğer mac_address verilmişse: bu user_id + mac_address çifti DB'de var mı?
+       → Varsa: mevcut device_id'yi kullan (aynı cihaz + kullanıcı).
+       → Yoksa: register_device ile yeni kayıt oluştur.
+    2. mac_address yoksa: client'ın verdiği device_id ile fallback kontrol.
+
+    Aynı fiziksel cihaz (mac_address) başka kullanıcılara ait olabilir — bu HATA DEĞİL.
+    Her kullanıcı kendi bağımsız device_id kaydını alır.
+    """
+    effective_mac = (mac_address or "").strip()
+
+    if effective_mac:
+        # Önce bu kullanıcı + MAC kombinasyonuna bak
+        resolved_id = await asyncio.to_thread(
+            app["db"].register_device,
+            device_name or "",
+            device_type,
+            user_id,
+            effective_mac,
+        )
+        if resolved_id:
+            return resolved_id, ""
+        return None, "Cihaz kaydi olusturulamadi."
+
+    # MAC adresi yoksa: client'ın device_id'sini kontrol et, sadece bu kullanıcıya aitse kullan
     normalized_id = _normalize_device_id(device_id) or _random_device_id()
     existing = await asyncio.to_thread(app["db"].get_device_by_id, normalized_id)
     if existing:
-        if int(existing.get("user_id")) != int(user_id):
-            return None, "Bu device_id baska bir hesaba ait."
-        return normalized_id, ""
-
-    effective_mac = (mac_address or "").strip() or f"{device_type}:{normalized_id}"
-    created = await asyncio.to_thread(
+        if int(existing.get("user_id")) == int(user_id):
+            return normalized_id, ""
+        # Başka kullanıcıya ait: bu kullanıcı için yeni bir tane üret
+    fallback_mac = f"{device_type}:{normalized_id}"
+    resolved_id = await asyncio.to_thread(
         app["db"].register_device,
-        normalized_id,
         device_name or "",
         device_type,
         user_id,
-        effective_mac,
+        fallback_mac,
     )
-    if not created:
-        return None, "Cihaz kaydi olusturulamadi."
-    return normalized_id, ""
+    if resolved_id:
+        return resolved_id, ""
+    return None, "Cihaz kaydi olusturulamadi."
 
 
 async def _handle_device_hello(

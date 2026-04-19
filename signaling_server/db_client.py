@@ -60,6 +60,7 @@ class ServerDbClient:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
+                    # ── users tablosu ───────────────────────────────────────
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS users (
@@ -75,28 +76,88 @@ class ServerDbClient:
                     )
                     # Migration safety: eski DB'lerde phone kolonu yoksa ekle.
                     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT")
+
+                    # ── devices tablosu (yeni şema) ─────────────────────────
+                    # Yeni şema: id SERIAL PRIMARY KEY, UNIQUE(user_id, mac_address),
+                    # device_id artık global benzersiz değil — her kullanıcı için ayrı.
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS devices (
-                            device_id TEXT PRIMARY KEY,
+                            id SERIAL PRIMARY KEY,
+                            device_id TEXT NOT NULL,
                             mac_address TEXT NOT NULL,
                             device_name TEXT NOT NULL DEFAULT '',
                             device_type TEXT NOT NULL CHECK (device_type IN ('phone', 'pc')),
                             is_online BOOLEAN DEFAULT FALSE,
                             last_seen TIMESTAMPTZ DEFAULT now(),
-                            user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE
+                            user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                            UNIQUE (user_id, mac_address)
                         );
                         """
                     )
+
+                    # ── MIGRATION: eski şemadan yeni şemaya geçiş ──────────
+                    # 1) id kolonu yoksa ekle (eski DB'de PRIMARY KEY device_id TEXT idi)
+                    cur.execute(
+                        """
+                        ALTER TABLE devices ADD COLUMN IF NOT EXISTS id SERIAL;
+                        """
+                    )
+                    # 2) Eski devices_pkey (device_id TEXT PRIMARY KEY) kısıtını kaldır
+                    cur.execute(
+                        """
+                        DO $$ BEGIN
+                            IF EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'devices_pkey'
+                                  AND contype = 'p'
+                                  AND conrelid = 'devices'::regclass
+                            ) THEN
+                                -- Önce connections tablosundaki FK'ları düşür (varsa)
+                                ALTER TABLE connections
+                                    DROP CONSTRAINT IF EXISTS connections_target_device_id_fkey;
+                                ALTER TABLE connections
+                                    DROP CONSTRAINT IF EXISTS connections_controller_device_id_fkey;
+                                -- Eski PRIMARY KEY kısıtını düşür
+                                ALTER TABLE devices DROP CONSTRAINT devices_pkey;
+                                -- id'yi yeni PRIMARY KEY yap
+                                ALTER TABLE devices ADD PRIMARY KEY (id);
+                            END IF;
+                        END $$;
+                        """
+                    )
+                    # 3) UNIQUE(user_id, mac_address) kısıtı ekle (yoksa)
+                    cur.execute(
+                        """
+                        DO $$ BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_constraint
+                                WHERE conname = 'devices_user_mac_unique'
+                                  AND conrelid = 'devices'::regclass
+                            ) THEN
+                                ALTER TABLE devices
+                                    ADD CONSTRAINT devices_user_mac_unique
+                                    UNIQUE (user_id, mac_address);
+                            END IF;
+                        END $$;
+                        """
+                    )
+                    # 4) Eski NOT NULL device_id kısıtı güvenliği (yeni kayıtlar için zaten NOT NULL)
+                    cur.execute(
+                        """
+                        ALTER TABLE devices ALTER COLUMN device_id SET NOT NULL;
+                        """
+                    )
+
+                    # ── connections tablosu ─────────────────────────────────
+                    # FK'lar devices(device_id)'ye değil; device_id TEXT olarak tutulur.
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS connections (
                             id SERIAL PRIMARY KEY,
                             target_device_id TEXT NOT NULL,
                             controller_device_id TEXT NOT NULL,
-                            created_at TIMESTAMPTZ DEFAULT now(),
-                            FOREIGN KEY (target_device_id) REFERENCES devices(device_id) ON DELETE CASCADE,
-                            FOREIGN KEY (controller_device_id) REFERENCES devices(device_id) ON DELETE CASCADE
+                            created_at TIMESTAMPTZ DEFAULT now()
                         );
                         """
                     )
@@ -241,25 +302,71 @@ class ServerDbClient:
             logger.exception("update_user_profile: %s", e)
             return False, "Profil guncellenemedi."
 
-    def register_device(self, device_id: str, device_name: str, device_type: str, user_id: int, mac_address: str) -> bool:
+    def register_device(
+        self,
+        device_name: str,
+        device_type: str,
+        user_id: int,
+        mac_address: str,
+    ) -> str | None:
+        """
+        Bu kullanıcı için cihazı kaydet veya mevcut kaydı döndür.
+
+        - Aynı (user_id, mac_address) zaten varsa: mevcut device_id'yi döndürür (no-op).
+        - Yoksa: yeni device_id üretir, INSERT eder ve yeni device_id'yi döndürür.
+        - Hata durumunda: None döndürür.
+
+        Aynı fiziksel cihaz (mac_address) başka bir kullanıcıya ait olabilir;
+        bu artık bir hata DEĞİLDİR — her kullanıcı kendi kaydını alır.
+        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
+                    # 1) Bu kullanıcı bu MAC'i daha önce kaydetmiş mi?
+                    cur.execute(
+                        "SELECT device_id FROM devices WHERE user_id = %s AND mac_address = %s",
+                        (user_id, mac_address),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        logger.info(
+                            "register_device: user_id=%s mac=%s zaten kayitli, device_id=%s",
+                            user_id, mac_address, row[0],
+                        )
+                        return str(row[0])
+
+                    # 2) Yeni kayıt — benzersiz bir device_id üret
+                    new_device_id = secrets.token_hex(6)  # 12 karakter hex
                     cur.execute(
                         """
                         INSERT INTO devices (device_id, device_name, device_type, user_id, mac_address)
                         VALUES (%s, %s, %s, %s, %s)
                         """,
-                        (device_id, device_name, device_type, user_id, mac_address)
+                        (new_device_id, device_name, device_type, user_id, mac_address),
                     )
                 conn.commit()
-            return True
+            logger.info(
+                "register_device: Yeni cihaz kaydedildi user_id=%s mac=%s device_id=%s",
+                user_id, mac_address, new_device_id,
+            )
+            return new_device_id
         except psycopg2.IntegrityError:
-            logger.info("register_device: Duplicate device_id %s", device_id)
-            return False
+            # Nadir yarış durumu: iki eşzamanlı istek aynı anda INSERT yapmaya çalıştı.
+            # Güvenle mevcut kaydı oku.
+            try:
+                with self._get_conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT device_id FROM devices WHERE user_id = %s AND mac_address = %s",
+                            (user_id, mac_address),
+                        )
+                        row = cur.fetchone()
+                        return str(row[0]) if row else None
+            except Exception:
+                return None
         except Exception as e:
             logger.exception("register_device: %s", e)
-            return False
+            return None
 
     def set_device_online(self, device_id: str, is_online: bool) -> None:
         try:
