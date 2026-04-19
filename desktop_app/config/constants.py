@@ -235,41 +235,39 @@ class Ui:
 class AndroidKeyCodes:
     """
     Android KeyEvent sabitleri.
-    button_specs() → (etiket, renk_grubu, grid_satır, grid_sütun, key_id)
+    button_specs() → (etiket, renk_grubu, grid_satır, grid_sütun, key_id, colspan)
     """
     BACK:     int = 4
     HOME:     int = 3
     RECENTS:  int = 187
     VOL_UP:   int = 24
     VOL_DOWN: int = 25
-    POWER:    int = 26    # Ekranı kilitle / uyandır (toggle)
-    WAKEUP:   int = 224   # KEYCODE_WAKEUP (henüz desteklenmiyor, POWER kullan)
+    VOL_MUTE: int = 164  # KEYCODE_VOLUME_MUTE (sessize al / aç)
+    POWER:    int = 26   # Sunucudan gönderilebilir; masaüstü UI'da yok
+    WAKEUP:   int = 224  # KEYCODE_WAKEUP (henüz desteklenmiyor, POWER kullan)
 
     @classmethod
     def as_mapping(cls) -> Dict[str, int]:
         return {
-            "key_back":    cls.BACK,
-            "key_home":    cls.HOME,
-            "key_recents": cls.RECENTS,
-            "key_vol_up":  cls.VOL_UP,
-            "key_vol_down":cls.VOL_DOWN,
-            "key_power":   cls.POWER,
+            "key_back":     cls.BACK,
+            "key_home":     cls.HOME,
+            "key_recents":  cls.RECENTS,
+            "key_vol_up":   cls.VOL_UP,
+            "key_vol_down": cls.VOL_DOWN,
+            "key_vol_mute": cls.VOL_MUTE,
         }
 
     @classmethod
-    def button_specs(cls) -> List[Tuple[str, str, int, int, str]]:
+    def button_specs(cls) -> List[Tuple[str, str, int, int, str, int]]:
         """
-        (Etiket, renk_grubu, satır, sütun, key_id)
+        (Etiket, renk_grubu, satır, sütun, key_id, colspan)
         renk_grubu: 'nav' | 'vol' | 'screen'
         """
         return [
-            # Navigasyon  (mavi tonu)
-            ("Geri",        "nav",    0, 0, "key_back"),
-            ("Ana Ekran",   "nav",    0, 1, "key_home"),
-            ("Uygulamalar", "nav",    1, 0, "key_recents"),
-            # Ses  (yeşil tonu)
-            ("Ses +",       "vol",    1, 1, "key_vol_up"),
-            ("Ses −",       "vol",    2, 0, "key_vol_down"),
-            # Ekran  (mor tonu) — POWER hem açar hem kilitler
-            ("Güç Tuşu",    "screen", 2, 1, "key_power"),
+            ("Geri", "nav", 0, 0, "key_back", 1),
+            ("Ana Ekran", "nav", 0, 1, "key_home", 1),
+            ("Uygulamalar", "nav", 1, 0, "key_recents", 1),
+            ("Sessize al", "vol", 1, 1, "key_vol_mute", 1),
+            ("Ses +", "vol", 2, 0, "key_vol_up", 1),
+            ("Ses −", "vol", 2, 1, "key_vol_down", 1),
         ]

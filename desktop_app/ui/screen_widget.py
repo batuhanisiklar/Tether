@@ -5,11 +5,27 @@ Frame'leri gösterir; görsel döndürme (0/90/180/270°) destekler.
 Koordinat normalizasyonu hem gerçek image rect hem de döndürme açısına göre yapılır.
 """
 
-from PyQt6.QtWidgets import QLabel, QSizePolicy
-from PyQt6.QtCore import Qt, QRect, pyqtSignal, QPoint
-from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QTransform
+from PyQt6.QtWidgets import (
+    QLabel,
+    QSizePolicy,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+)
+from PyQt6.QtCore import Qt, QRect, QRectF, pyqtSignal, QPoint, QSize
+from PyQt6.QtGui import (
+    QPixmap,
+    QPainter,
+    QColor,
+    QFont,
+    QTransform,
+    QKeyEvent,
+    QPainterPath,
+    QPen,
+)
 
 from desktop_app.config import Ui
+from desktop_app.config.constants import AndroidKeyCodes
 
 
 class ScreenWidget(QLabel):
@@ -29,12 +45,14 @@ class ScreenWidget(QLabel):
 
     touch_event = pyqtSignal(float, float)
     swipe_event = pyqtSignal(float, float, float, float)
+    remote_key_pressed = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setMinimumSize(280, 500)
+        self.setMinimumSize(96, 160)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet(f"""
             QLabel {{
                 background-color: {Ui.SCREEN_PLACEHOLDER_BG};
@@ -89,10 +107,34 @@ class ScreenWidget(QLabel):
         """Her çağrıda 90° saat yönünde döndür (0→90→180→270→0)."""
         self.set_rotation((self._rotation_deg + 90) % 360)
 
+    def effective_frame_size(self) -> tuple[int, int]:
+        """
+        Ekranda görünen görüntünün en/boy oranı (döndürme sonrası).
+        Çerçeve boyutu bu orana göre sıkı sığdırılır.
+        """
+        if self._current_pixmap is None or self._current_pixmap.isNull():
+            return (1080, 2330)
+        pw, ph = self._current_pixmap.width(), self._current_pixmap.height()
+        if pw <= 0 or ph <= 0:
+            return (1080, 2330)
+        return self.displayed_size_for_incoming(pw, ph)
+
+    def displayed_size_for_incoming(self, source_w: int, source_h: int) -> tuple[int, int]:
+        """
+        Sunucudan gelen karenin piksel boyutu + mevcut masaüstü döndürme ile
+        görünür en/boy (çerçeve oranı ve durum çubuğu etiketi bununla uyumlu).
+        """
+        if source_w <= 0 or source_h <= 0:
+            return (1080, 2330)
+        if self._rotation_deg % 180 != 0:
+            return source_h, source_w
+        return source_w, source_h
+
     # ─── MOUSE EVENTS ──────────────────────────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
             pos = event.pos()
             if self._image_rect().contains(pos):
                 self._drag_start = pos
@@ -119,6 +161,45 @@ class ScreenWidget(QLabel):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        key = event.key()
+        mods = event.modifiers()
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        if key == Qt.Key.Key_Escape:
+            self.remote_key_pressed.emit(AndroidKeyCodes.BACK)
+            event.accept()
+            return
+        if ctrl and key == Qt.Key.Key_H:
+            self.remote_key_pressed.emit(AndroidKeyCodes.HOME)
+            event.accept()
+            return
+        if ctrl and key == Qt.Key.Key_Tab:
+            self.remote_key_pressed.emit(AndroidKeyCodes.RECENTS)
+            event.accept()
+            return
+        if ctrl and key == Qt.Key.Key_M:
+            self.remote_key_pressed.emit(AndroidKeyCodes.VOL_MUTE)
+            event.accept()
+            return
+        if key == Qt.Key.Key_VolumeUp or (ctrl and key == Qt.Key.Key_Up):
+            self.remote_key_pressed.emit(AndroidKeyCodes.VOL_UP)
+            event.accept()
+            return
+        if key == Qt.Key.Key_VolumeDown or (ctrl and key == Qt.Key.Key_Down):
+            self.remote_key_pressed.emit(AndroidKeyCodes.VOL_DOWN)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def get_export_pixmap(self) -> QPixmap | None:
+        """Kayıt / pano için: mümkünse ham çözünürlük, yoksa ekrandaki ölçekli görüntü."""
+        if self._current_pixmap is not None and not self._current_pixmap.isNull():
+            return QPixmap(self._current_pixmap)
+        p = self.pixmap()
+        if p is None or p.isNull():
+            return None
+        return QPixmap(p)
 
     # ─── COORDINATE MAPPING ────────────────────────────────────────────────────
 
@@ -203,7 +284,7 @@ class ScreenWidget(QLabel):
 
     def _show_placeholder(self):
         """Bağlantı bekleme ekranı."""
-        ph = QPixmap(self.minimumSize())
+        ph = QPixmap(480, 960)
         ph.fill(QColor(Ui.SCREEN_PLACEHOLDER_BG))
         painter = QPainter(ph)
         painter.setPen(QColor(Ui.SCREEN_PLACEHOLDER_FG))
@@ -216,3 +297,116 @@ class ScreenWidget(QLabel):
         painter.end()
         self._last_render_key = None
         self.setPixmap(ph)
+
+
+class PhoneDeviceFrame(QWidget):
+    """
+    Canlı akışı yuvarlatılmış telefon gövdesi (bezel) içinde gösterir;
+    üstte ince hoparlör, altta home çizgisi süslemesi.
+    """
+
+    _RADIUS = 30.0
+    _M_L = 12
+    _M_T = 20
+    _M_R = 12
+    _M_B = 24
+
+    def __init__(self, inner: ScreenWidget, parent=None):
+        super().__init__(parent)
+        self._inner = inner
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(self._M_L, self._M_T, self._M_R, self._M_B)
+        lay.setSpacing(0)
+        lay.addWidget(inner, stretch=1)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def minimumSizeHint(self) -> QSize:
+        ih = self._inner.minimumSizeHint()
+        return QSize(
+            ih.width() + self._M_L + self._M_R,
+            ih.height() + self._M_T + self._M_B,
+        )
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect())
+        body = QPainterPath()
+        body.addRoundedRect(r, self._RADIUS, self._RADIUS)
+        p.fillPath(body, QColor("#262628"))
+        pen = QPen(QColor("#4a4a4e"))
+        pen.setWidthF(1.8)
+        p.setPen(pen)
+        p.drawPath(body)
+
+        # Üst hoparlör çentiği
+        sp_w, sp_h = 52.0, 5.0
+        sp = QRectF(r.center().x() - sp_w / 2, r.top() + 10, sp_w, sp_h)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#151516"))
+        p.drawRoundedRect(sp, 2.5, 2.5)
+
+        # Alt home göstergesi
+        hb_w, hb_h = 92.0, 4.0
+        hb = QRectF(r.center().x() - hb_w / 2, r.bottom() - 14, hb_w, hb_h)
+        p.setBrush(QColor("#3a3a3e"))
+        p.drawRoundedRect(hb, 2.0, 2.0)
+
+
+class StreamAspectFitContainer(QWidget):
+    """
+    Akış çözünürlüğünün en-boy oranını korur; telefon çerçevesi yatayda gereksiz
+    genişlemez (içte siyah şerit oluşmaz).
+    """
+
+    def __init__(self, phone_frame: PhoneDeviceFrame, parent=None):
+        super().__init__(parent)
+        self._phone = phone_frame
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        hl = QHBoxLayout()
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.addStretch(1)
+        hl.addWidget(self._phone, alignment=Qt.AlignmentFlag.AlignCenter)
+        hl.addStretch(1)
+        outer.addStretch(1)
+        outer.addLayout(hl)
+        outer.addStretch(1)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._last_w = 1080
+        self._last_h = 2330
+
+    def set_stream_dimensions(self, w: int, h: int) -> None:
+        if w <= 0 or h <= 0:
+            return
+        if w == self._last_w and h == self._last_h:
+            return
+        self._last_w = w
+        self._last_h = h
+        self._refit()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refit()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refit()
+
+    def _refit(self) -> None:
+        aw, ah = self.width(), self.height()
+        if aw < 8 or ah < 8:
+            return
+        r = self._last_w / self._last_h
+        w_at_full_h = int(ah * r)
+        if w_at_full_h <= aw:
+            cw, ch = w_at_full_h, ah
+        else:
+            cw, ch = aw, max(int(aw / r), 1)
+        # İç ScreenWidget + PhoneDeviceFrame kenarları için alt sınır
+        cw = max(cw, 124)
+        ch = max(ch, 224)
+        self._phone.setFixedSize(cw, ch)
+        self._phone.updateGeometry()
+        self.updateGeometry()

@@ -191,6 +191,19 @@ class SignalingClient(
                             }
                         }
 
+                        "session_ping" -> {
+                            val pid = json.optInt("ping_id", 0)
+                            try {
+                                webSocket.send(
+                                    JSONObject().apply {
+                                        put("type", "session_pong")
+                                        put("ping_id", pid)
+                                    }.toString(),
+                                )
+                            } catch (_: Exception) {
+                            }
+                        }
+
                         "command" -> {
                             val action = json.optString("action", "")
                             val params = mutableMapOf<String, Any>()

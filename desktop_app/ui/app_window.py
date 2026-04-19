@@ -20,9 +20,9 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
-    QStatusBar,
     QVBoxLayout,
     QWidget,
+    QFileDialog,
 )
 
 from desktop_app.config import AppMeta, ServerDefaults, Network, Ui, Colors, AndroidKeyCodes
@@ -43,7 +43,7 @@ from desktop_app.config.prefs_store import (
 from desktop_app.network.backend_api import BackendApi
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
 from desktop_app.network.ws_client import WsClient
-from desktop_app.ui.screen_widget import ScreenWidget
+from desktop_app.ui.screen_widget import PhoneDeviceFrame, ScreenWidget, StreamAspectFitContainer
 from desktop_app.ui.theme import (
     card_style,
     filled_button_style,
@@ -69,6 +69,139 @@ _RED = "#F87171"
 _TEXT = "#F0F0F0"
 _TEXT_SEC = "#A0A0A0"
 _TEXT_DIM = "#606060"
+
+# Profil drawer konumu (_build_ui ile aynı margin ve sabit çubuk yükseklikleri)
+_MAIN_SHELL_MARGIN = 10
+_WIN_CHROME_BAR_HEIGHT = 36
+_MAIN_NAV_BAR_HEIGHT = 38
+_MAIN_FOOTER_BAR_HEIGHT = 28
+_PROFILE_DRAWER_TOP_OFFSET = (
+    _MAIN_SHELL_MARGIN + _WIN_CHROME_BAR_HEIGHT + _MAIN_NAV_BAR_HEIGHT
+)
+_PROFILE_DRAWER_BOTTOM_GAP = _MAIN_SHELL_MARGIN + _MAIN_FOOTER_BAR_HEIGHT
+
+# Oturum (yayın) sayfası — güncel düğüm stilleri
+_REMOTE_BTN_PRIMARY_SS = f"""
+    QPushButton {{
+        color: #FFFFFF;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #F07858, stop:1 {_ACCENT_HOVER});
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 0 18px;
+    }}
+    QPushButton:hover {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #FF8A6A, stop:1 {_ACCENT});
+        border-color: rgba(255, 255, 255, 0.24);
+    }}
+    QPushButton:pressed {{ background: {_ACCENT_HOVER}; padding-top: 1px; }}
+    QPushButton:disabled {{
+        background: #3D3D3D;
+        color: #777777;
+        border-color: #505050;
+    }}
+"""
+_REMOTE_BTN_ICON_PRIMARY_SS = f"""
+    QPushButton {{
+        color: #FFFFFF;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #F07858, stop:1 {_ACCENT_HOVER});
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 10px;
+        font-size: 15px;
+        font-weight: 700;
+    }}
+    QPushButton:hover {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #FF8A6A, stop:1 {_ACCENT});
+        border-color: rgba(255, 255, 255, 0.24);
+    }}
+    QPushButton:pressed {{ background: {_ACCENT_HOVER}; }}
+    QPushButton:disabled {{
+        background: #3D3D3D;
+        color: #777777;
+        border-color: #505050;
+    }}
+"""
+_REMOTE_BTN_DANGER_SS = f"""
+    QPushButton {{
+        color: #FFB8B8;
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #4A2A2A, stop:1 #3A2222);
+        border: 1px solid rgba(248, 113, 113, 0.35);
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 0 14px;
+    }}
+    QPushButton:hover {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 #5C3434, stop:1 #452828);
+        border-color: rgba(248, 113, 113, 0.55);
+    }}
+    QPushButton:pressed {{ background: #361818; }}
+    QPushButton:disabled {{
+        background-color: {_BG_INPUT};
+        color: {_TEXT_DIM};
+        border-color: {_BORDER_SUBTLE};
+    }}
+"""
+_REMOTE_BTN_GHOST_SS = f"""
+    QPushButton {{
+        color: {_TEXT_SEC};
+        background-color: {_BG_INPUT};
+        border: 1px solid {_BORDER};
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 8px 10px;
+    }}
+    QPushButton:hover {{
+        background-color: #383838;
+        color: {_TEXT};
+        border-color: #555555;
+    }}
+    QPushButton:pressed {{ background-color: #303030; }}
+    QPushButton:disabled {{ color: {_TEXT_DIM}; border-color: {_BORDER_SUBTLE}; }}
+"""
+_REMOTE_KEY_BTN_SS = f"""
+    QPushButton {{
+        background-color: {_BG_INPUT};
+        color: {_TEXT_SEC};
+        border: 1px solid {_BORDER};
+        border-radius: 8px;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 8px 4px;
+    }}
+    QPushButton:hover {{
+        background-color: #3A3A3A;
+        color: {_TEXT};
+        border-color: #555555;
+    }}
+    QPushButton:disabled {{ color: {_TEXT_DIM}; }}
+"""
+_PROFILE_DRAWER_CLOSE_BTN_SS = f"""
+    QPushButton {{
+        color: {_TEXT};
+        background-color: {_BG_INPUT};
+        border: 1px solid {_BORDER};
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 0 16px;
+        min-height: 32px;
+    }}
+    QPushButton:hover {{
+        background-color: #3A3A3A;
+        border-color: {_ACCENT};
+        color: {_TEXT};
+    }}
+    QPushButton:pressed {{ background-color: #2C2C2C; }}
+"""
 
 
 def _desktop_device_name() -> str:
@@ -144,6 +277,32 @@ def _display_username(username: str | None) -> str:
     if not value:
         return "Kullanici"
     return value[:1].upper() + value[1:]
+
+
+class _DraggableTitleBar(QFrame):
+    """Frameless pencerede boş başlık alanından sürükleyerek taşıma (sekmeler/hesap düğmeleri etkilenmez)."""
+
+    def __init__(self, window: QMainWindow, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._window = window
+        self._drag_pos: QPoint | None = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self._window.frameGeometry().topLeft()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (
+            self._drag_pos is not None
+            and event.buttons() == Qt.MouseButton.LeftButton
+        ):
+            self._window.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
 
 def _digits_before_cursor(text: str, cursor: int) -> int:
@@ -345,10 +504,18 @@ class MainWindow(QMainWindow):
         self._profile_drawer_width = 432
         self._profile_cache: dict = {}
         self._profile_anim: QPropertyAnimation | None = None
+        # Telefona birden fazla paired gelince screen_capture_on spamını önlemek için
+        self._screen_capture_prompt_sent: bool = False
+        self._fps_frame_counter: int = 0
+        self._last_stream_size: tuple[int, int] = (0, 0)
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
-        self.setMinimumSize(960, 600)
-        self.resize(1060, 700)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Kart marjinleri + sağ sütun (oturum paneli) için biraz daha ferah alan
+        self.setFixedSize(1320, 920)
         self._load_user_prefs()
         self._apply_global_style()
         self._build_ui()
@@ -361,6 +528,14 @@ class MainWindow(QMainWindow):
         self._reconnect_timer = QTimer(self)
         self._reconnect_timer.setSingleShot(True)
         self._reconnect_timer.timeout.connect(self._reconnect_current_mode)
+
+        self._fps_histogram_timer = QTimer(self)
+        self._fps_histogram_timer.setInterval(1000)
+        self._fps_histogram_timer.timeout.connect(self._tick_stream_fps_label)
+
+        self._session_ping_timer = QTimer(self)
+        self._session_ping_timer.setInterval(2500)
+        self._session_ping_timer.timeout.connect(self._tick_session_ping)
 
         QTimer.singleShot(250, self._load_devices_from_db)
 
@@ -506,8 +681,9 @@ class MainWindow(QMainWindow):
 
     # ── Global stylesheet ────────────────────────────────────────────────────
     def _apply_global_style(self):
+        c = Colors
         self.setStyleSheet(f"""
-            QMainWindow {{ background-color: {_BG}; }}
+            QMainWindow {{ background-color: {c.BG_APP}; }}
             QWidget {{
                 background: transparent; color: {_TEXT};
                 font-family: 'Segoe UI', 'Inter', Arial, sans-serif;
@@ -526,10 +702,22 @@ class MainWindow(QMainWindow):
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(_MAIN_SHELL_MARGIN, _MAIN_SHELL_MARGIN, _MAIN_SHELL_MARGIN, _MAIN_SHELL_MARGIN)
+        outer.setSpacing(0)
+
+        c = Colors
+        card = QFrame(objectName="main_shell_card")
+        card.setStyleSheet(
+            f"QFrame#main_shell_card {{ {card_style(background=c.BG_SURFACE)} }}"
+        )
+        outer.addWidget(card, stretch=1)
+
+        root = QVBoxLayout(card)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        root.addWidget(self._build_window_chrome_bar())
         root.addWidget(self._build_title_bar())
 
         self._pages = QStackedWidget()
@@ -537,19 +725,114 @@ class MainWindow(QMainWindow):
         self._pages.addWidget(self._build_remote_page())
         root.addWidget(self._pages, stretch=1)
 
+        root.addWidget(self._build_footer_status())
+
         # Sağdan açılan profil sekmesi (drawer)
         self._profile_drawer = self._build_profile_drawer(central)
         self._profile_drawer.hide()
 
-        self._status_bar = QStatusBar()
-        self._status_bar.showMessage(Ui.MSG_WAITING)
-        self._status_bar.setStyleSheet(
-            f"QStatusBar {{ background-color: {_BG}; border-top: 1px solid {_BORDER_SUBTLE};"
-            f" color: {_TEXT_SEC}; font-size: 11px; padding: 2px 14px; }}"
-        )
-        self.setStatusBar(self._status_bar)
+    # ── 1. Üst pencere şeridi (login ile aynı mantık: logo + başlık + küçült/kapat) ──
+    def _build_window_chrome_bar(self) -> QWidget:
+        c = Colors
+        bar = _DraggableTitleBar(self)
+        bar.setFixedHeight(_WIN_CHROME_BAR_HEIGHT)
+        bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {c.BG_CARD};
+                border-bottom: 1px solid {c.BORDER};
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+            }}
+        """)
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(14, 0, 10, 0)
+        lay.setSpacing(8)
 
-    # ── 1. Title Bar ─────────────────────────────────────────────────────────
+        mini = QLabel()
+        mini.setFixedSize(18, 18)
+        mini.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pm = self._load_logo_pixmap(18)
+        if pm is not None:
+            mini.setPixmap(pm)
+        else:
+            mini.setStyleSheet(
+                f"background-color: {_ACCENT}; border-radius: 4px; font-size: 9px;"
+                f" color: #1A1A1A; font-weight: 800;"
+            )
+            mini.setText("R")
+        lay.addWidget(mini)
+
+        lbl = QLabel(AppMeta.NAME)
+        lbl.setStyleSheet(text_style(c.TEXT_MUTED, size=11))
+        lay.addWidget(lbl)
+        lay.addStretch()
+
+        _win_tool = f"""
+            QPushButton {{
+                background: transparent; color: {_TEXT_SEC}; border: none;
+                border-radius: 8px; font-size: 16px; font-weight: 500;
+                min-width: 38px; min-height: 28px;
+            }}
+            QPushButton:hover {{ background-color: rgba(255, 255, 255, 0.08); color: {_TEXT}; }}
+        """
+        _win_close = f"""
+            QPushButton {{
+                background: transparent; color: {_TEXT_SEC}; border: none;
+                border-radius: 8px; font-size: 17px; font-weight: 600;
+                min-width: 38px; min-height: 28px;
+            }}
+            QPushButton:hover {{ background-color: rgba(248, 113, 113, 0.22); color: {_RED}; }}
+        """
+        self._btn_win_min = QPushButton("−")
+        self._btn_win_min.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_win_min.setStyleSheet(_win_tool)
+        self._btn_win_min.setToolTip("Simge durumuna kucult")
+        self._btn_win_min.clicked.connect(self.showMinimized)
+        lay.addWidget(self._btn_win_min)
+
+        self._btn_win_close = QPushButton("×")
+        self._btn_win_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_win_close.setStyleSheet(_win_close)
+        self._btn_win_close.setToolTip("Kapat")
+        self._btn_win_close.clicked.connect(self.close)
+        lay.addWidget(self._btn_win_close)
+
+        return bar
+
+    def _build_footer_status(self) -> QFrame:
+        bar = QFrame()
+        bar.setFixedHeight(_MAIN_FOOTER_BAR_HEIGHT)
+        bar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {_BG};
+                border-top: 1px solid {_BORDER_SUBTLE};
+                border-bottom-left-radius: 6px;
+                border-bottom-right-radius: 6px;
+            }}
+        """)
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(14, 4, 14, 4)
+        self._footer_status_label = QLabel(Ui.MSG_WAITING)
+        self._footer_status_label.setStyleSheet(
+            f"color: {_TEXT_SEC}; font-size: 11px; background: transparent;"
+        )
+        lay.addWidget(self._footer_status_label)
+        return bar
+
+    def _load_logo_pixmap(self, size: int) -> QPixmap | None:
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        logo_path = os.path.join(root, "logo.png")
+        pm = QPixmap(logo_path)
+        if pm.isNull():
+            return None
+        return pm.scaled(
+            size,
+            size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
+    # ── 2. Sekmeler + hesap (profil burada, pencere düğmeleri üst şeritte) ─────
     _TAB_STYLE_ACTIVE = (
         f"QPushButton {{ background: transparent; color: {_TEXT}; border: none;"
         f" border-bottom: 2px solid {_ACCENT}; font-size: 12px; font-weight: 600;"
@@ -564,7 +847,7 @@ class MainWindow(QMainWindow):
 
     def _build_title_bar(self) -> QWidget:
         bar = QFrame()
-        bar.setFixedHeight(38)
+        bar.setFixedHeight(_MAIN_NAV_BAR_HEIGHT)
         bar.setStyleSheet(f"background-color: {_BG}; border-bottom: 1px solid {_BORDER_SUBTLE};")
         lay = QHBoxLayout(bar)
         lay.setContentsMargins(14, 0, 14, 0)
@@ -630,7 +913,7 @@ class MainWindow(QMainWindow):
 
         return bar
 
-    # ── 2. Home Page ─────────────────────────────────────────────────────────
+    # ── 3. Home Page ─────────────────────────────────────────────────────────
     def _build_home_page(self) -> QWidget:
         page = QWidget()
         page.setStyleSheet(f"background-color: {_BG};")
@@ -704,18 +987,24 @@ class MainWindow(QMainWindow):
 
         self._warning_close = QPushButton("Kapat")
         self._warning_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._warning_close.setFixedHeight(28)
+        self._warning_close.setFixedHeight(30)
         self._warning_close.setStyleSheet(f"""
             QPushButton {{
-                background-color: rgba(248,113,113,0.14);
-                color: {_RED};
-                border: 1px solid rgba(248,113,113,0.30);
-                border-radius: 6px;
+                color: #FFCCCC;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(248,113,113,0.28), stop:1 rgba(220,80,80,0.18));
+                border: 1px solid rgba(248,113,113,0.45);
+                border-radius: 10px;
                 font-size: 11px;
-                font-weight: 600;
-                padding: 0 12px;
+                font-weight: 700;
+                padding: 0 14px;
             }}
-            QPushButton:hover {{ background-color: rgba(248,113,113,0.20); }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(255,140,140,0.35), stop:1 rgba(248,113,113,0.25));
+                border-color: rgba(255,160,160,0.55);
+            }}
+            QPushButton:pressed {{ background-color: rgba(248,113,113,0.22); }}
         """)
         self._warning_close.clicked.connect(self._hide_warning_banner)
         cl.addWidget(self._warning_close)
@@ -771,16 +1060,9 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._inp_code, stretch=1)
 
         self._btn_connect = QPushButton("→")
-        self._btn_connect.setFixedSize(28, 28)
+        self._btn_connect.setFixedSize(34, 34)
         self._btn_connect.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_connect.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {_ACCENT}; color: white; border: none;
-                border-radius: 4px; font-size: 16px; font-weight: bold;
-            }}
-            QPushButton:hover {{ background-color: {_ACCENT_HOVER}; }}
-            QPushButton:disabled {{ background-color: #444; color: #666; }}
-        """)
+        self._btn_connect.setStyleSheet(_REMOTE_BTN_ICON_PRIMARY_SS)
         lay.addWidget(self._btn_connect)
 
         self._addr_status_label = QLabel("Hazir")
@@ -994,26 +1276,32 @@ class MainWindow(QMainWindow):
             f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
         )
         tbl = QHBoxLayout(top_bar)
-        tbl.setContentsMargins(14, 6, 14, 6)
-        tbl.setSpacing(10)
+        tbl.setContentsMargins(14, 8, 14, 8)
+        tbl.setSpacing(14)
 
-        self._remote_device_badge = QLabel("Bagli cihaz yok")
-        self._remote_device_badge.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px;")
-        tbl.addStretch()
-        tbl.addWidget(self._remote_device_badge)
+        tbl.addStretch(1)
+
+        stats_row = QWidget()
+        stats_row.setStyleSheet("background: transparent;")
+        srl = QHBoxLayout(stats_row)
+        srl.setContentsMargins(0, 0, 0, 0)
+        srl.setSpacing(16)
+        stat_ss = (
+            f"color: {_TEXT_SEC}; font-size: 10px; font-weight: 600; background: transparent;"
+        )
+        self._lbl_sess_res = QLabel("— × —")
+        self._lbl_sess_fps = QLabel("FPS —")
+        self._lbl_sess_rtt = QLabel("RTT —")
+        for lb in (self._lbl_sess_res, self._lbl_sess_fps, self._lbl_sess_rtt):
+            lb.setStyleSheet(stat_ss)
+            srl.addWidget(lb)
+        tbl.addWidget(stats_row, stretch=0)
 
         self._btn_disconnect = QPushButton("Baglantıyi Kes")
         self._btn_disconnect.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_disconnect.setFixedHeight(28)
+        self._btn_disconnect.setFixedHeight(32)
         self._btn_disconnect.setEnabled(False)
-        self._btn_disconnect.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #3A2020; color: #FF8888; border: 1px solid #553333;
-                border-radius: 4px; font-size: 11px; font-weight: 600; padding: 0 12px;
-            }}
-            QPushButton:hover {{ background-color: #4A2828; }}
-            QPushButton:disabled {{ background-color: {_BG_INPUT}; color: {_TEXT_DIM}; border-color: {_BORDER_SUBTLE}; }}
-        """)
+        self._btn_disconnect.setStyleSheet(_REMOTE_BTN_DANGER_SS)
         tbl.addWidget(self._btn_disconnect)
         left.addWidget(top_bar)
 
@@ -1045,27 +1333,21 @@ class MainWindow(QMainWindow):
         self._inp_remote_code.textChanged.connect(self._on_remote_address_text_changed)
         rpl.addWidget(self._inp_remote_code, stretch=1)
         self._btn_remote_connect = QPushButton("Baglan")
-        self._btn_remote_connect.setFixedHeight(28)
+        self._btn_remote_connect.setFixedHeight(32)
         self._btn_remote_connect.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_remote_connect.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {_ACCENT}; color: white; border: none;
-                border-radius: 4px; font-size: 11px; font-weight: 600; padding: 0 14px;
-            }}
-            QPushButton:hover {{ background-color: {_ACCENT_HOVER}; }}
-            QPushButton:disabled {{ background-color: #444; color: #666; }}
-        """)
+        self._btn_remote_connect.setStyleSheet(_REMOTE_BTN_PRIMARY_SS)
         rpl.addWidget(self._btn_remote_connect)
         left.addWidget(self._remote_pair_row)
 
         screen_frame = QFrame()
         screen_frame.setStyleSheet(
-            f"background-color: #0E0E0E; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+            f"background-color: #0d0d0f; border: 1px solid {_BORDER_SUBTLE}; border-radius: 8px;"
         )
         sl = QVBoxLayout(screen_frame)
-        sl.setContentsMargins(4, 4, 4, 4)
+        sl.setContentsMargins(8, 8, 8, 8)
         self._screen = ScreenWidget()
-        sl.addWidget(self._screen, stretch=1)
+        self._stream_aspect_host = StreamAspectFitContainer(PhoneDeviceFrame(self._screen))
+        sl.addWidget(self._stream_aspect_host, stretch=1)
 
         self._lbl_coords = QLabel("")
         self._lbl_coords.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
@@ -1077,10 +1359,12 @@ class MainWindow(QMainWindow):
         layout.addLayout(left, stretch=7)
 
         right = QVBoxLayout()
-        right.setSpacing(8)
+        right.setSpacing(10)
         right.addWidget(self._build_controls_panel())
         right.addWidget(self._build_key_controls_panel())
-        right.addStretch()
+        right.addWidget(self._build_session_actions_panel())
+        right.addWidget(self._build_remote_shortcuts_panel())
+        right.addStretch(1)
         layout.addLayout(right, stretch=3)
         return page
 
@@ -1093,23 +1377,22 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(12, 10, 12, 10)
         lay.setSpacing(8)
 
-        title = QLabel("Kontroller")
+        title = QLabel("Ekran Kontrolleri")
         title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
         lay.addWidget(title)
 
-        self._btn_rotate = QPushButton("Yatay moda gec")
-        self._btn_rotate.setFixedHeight(30)
-        self._btn_rotate.setEnabled(False)
-        self._btn_rotate.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_rotate.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {_BG_INPUT}; color: {_TEXT_SEC};
-                border: 1px solid {_BORDER}; border-radius: 4px; font-size: 11px;
-            }}
-            QPushButton:hover {{ background-color: #383838; color: {_TEXT}; }}
-            QPushButton:disabled {{ color: {_TEXT_DIM}; }}
-        """)
-        lay.addWidget(self._btn_rotate)
+        rot_row = QHBoxLayout()
+        rot_row.setSpacing(8)
+        self._btn_rotate_left = QPushButton("Sola dön")
+        self._btn_rotate_right = QPushButton("Sağa dön")
+        for b in (self._btn_rotate_left, self._btn_rotate_right):
+            b.setFixedHeight(36)
+            b.setEnabled(False)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(_REMOTE_BTN_GHOST_SS)
+        rot_row.addWidget(self._btn_rotate_left, stretch=1)
+        rot_row.addWidget(self._btn_rotate_right, stretch=1)
+        lay.addLayout(rot_row)
         return panel
 
     def _build_key_controls_panel(self) -> QFrame:
@@ -1130,25 +1413,153 @@ class MainWindow(QMainWindow):
         self._key_buttons = []
         key_codes = AndroidKeyCodes.as_mapping()
 
-        _btn_style = f"""
-            QPushButton {{
-                background-color: {_BG_INPUT}; color: {_TEXT_SEC};
-                border: 1px solid {_BORDER}; border-radius: 4px;
-                font-size: 10px; padding: 6px 2px;
-            }}
-            QPushButton:hover {{ background-color: #383838; color: {_TEXT}; }}
-            QPushButton:disabled {{ color: {_TEXT_DIM}; }}
-        """
-
-        for label, group, row, col, key_id in AndroidKeyCodes.button_specs():
+        for label, group, row, col, key_id, colspan in AndroidKeyCodes.button_specs():
             btn = QPushButton(label)
             btn.setEnabled(False)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(_btn_style)
+            btn.setStyleSheet(_REMOTE_KEY_BTN_SS)
             btn.clicked.connect(lambda _, code=key_codes[key_id]: self._ws_client.send_key_event(code))
-            grid.addWidget(btn, row, col)
+            if colspan > 1:
+                grid.addWidget(btn, row, col, 1, colspan)
+            else:
+                grid.addWidget(btn, row, col)
             self._key_buttons.append(btn)
         lay.addLayout(grid)
+        return panel
+
+    def _build_session_actions_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setStyleSheet(
+            f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+        )
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(8)
+
+        title = QLabel("Ekran ve pano")
+        title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 700;")
+        lay.addWidget(title)
+
+        self._btn_sess_clip = QPushButton("Görüntüyü panoya kopyala")
+        self._btn_sess_clip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_sess_clip.setStyleSheet(_REMOTE_BTN_GHOST_SS)
+        self._btn_sess_clip.setFixedHeight(34)
+        self._btn_sess_clip.clicked.connect(self._screenshot_to_clipboard)
+        lay.addWidget(self._btn_sess_clip)
+
+        self._btn_sess_save = QPushButton("PNG olarak kaydet…")
+        self._btn_sess_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_sess_save.setStyleSheet(_REMOTE_BTN_GHOST_SS)
+        self._btn_sess_save.setFixedHeight(34)
+        self._btn_sess_save.clicked.connect(self._screenshot_save_png)
+        lay.addWidget(self._btn_sess_save)
+
+        self._btn_sess_paste = QPushButton("Panodaki metni telefona gönder")
+        self._btn_sess_paste.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_sess_paste.setStyleSheet(_REMOTE_BTN_PRIMARY_SS)
+        self._btn_sess_paste.setFixedHeight(36)
+        self._btn_sess_paste.clicked.connect(self._send_clipboard_text_to_phone)
+        self._btn_sess_paste.setEnabled(False)
+        lay.addWidget(self._btn_sess_paste)
+
+        return panel
+
+    def _build_remote_shortcuts_panel(self) -> QFrame:
+        """Tam genişlikte tuş + alt satır açıklama; dar panelde iki sütun kısılmaz."""
+        panel = QFrame()
+        panel.setStyleSheet(
+            f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
+        )
+        root = QVBoxLayout(panel)
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(10)
+
+        title = QLabel("Klavye kısayolları")
+        title.setStyleSheet(f"color: {_ACCENT}; font-size: 12px; font-weight: 700;")
+        root.addWidget(title)
+
+        intro = QLabel(
+            "Tuşlar yalnızca sol taraftaki canlı görüntü odaktayken çalışır; önce görüntüye tıklayın."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px; background: transparent;")
+        root.addWidget(intro)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMinimumHeight(136)
+        scroll.setViewportMargins(0, 0, 10, 0)
+        scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                background-color: {_BG_RAISED};
+                width: 11px;
+                margin: 4px 6px 4px 4px;
+                border-radius: 6px;
+                border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {_ACCENT};
+                border-radius: 5px;
+                min-height: 44px;
+                margin: 2px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background-color: #e07a62;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                border: none;
+                height: 0px;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: none;
+            }}
+        """)
+
+        shortcuts_rows: list[tuple[str, str]] = [
+            ("Esc", "Geri: bir önceki ekrana veya uygulamadan çıkışa benzer."),
+            ("Ctrl+H", "Ana ekran: telefonun ana sayfasına döner."),
+            ("Ctrl+Tab", "Son uygulamalar: çoklu görev / uygulama geçiş listesini açar."),
+            ("Ctrl+M", "Medya sesini sessize alır veya sessizi açar (aynı düğme)."),
+            ("Ctrl+↑ / Ctrl+↓", "Ses aç / kıs (medya akışı)."),
+        ]
+
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        vl = QVBoxLayout(inner)
+        vl.setContentsMargins(2, 4, 2, 8)
+        vl.setSpacing(0)
+
+        key_ss = (
+            f"color: {_ACCENT}; font-size: 12px; font-weight: 700;"
+            f" font-family: 'Cascadia Mono', 'Consolas', 'Segoe UI', monospace;"
+            f" background: transparent;"
+        )
+        desc_ss = f"color: {_TEXT_SEC}; font-size: 12px; background: transparent;"
+
+        for idx, (key_text, explanation) in enumerate(shortcuts_rows):
+            kl = QLabel(key_text)
+            kl.setStyleSheet(key_ss)
+            kl.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            kl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            vl.addWidget(kl)
+
+            dl = QLabel(explanation)
+            dl.setWordWrap(True)
+            dl.setStyleSheet(desc_ss)
+            dl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            dl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            vl.addWidget(dl)
+            if idx < len(shortcuts_rows) - 1:
+                vl.addSpacing(10)
+
+        scroll.setWidget(inner)
+        root.addWidget(scroll, stretch=1)
         return panel
 
     # ── Signals ──────────────────────────────────────────────────────────────
@@ -1156,7 +1567,8 @@ class MainWindow(QMainWindow):
         self._btn_connect.clicked.connect(self._on_connect)
         self._btn_remote_connect.clicked.connect(self._on_remote_connect)
         self._btn_disconnect.clicked.connect(self._on_disconnect)
-        self._btn_rotate.clicked.connect(self._on_rotate_toggle)
+        self._btn_rotate_left.clicked.connect(self._on_rotate_left)
+        self._btn_rotate_right.clicked.connect(self._on_rotate_right)
         self._ws_client.connected.connect(self._on_ws_connected)
         self._ws_client.disconnected.connect(self._on_ws_disconnected)
         self._ws_client.paired.connect(self._on_paired)
@@ -1175,6 +1587,11 @@ class MainWindow(QMainWindow):
         self._mjpeg.stream_stopped.connect(self._on_stream_stopped)
         self._screen.touch_event.connect(self._on_touch)
         self._screen.swipe_event.connect(self._on_swipe)
+        self._screen.remote_key_pressed.connect(self._on_screen_remote_key)
+        self._ws_client.session_rtt_ms.connect(
+            self._on_session_rtt,
+            Qt.ConnectionType.QueuedConnection,
+        )
 
     def _switch_page(self, index: int):
         self._current_page = index
@@ -1282,11 +1699,9 @@ class MainWindow(QMainWindow):
         if self._connected and (active_card or self._paired_phone_id):
             display_name = active_card.display_name() if active_card else f"...{self._paired_phone_id[-8:]}"
             compact_name = _compact_label(display_name, 20)
-            self._remote_device_badge.setText(f"Aktif: {compact_name}")
             self._tab_session_btn.setText(f"  {compact_name}")
             self._tab_session.show()
         else:
-            self._remote_device_badge.setText("Bagli cihaz yok")
             self._tab_session.hide()
 
         if self._account_button is not None:
@@ -1536,9 +1951,11 @@ class MainWindow(QMainWindow):
         header.addStretch()
 
         btn_close = QPushButton("Kapat")
-        btn_close.setFixedHeight(28)
+        btn_close.setFixedHeight(32)
+        btn_close.setMinimumWidth(86)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.setStyleSheet(outline_button_style())
+        btn_close.setStyleSheet(_PROFILE_DRAWER_CLOSE_BTN_SS)
+        btn_close.setToolTip("Profil panelini kapat")
         btn_close.clicked.connect(self._close_profile_drawer)
         header.addWidget(btn_close)
         root.addLayout(header)
@@ -1681,7 +2098,7 @@ class MainWindow(QMainWindow):
 
         edit_lay.addWidget(_section_lbl("İletişim bilgileri"))
 
-        edit_lay.addWidget(_field_lbl("Ad ve soyad (salt okunur)"))
+        edit_lay.addWidget(_field_lbl("Ad ve soyad"))
         self._profile_readonly_name = QLabel("")
         self._profile_readonly_name.setWordWrap(True)
         self._profile_readonly_name.setMinimumHeight(32)
@@ -1893,24 +2310,40 @@ class MainWindow(QMainWindow):
     def _close_profile_drawer(self) -> None:
         self._set_profile_drawer_open(False)
 
+    def _profile_drawer_geometry(self) -> tuple[int, int, int]:
+        """
+        Profil paneli: üstteki taşıma / küçült / kapat şeritlerini örtmez.
+        Dönüş: (top_y, height, central_width).
+        """
+        cw = self.centralWidget()
+        if cw is None:
+            h = max(
+                160,
+                self.height() - _PROFILE_DRAWER_TOP_OFFSET - _PROFILE_DRAWER_BOTTOM_GAP,
+            )
+            return _PROFILE_DRAWER_TOP_OFFSET, h, self.width()
+        inner_h = cw.height() - _PROFILE_DRAWER_TOP_OFFSET - _PROFILE_DRAWER_BOTTOM_GAP
+        h = max(160, inner_h)
+        return _PROFILE_DRAWER_TOP_OFFSET, h, cw.width()
+
     def _set_profile_drawer_open(self, open_: bool) -> None:
         if self._profile_drawer_open == open_:
             return
         self._profile_drawer_open = open_
 
-        # Parent alanı kaplaması için: yükseklik tam olsun
-        parent = self.centralWidget()
-        if parent is not None:
-            self._profile_drawer.setFixedHeight(parent.height())
+        top, drawer_h, cw_w = self._profile_drawer_geometry()
+        self._profile_drawer.setFixedHeight(drawer_h)
+
+        m = _MAIN_SHELL_MARGIN
+        start_x = cw_w if open_ else (cw_w - self._profile_drawer_width - m)
+        end_x = (cw_w - self._profile_drawer_width - m) if open_ else cw_w
 
         if open_:
             self._profile_drawer.show()
+            self._profile_drawer.raise_()
 
-        start_x = self.width() if open_ else (self.width() - self._profile_drawer_width)
-        end_x = (self.width() - self._profile_drawer_width) if open_ else self.width()
-        y = 0
-        start_pos = QPoint(start_x, y)
-        end_pos = QPoint(end_x, y)
+        start_pos = QPoint(start_x, top)
+        end_pos = QPoint(end_x, top)
         self._profile_drawer.move(start_pos)
 
         if self._profile_anim is not None:
@@ -1935,13 +2368,14 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Drawer açıksa sağa yapışık kalsın.
         if hasattr(self, "_profile_drawer"):
+            top, dh, cw_w = self._profile_drawer_geometry()
+            self._profile_drawer.setFixedHeight(dh)
+            m = _MAIN_SHELL_MARGIN
             if self._profile_drawer_open:
-                self._profile_drawer.setFixedHeight(self.centralWidget().height() if self.centralWidget() else self.height())
-                self._profile_drawer.move(self.width() - self._profile_drawer_width, 0)
+                self._profile_drawer.move(cw_w - self._profile_drawer_width - m, top)
             else:
-                self._profile_drawer.move(self.width(), 0)
+                self._profile_drawer.move(cw_w, top)
 
     def _save_profile_from_drawer(self) -> None:
         if not self._auth_token:
@@ -2046,7 +2480,6 @@ class MainWindow(QMainWindow):
             self._paired_phone_address = _address_digits(address)
         self._paired_phone_id = card.device_id
         display_name = _compact_label(card.display_name(), 20)
-        self._remote_device_badge.setText(f"Baglaniyor: {display_name}")
         self._tab_session_btn.setText(f"  {display_name}")
         self._tab_session.show()
         self._switch_page(1)
@@ -2132,7 +2565,6 @@ class MainWindow(QMainWindow):
         display_name = None
         if matching_card:
             display_name = _compact_label(matching_card.display_name(), 20)
-        self._remote_device_badge.setText(f"Baglaniyor: {display_name or 'cihaz'}")
         self._tab_session_btn.setText(f"  {display_name or 'Baglaniyor'}")
         self._tab_session.show()
         self._switch_page(1)
@@ -2330,7 +2762,9 @@ class MainWindow(QMainWindow):
                 return
             except Exception:
                 logger.exception("MJPEG akisi baslatilamadi")
-        QTimer.singleShot(700, self._request_phone_screen_capture)
+        if not self._screen_capture_prompt_sent:
+            self._screen_capture_prompt_sent = True
+            QTimer.singleShot(700, self._request_phone_screen_capture)
         self._refresh_paired_stream_status()
 
     @pyqtSlot(list, list, object)
@@ -2470,6 +2904,7 @@ class MainWindow(QMainWindow):
             self._switch_page(1)
         self._remote_frame_visible = True
         self._screen.set_frame(pixmap)
+        self._note_stream_frame(pixmap.width(), pixmap.height())
         self._refresh_paired_stream_status()
 
     @pyqtSlot(QPixmap)
@@ -2478,6 +2913,7 @@ class MainWindow(QMainWindow):
             return
         self._remote_frame_visible = True
         self._screen.set_frame(pm)
+        self._note_stream_frame(pm.width(), pm.height())
         if self._connected:
             self._refresh_paired_stream_status()
 
@@ -2495,14 +2931,24 @@ class MainWindow(QMainWindow):
         else:
             self._screen.clear_frame()
 
-    @pyqtSlot()
-    def _on_rotate_toggle(self):
-        self._rotation_step = (self._rotation_step + 1) % 4
+    def _apply_rotation_step(self) -> None:
+        """Mevcut adımı ekrana ve telefona uygula (0°–270°)."""
         deg = self._rotation_step * 90
         self._screen.set_rotation(deg)
-        labels = {0: "Yatay moda gec", 90: "180°", 180: "270°", 270: "Dikey moda don"}
-        self._btn_rotate.setText(labels[deg])
-        self._ws_client.send_rotate_screen(deg in (90, 270))
+        self._sync_stream_aspect_fit()
+        self._ws_client.send_rotate_screen(deg)
+
+    @pyqtSlot()
+    def _on_rotate_left(self):
+        """Saat yönünün tersine 90° (sola)."""
+        self._rotation_step = (self._rotation_step + 3) % 4
+        self._apply_rotation_step()
+
+    @pyqtSlot()
+    def _on_rotate_right(self):
+        """Saat yönünde 90° (sağa)."""
+        self._rotation_step = (self._rotation_step + 1) % 4
+        self._apply_rotation_step()
 
     @pyqtSlot(float, float)
     def _on_touch(self, x: float, y: float):
@@ -2535,13 +2981,112 @@ class MainWindow(QMainWindow):
             return
         self._set_status(Ui.MSG_PAIRED_WAIT_STREAM)
 
+    def _sync_stream_aspect_fit(self, ew: int | None = None, eh: int | None = None) -> None:
+        if not hasattr(self, "_stream_aspect_host"):
+            return
+        if ew is None or eh is None:
+            ew, eh = self._screen.effective_frame_size()
+        if ew <= 0 or eh <= 0:
+            return
+        self._stream_aspect_host.set_stream_dimensions(ew, eh)
+
+    def _note_stream_frame(self, w: int, h: int) -> None:
+        """Gelen kare boyutu + döndürme ile çerçeve oranı ve çözünürlük etiketi güncellenir."""
+        ew, eh = self._screen.displayed_size_for_incoming(w, h)
+        if ew > 0 and eh > 0 and hasattr(self, "_lbl_sess_res"):
+            self._lbl_sess_res.setText(f"{ew}×{eh}")
+        self._sync_stream_aspect_fit(ew, eh)
+        self._fps_frame_counter += 1
+
+    @pyqtSlot()
+    def _tick_stream_fps_label(self) -> None:
+        if not hasattr(self, "_lbl_sess_fps"):
+            return
+        if not self._connected:
+            self._lbl_sess_fps.setText("FPS —")
+            self._fps_frame_counter = 0
+            return
+        fps = self._fps_frame_counter
+        self._fps_frame_counter = 0
+        self._lbl_sess_fps.setText(f"FPS {fps}")
+
+    @pyqtSlot()
+    def _tick_session_ping(self) -> None:
+        if self._connected:
+            self._ws_client.send_session_ping()
+
+    @pyqtSlot(float)
+    def _on_session_rtt(self, ms: float) -> None:
+        if hasattr(self, "_lbl_sess_rtt"):
+            self._lbl_sess_rtt.setText(f"RTT {ms:.0f} ms")
+
+    def _reset_session_stats_labels(self) -> None:
+        if not hasattr(self, "_lbl_sess_res"):
+            return
+        self._lbl_sess_res.setText("— × —")
+        self._lbl_sess_fps.setText("FPS —")
+        self._lbl_sess_rtt.setText("RTT —")
+
+    def _on_screen_remote_key(self, key_code: int) -> None:
+        if not self._connected:
+            return
+        self._ws_client.send_key_event(int(key_code))
+
+    def _screenshot_to_clipboard(self) -> None:
+        pm = self._screen.get_export_pixmap()
+        if pm is None or pm.isNull():
+            self._set_status("Kopyalanacak goruntu yok.", error=True)
+            return
+        QApplication.clipboard().setPixmap(pm)
+        self._set_status(f"Panoya kopyalandi ({pm.width()}x{pm.height()}).")
+
+    def _screenshot_save_png(self) -> None:
+        pm = self._screen.get_export_pixmap()
+        if pm is None or pm.isNull():
+            self._set_status("Kaydedilecek goruntu yok.", error=True)
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "PNG olarak kaydet", "remote_ekran.png", "PNG (*.png)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".png"):
+            path += ".png"
+        if pm.save(path, "PNG"):
+            self._set_status(f"Kaydedildi: {path}")
+        else:
+            self._set_status("PNG kaydedilemedi.", error=True)
+
+    def _send_clipboard_text_to_phone(self) -> None:
+        if not self._connected:
+            self._set_status("Once oturum ile baglanin.", error=True)
+            return
+        text = QApplication.clipboard().text()
+        if not (text or "").strip():
+            self._set_status("Pano bos.", error=True)
+            return
+        self._ws_client.send_paste_text(text)
+        self._set_status(f"Pano metni gonderildi ({len(text)} karakter).")
+
     def _set_connected(self, connected: bool):
         self._connected = connected
+        if not connected:
+            self._screen_capture_prompt_sent = False
+            self._fps_histogram_timer.stop()
+            self._session_ping_timer.stop()
+            self._reset_session_stats_labels()
+            self._sync_stream_aspect_fit()
+        else:
+            self._fps_histogram_timer.start()
+            self._session_ping_timer.start()
+        if hasattr(self, "_btn_sess_paste"):
+            self._btn_sess_paste.setEnabled(connected)
         self._btn_connect.setEnabled(not connected)
         self._btn_remote_connect.setEnabled(not connected)
         self._remote_pair_row.setVisible(not connected)
         self._btn_disconnect.setEnabled(connected)
-        self._btn_rotate.setEnabled(connected)
+        self._btn_rotate_left.setEnabled(connected)
+        self._btn_rotate_right.setEnabled(connected)
         for btn in self._key_buttons:
             btn.setEnabled(connected)
         if connected:
@@ -2553,16 +3098,18 @@ class MainWindow(QMainWindow):
 
     def _set_status(self, msg: str, error: bool = False):
         color = _RED if error else _TEXT_SEC
-        self._status_bar.setStyleSheet(
-            f"QStatusBar {{ background-color: {_BG}; border-top: 1px solid {_BORDER_SUBTLE};"
-            f" color: {color}; font-size: 11px; padding: 2px 14px; }}"
-        )
-        self._status_bar.showMessage(msg)
+        label = getattr(self, "_footer_status_label", None)
+        if label is None:
+            return
+        label.setStyleSheet(f"color: {color}; font-size: 11px; background: transparent;")
+        label.setText(msg)
 
     def closeEvent(self, event):
         self._mjpeg.stop()
         self._presence_timer.stop()
         self._reconnect_timer.stop()
+        self._fps_histogram_timer.stop()
+        self._session_ping_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect()
         super().closeEvent(event)

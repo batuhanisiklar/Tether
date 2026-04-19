@@ -6,9 +6,14 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Path
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.media.AudioManager
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.*
 
 /**
@@ -30,6 +35,9 @@ class ControlReceiver : AccessibilityService() {
         // Singleton erişim — MainActivity'den komut göndermek için
         var instance: ControlReceiver? = null
             private set
+
+        /** Sessize almadan önce STREAM_MUSIC seviyesi (geri yükleme için). */
+        private var musicVolBeforeMute: Int = -1
     }
 
     override fun onServiceConnected() {
@@ -121,6 +129,9 @@ class ControlReceiver : AccessibilityService() {
             KeyEvent.KEYCODE_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
             KeyEvent.KEYCODE_APP_SWITCH -> performGlobalAction(GLOBAL_ACTION_RECENTS)
             KeyEvent.KEYCODE_POWER -> performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+            KeyEvent.KEYCODE_VOLUME_UP -> adjustVolume(1)
+            KeyEvent.KEYCODE_VOLUME_DOWN -> adjustVolume(-1)
+            KeyEvent.KEYCODE_VOLUME_MUTE -> toggleStreamMute()
             else -> {
                 Log.w(TAG, "Unhandled key: $keyCode")
                 false
@@ -128,5 +139,95 @@ class ControlReceiver : AccessibilityService() {
         }
         Log.d(TAG, "Key event: $keyCode handled=$handled")
         return handled
+    }
+
+    private fun adjustVolume(direction: Int): Boolean {
+        return try {
+            val am = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+            val adj = if (direction > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, adj, AudioManager.FLAG_SHOW_UI)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Volume adjust: $e")
+            false
+        }
+    }
+
+    /**
+     * Medya sesini tamamen kes / önceki seviyeye döndür.
+     * ADJUST_TOGGLE_MUTE birçok OEM'de güvenilir değil; setStreamVolume kullanıyoruz.
+     */
+    private fun toggleStreamMute(): Boolean {
+        val am = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+        val stream = AudioManager.STREAM_MUSIC
+        return try {
+            val maxV = am.getStreamMaxVolume(stream)
+            val cur = am.getStreamVolume(stream)
+            when {
+                cur > 0 -> {
+                    musicVolBeforeMute = cur
+                    am.setStreamVolume(stream, 0, AudioManager.FLAG_SHOW_UI)
+                    Log.d(TAG, "Mute: volume 0 (was $cur)")
+                }
+                else -> {
+                    val restore = when {
+                        musicVolBeforeMute in 1..maxV -> musicVolBeforeMute
+                        else -> maxOf(1, maxV / 4)
+                    }
+                    am.setStreamVolume(stream, restore, AudioManager.FLAG_SHOW_UI)
+                    Log.d(TAG, "Mute off: restored to $restore")
+                    musicVolBeforeMute = -1
+                }
+            }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Mute toggle: $e")
+            false
+        }
+    }
+
+    /**
+     * Masaüstünden gelen düz metni odaklı alana yazar veya panoya yapıştırır.
+     */
+    fun performPasteText(text: String): Boolean {
+        val t = text.ifBlank { return false }
+        val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("rpc", t))
+
+        val root = rootInActiveWindow ?: run {
+            Log.w(TAG, "paste_text: rootInActiveWindow null")
+            return false
+        }
+
+        try {
+            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (focused == null) {
+                Log.w(TAG, "paste_text: odakli metin alani yok (metin cihaz panosunda)")
+                return false
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    val args = Bundle()
+                    args.putCharSequence(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        t,
+                    )
+                    if (focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                        Log.d(TAG, "paste_text: SET_TEXT ok (${t.length} chars)")
+                        return true
+                    }
+                }
+                if (focused.performAction(AccessibilityNodeInfo.ACTION_PASTE)) {
+                    Log.d(TAG, "paste_text: PASTE ok")
+                    return true
+                }
+            } finally {
+                focused.recycle()
+            }
+        } finally {
+            root.recycle()
+        }
+        Log.w(TAG, "paste_text: basarisiz")
+        return false
     }
 }
