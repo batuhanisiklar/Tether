@@ -335,8 +335,20 @@ class ServerDbClient:
                         )
                         return str(row[0])
 
-                    # 2) Yeni kayıt — benzersiz bir device_id üret
-                    new_device_id = secrets.token_hex(6)  # 12 karakter hex
+                    # 2) Yeni kayıt — 12 haneli global olarak benzersiz bir device_id üret
+                    new_device_id = None
+                    for _ in range(10):  # çakışma ihtimaline karşı retry
+                        candidate = "".join(secrets.choice("0123456789") for _ in range(12))
+                        cur.execute(
+                            "SELECT 1 FROM devices WHERE device_id = %s",
+                            (candidate,),
+                        )
+                        if cur.fetchone() is None:
+                            new_device_id = candidate
+                            break
+                    if new_device_id is None:
+                        logger.error("register_device: 10 denemede benzersiz device_id uretildi")
+                        return None
                     cur.execute(
                         """
                         INSERT INTO devices (device_id, device_name, device_type, user_id, mac_address)
