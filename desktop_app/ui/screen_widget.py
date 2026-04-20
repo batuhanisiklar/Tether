@@ -109,15 +109,14 @@ class ScreenWidget(QLabel):
 
     def effective_frame_size(self) -> tuple[int, int]:
         """
-        Ekranda görünen görüntünün en/boy oranı (döndürme sonrası).
-        Çerçeve boyutu bu orana göre sıkı sığdırılır.
+        Daima masaüstündeki kullanıcı dönüş yönüne göre telefon çerçevesinin (bezel)
+        oranını belirler. Gelen yayının (pw, ph) yamuk/yatay olmasına bakılmaz, 
+        doğrudan masaüstü çerçevesinin şekli dikey ya da yatay kitlenir.
         """
-        if self._current_pixmap is None or self._current_pixmap.isNull():
-            return (1080, 2330)
-        pw, ph = self._current_pixmap.width(), self._current_pixmap.height()
-        if pw <= 0 or ph <= 0:
-            return (1080, 2330)
-        return self.displayed_size_for_incoming(pw, ph)
+        base_w, base_h = 1080, 2330
+        if self._rotation_deg % 180 != 0:
+            return base_h, base_w
+        return base_w, base_h
 
     def displayed_size_for_incoming(self, source_w: int, source_h: int) -> tuple[int, int]:
         """
@@ -339,18 +338,29 @@ class PhoneDeviceFrame(QWidget):
         p.setPen(pen)
         p.drawPath(body)
 
-        # Üst hoparlör çentiği
-        sp_w, sp_h = 52.0, 5.0
-        sp = QRectF(r.center().x() - sp_w / 2, r.top() + 10, sp_w, sp_h)
+        is_landscape = r.width() > r.height()
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#151516"))
-        p.drawRoundedRect(sp, 2.5, 2.5)
 
-        # Alt home göstergesi
-        hb_w, hb_h = 92.0, 4.0
-        hb = QRectF(r.center().x() - hb_w / 2, r.bottom() - 14, hb_w, hb_h)
-        p.setBrush(QColor("#3a3a3e"))
-        p.drawRoundedRect(hb, 2.0, 2.0)
+        if is_landscape:
+            sp_w, sp_h = 5.0, 52.0
+            sp = QRectF(r.left() + 10, r.center().y() - sp_h / 2, sp_w, sp_h)
+            p.setBrush(QColor("#151516"))
+            p.drawRoundedRect(sp, 2.5, 2.5)
+
+            hb_w, hb_h = 4.0, 92.0
+            hb = QRectF(r.right() - 14, r.center().y() - hb_h / 2, hb_w, hb_h)
+            p.setBrush(QColor("#3a3a3e"))
+            p.drawRoundedRect(hb, 2.0, 2.0)
+        else:
+            sp_w, sp_h = 52.0, 5.0
+            sp = QRectF(r.center().x() - sp_w / 2, r.top() + 10, sp_w, sp_h)
+            p.setBrush(QColor("#151516"))
+            p.drawRoundedRect(sp, 2.5, 2.5)
+
+            hb_w, hb_h = 92.0, 4.0
+            hb = QRectF(r.center().x() - hb_w / 2, r.bottom() - 14, hb_w, hb_h)
+            p.setBrush(QColor("#3a3a3e"))
+            p.drawRoundedRect(hb, 2.0, 2.0)
 
 
 class StreamAspectFitContainer(QWidget):

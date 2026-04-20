@@ -101,12 +101,14 @@ def save_session(
             Prefs.KEY_USER_ID: user_id,
             Prefs.KEY_USERNAME: username,
             Prefs.KEY_USER_ADDRESS: digits,
-            Prefs.KEY_DEVICE_ID: digits,
+            # KEY_DEVICE_ID burada kasıtlı olarak set edilmiyor — cihaz ID'si
+            # load_or_create_device_id() tarafından ayrıca yönetilir.
             **({Prefs.KEY_USER_EMAIL: em} if em else {}),
             Prefs.KEY_USER_FIRST_NAME: (first_name or "").strip(),
             Prefs.KEY_USER_LAST_NAME: (last_name or "").strip(),
         }
     )
+
 
 
 def save_auth_token(token: str) -> None:
