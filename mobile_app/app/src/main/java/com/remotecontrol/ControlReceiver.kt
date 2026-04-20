@@ -16,17 +16,6 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.*
 
-/**
- * Kontrol Alıcısı
- * ================
- * Signaling üzerinden gelen touch/swipe/key komutlarını uygular.
- *
- * NOT: Touch simülasyonu için AccessibilityService gereklidir.
- * Kullanıcının Ayarlar > Erişilebilirlik bölümünden bu servisi aktif etmesi gerekir.
- * Manifeste AccessibilityService tanımlanmıştır.
- *
- * Alternatif: ADB'yi root olmadan kullanmak için geliştirici seçeneklerinden USB debug.
- */
 class ControlReceiver : AccessibilityService() {
 
     companion object {

@@ -88,7 +88,7 @@ _REMOTE_BTN_PRIMARY_SS = f"""
             stop:0 #F07858, stop:1 {_ACCENT_HOVER});
         border: 1px solid rgba(255, 255, 255, 0.14);
         border-radius: 10px;
-        font-size: 11px;
+        font-size: 14px;
         font-weight: 700;
         padding: 0 18px;
     }}
@@ -133,7 +133,7 @@ _REMOTE_BTN_DANGER_SS = f"""
             stop:0 #4A2A2A, stop:1 #3A2222);
         border: 1px solid rgba(248, 113, 113, 0.35);
         border-radius: 10px;
-        font-size: 11px;
+        font-size: 14px;
         font-weight: 700;
         padding: 0 14px;
     }}
@@ -155,8 +155,8 @@ _REMOTE_BTN_GHOST_SS = f"""
         background-color: {_BG_INPUT};
         border: 1px solid {_BORDER};
         border-radius: 10px;
-        font-size: 11px;
-        font-weight: 600;
+        font-size: 14px;
+        font-weight: 700;
         padding: 8px 10px;
     }}
     QPushButton:hover {{
@@ -173,8 +173,8 @@ _REMOTE_KEY_BTN_SS = f"""
         color: {_TEXT_SEC};
         border: 1px solid {_BORDER};
         border-radius: 8px;
-        font-size: 10px;
-        font-weight: 600;
+        font-size: 12px;
+        font-weight: 700;
         padding: 8px 4px;
     }}
     QPushButton:hover {{
@@ -231,6 +231,15 @@ def _compact_label(text: str, limit: int = 24) -> str:
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
+def _session_tab_label(owner_name: str | None, device_label: str | None, address_digits: str | None) -> str:
+    owner = (owner_name or "").strip()
+    device = (device_label or "").strip()
+    addr = _address_digits(address_digits)
+    addr_fmt = _format_address(addr) if addr else ""
+    parts = [p for p in (owner, device, addr_fmt) if p]
+    return " - ".join(parts) if parts else "Oturum"
+
+
 def _address_digits(value: str | None) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())[:12]
 
@@ -269,6 +278,25 @@ def _merge_phone_device_row(existing: dict, row: dict) -> dict:
     for key in ("owner_name", "owner_phone", "owner_email", "owner_user_id"):
         if key in row and row.get(key) is not None:
             out[key] = row.get(key)
+    # Bazı endpoint'ler owner bilgisini farklı formatta döndürebilir; tek alana indir.
+    if not (str(out.get("owner_name") or "").strip()):
+        owner_obj = row.get("owner")
+        if isinstance(owner_obj, dict):
+            fn = str(owner_obj.get("first_name") or owner_obj.get("firstName") or "").strip()
+            ln = str(owner_obj.get("last_name") or owner_obj.get("lastName") or "").strip()
+            full = f"{fn} {ln}".strip()
+            if full:
+                out["owner_name"] = full
+            else:
+                name = str(owner_obj.get("name") or "").strip()
+                if name:
+                    out["owner_name"] = name
+        else:
+            fn = str(row.get("owner_first_name") or row.get("ownerFirstName") or "").strip()
+            ln = str(row.get("owner_last_name") or row.get("ownerLastName") or "").strip()
+            full = f"{fn} {ln}".strip()
+            if full:
+                out["owner_name"] = full
     return out
 
 
@@ -325,13 +353,16 @@ def _cursor_for_digit_count(text: str, digit_count: int) -> int:
 # DeviceCard
 # ─────────────────────────────────────────────────────────────────────────────
 class DeviceCard(QFrame):
+    CARD_W = 270
+    CARD_H = 150
+
     def __init__(
         self,
         device_id: str,
         address: str | None = None,
         device_name: str | None = None,
         owner_name: str | None = None,
-        owner_phone: str | None = None,
+        owner_phone: str | None = None,  # left for backcompat, but will not be shown
         owner_email: str | None = None,
         parent=None,
     ):
@@ -340,12 +371,12 @@ class DeviceCard(QFrame):
         self.address = _address_digits(address)
         self.device_name = device_name
         self.owner_name = (owner_name or "").strip() or None
-        self.owner_phone = (owner_phone or "").strip() or None
+        self.owner_phone = (owner_phone or "").strip() or None  # not shown anymore
         self.owner_email = (owner_email or "").strip() or None
         self._online = False
         self._connect_cb = None
         self._forget_cb = None
-        self.setFixedSize(230, 125)
+        self.setFixedSize(self.CARD_W, self.CARD_H)
         self._build(device_id, self.address, device_name)
 
     def _build(self, device_id: str, address: str | None, device_name: str | None):
@@ -376,31 +407,31 @@ class DeviceCard(QFrame):
         top_row.addWidget(self._btn_forget)
         root.addLayout(top_row)
 
-        root.addStretch()
+        owner = (self.owner_name or "").strip()
+        self._owner = QLabel(_compact_label(owner, 34) if owner else "")
+        self._owner.setVisible(bool(owner))
+        self._owner.setStyleSheet(
+            f"color: {_ACCENT}; font-size: 14px; font-weight: 800; background: transparent;"
+        )
+        root.addWidget(self._owner)
 
         formatted = _display_device_name(device_name, address, device_id)
-        title_text = self.owner_name or formatted
-        self._title = QLabel(_compact_label(title_text, 24))
-        self._title.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 600; background: transparent;")
+        self._title = QLabel(_compact_label(formatted, 28))
+        self._title.setStyleSheet(f"color: {_TEXT}; font-size: 15px; font-weight: 800; background: transparent;")
         root.addWidget(self._title)
 
         address_text = _format_address(address or "") if address else ""
-        phone_text = (self.owner_phone or "").strip()
-        if phone_text:
-            subtitle = phone_text
-            # Adres de varsa ikisini göster (kısa ve tanıdık)
-            if address_text:
-                subtitle = f"{phone_text}  •  {address_text}"
-        else:
-            subtitle = address_text if address_text and address_text != formatted else "Eslesmis cihaz"
+        # Remove phone number from subtitle, only show address or fallback
+        subtitle = address_text if address_text and address_text != formatted else "Eslesmis cihaz"
         self._lbl_address = QLabel(subtitle)
-        self._lbl_address.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 10px; background: transparent;")
+        self._lbl_address.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 12px; background: transparent;")
         root.addWidget(self._lbl_address)
 
         self._lbl_status = QLabel("Cevrimdisi")
-        self._lbl_status.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; background: transparent;")
+        self._lbl_status.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px; background: transparent;")
         root.addWidget(self._lbl_status)
 
+        root.addStretch()
         self._apply_card_style()
 
     def display_name(self) -> str:
@@ -467,6 +498,7 @@ class DeviceCard(QFrame):
     def _on_forget_clicked(self):
         if self._forget_cb:
             self._forget_cb(self.card_key())
+     
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -859,7 +891,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(logo)
         lay.addSpacing(10)
 
-        self._tab_home = QPushButton("Anasayfa")
+        self._tab_home = QPushButton("Ana Sayfa")
         self._tab_home.setCursor(Qt.CursorShape.PointingHandCursor)
         self._tab_home.setStyleSheet(self._TAB_STYLE_ACTIVE)
         self._tab_home.clicked.connect(lambda: self._switch_page(0))
@@ -1043,9 +1075,9 @@ class MainWindow(QMainWindow):
 
         self._inp_code = QLineEdit()
         self._inp_code.setPlaceholderText("Telefon sabit adresi (12 hane)")
-        self._inp_code.setFixedHeight(28)
+        self._inp_code.setFixedHeight(34)
         self._inp_code.setMaxLength(14)
-        font = QFont("Segoe UI", 12)
+        font = QFont("Segoe UI", 14)
         self._inp_code.setFont(font)
         self._inp_code.setStyleSheet(f"""
             QLineEdit {{
@@ -1060,13 +1092,13 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._inp_code, stretch=1)
 
         self._btn_connect = QPushButton("→")
-        self._btn_connect.setFixedSize(34, 34)
+        self._btn_connect.setFixedSize(40, 40)
         self._btn_connect.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_connect.setStyleSheet(_REMOTE_BTN_ICON_PRIMARY_SS)
         lay.addWidget(self._btn_connect)
 
         self._addr_status_label = QLabel("Hazir")
-        self._addr_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
+        self._addr_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
         self._addr_status_label.setFixedWidth(50)
         lay.addWidget(self._addr_status_label)
 
@@ -1092,7 +1124,16 @@ class MainWindow(QMainWindow):
         hero_font = QFont("Segoe UI", 36, QFont.Weight.Bold)
         hero_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 3.0)
         self._hero_address.setFont(hero_font)
-        self._hero_address.setStyleSheet(f"color: {_TEXT};")
+        # Mobil temadaki primary/primary_surface tonlarıyla uyumlu border.
+        self._hero_address.setStyleSheet(f"""
+            QLabel {{
+                color: {_TEXT};
+                background-color: rgba(42, 31, 26, 0.65);  /* primary_surface (#2A1F1A) */
+                border: 1px solid rgba(232, 93, 58, 0.45); /* primary (#E85D3A) */
+                border-radius: 12px;
+                padding: 10px 14px;
+            }}
+        """)
         left.addWidget(self._hero_address)
         left.addStretch()
 
@@ -1114,13 +1155,6 @@ class MainWindow(QMainWindow):
         info_pc = QLabel(f"  {pc_name}")
         info_pc.setStyleSheet(f"color: {_TEXT}; font-size: 14px; font-weight: 500;")
         right.addWidget(info_pc)
-
-        display_name = f"{self._user_first_name} {self._user_last_name}".strip()
-        if not display_name:
-            display_name = self._user_email or _display_username(self._username)
-        info_user = QLabel(f"  {display_name}")
-        info_user.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 13px;")
-        right.addWidget(info_user)
 
         self._hero_status_label = QLabel("  Baglanti bekleniyor")
         self._hero_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
@@ -1213,9 +1247,6 @@ class MainWindow(QMainWindow):
         icon_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px; font-weight: 600;")
         header.addWidget(icon_lbl)
         header.addStretch()
-        hint = QLabel("Show all")
-        hint.setStyleSheet(f"color: {_ACCENT}; font-size: 12px;")
-        header.addWidget(hint)
         inner.addLayout(header)
 
         self._recent_cards_container = QWidget()
@@ -1235,11 +1266,6 @@ class MainWindow(QMainWindow):
         no_dev_lay.setContentsMargins(0, 30, 0, 30)
         no_dev_lay.setSpacing(8)
         no_dev_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        empty_icon = QLabel("📱")
-        empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_icon.setStyleSheet("font-size: 32px; background: transparent;")
-        no_dev_lay.addWidget(empty_icon)
 
         empty_title = QLabel("Henuz eslesmis cihaz yok")
         empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1305,40 +1331,6 @@ class MainWindow(QMainWindow):
         tbl.addWidget(self._btn_disconnect)
         left.addWidget(top_bar)
 
-        self._remote_pair_row = QFrame()
-        self._remote_pair_row.setStyleSheet(
-            f"background-color: {_BG_RAISED}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
-        )
-        rpl = QHBoxLayout(self._remote_pair_row)
-        rpl.setContentsMargins(12, 8, 12, 8)
-        rpl.setSpacing(10)
-        rpl_lbl = QLabel("Telefon sabit adresi")
-        rpl_lbl.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
-        rpl.addWidget(rpl_lbl)
-        self._inp_remote_code = QLineEdit()
-        self._inp_remote_code.setPlaceholderText("Ornek: 4399-0314-5105")
-        self._inp_remote_code.setFixedHeight(28)
-        self._inp_remote_code.setMaxLength(14)
-        rfont = QFont("Segoe UI", 12)
-        self._inp_remote_code.setFont(rfont)
-        self._inp_remote_code.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {_BG_INPUT}; border: 1px solid {_BORDER};
-                border-radius: 4px; padding: 0 10px; color: {_TEXT};
-                selection-background-color: {_ACCENT};
-            }}
-            QLineEdit:focus {{ border-color: {_ACCENT}; }}
-        """)
-        self._inp_remote_code.returnPressed.connect(self._on_remote_connect)
-        self._inp_remote_code.textChanged.connect(self._on_remote_address_text_changed)
-        rpl.addWidget(self._inp_remote_code, stretch=1)
-        self._btn_remote_connect = QPushButton("Baglan")
-        self._btn_remote_connect.setFixedHeight(32)
-        self._btn_remote_connect.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_remote_connect.setStyleSheet(_REMOTE_BTN_PRIMARY_SS)
-        rpl.addWidget(self._btn_remote_connect)
-        left.addWidget(self._remote_pair_row)
-
         screen_frame = QFrame()
         screen_frame.setStyleSheet(
             f"background-color: #0d0d0f; border: 1px solid {_BORDER_SUBTLE}; border-radius: 8px;"
@@ -1348,11 +1340,6 @@ class MainWindow(QMainWindow):
         self._screen = ScreenWidget()
         self._stream_aspect_host = StreamAspectFitContainer(PhoneDeviceFrame(self._screen))
         sl.addWidget(self._stream_aspect_host, stretch=1)
-
-        self._lbl_coords = QLabel("")
-        self._lbl_coords.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
-        self._lbl_coords.setAlignment(Qt.AlignmentFlag.AlignRight)
-        sl.addWidget(self._lbl_coords)
         left.addWidget(screen_frame, stretch=1)
 
         self._remote_summary_label = QLabel("")
@@ -1378,7 +1365,7 @@ class MainWindow(QMainWindow):
         lay.setSpacing(8)
 
         title = QLabel("Ekran Kontrolleri")
-        title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
+        title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 600;")
         lay.addWidget(title)
 
         rot_row = QHBoxLayout()
@@ -1405,7 +1392,7 @@ class MainWindow(QMainWindow):
         lay.setSpacing(8)
 
         title = QLabel("Tus Kontrolleri")
-        title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
+        title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 600;")
         lay.addWidget(title)
 
         grid = QGridLayout()
@@ -1565,7 +1552,6 @@ class MainWindow(QMainWindow):
     # ── Signals ──────────────────────────────────────────────────────────────
     def _connect_signals(self):
         self._btn_connect.clicked.connect(self._on_connect)
-        self._btn_remote_connect.clicked.connect(self._on_remote_connect)
         self._btn_disconnect.clicked.connect(self._on_disconnect)
         self._btn_rotate_left.clicked.connect(self._on_rotate_left)
         self._btn_rotate_right.clicked.connect(self._on_rotate_right)
@@ -1668,7 +1654,7 @@ class MainWindow(QMainWindow):
             self._device_cards.items(),
             key=lambda item: (not item[1].is_online(),),
         )
-        cols = max(1, (self.width() - 60) // 236)
+        cols = max(1, (self.width() - 60) // (DeviceCard.CARD_W + 18))
         for idx, (_, card) in enumerate(ordered):
             self._recent_devices_layout.addWidget(card, idx // cols, idx % cols)
 
@@ -1697,9 +1683,11 @@ class MainWindow(QMainWindow):
                 None,
             )
         if self._connected and (active_card or self._paired_phone_id):
-            display_name = active_card.display_name() if active_card else f"...{self._paired_phone_id[-8:]}"
-            compact_name = _compact_label(display_name, 20)
-            self._tab_session_btn.setText(f"  {compact_name}")
+            if active_card:
+                label = _session_tab_label(active_card.owner_name, active_card.display_name(), active_card.address)
+            else:
+                label = _session_tab_label(None, f"...{self._paired_phone_id[-8:]}", self._paired_phone_address)
+            self._tab_session_btn.setText(f"  {label}")
             self._tab_session.show()
         else:
             self._tab_session.hide()
@@ -2479,8 +2467,8 @@ class MainWindow(QMainWindow):
             self._inp_code.setFocus()
             self._paired_phone_address = _address_digits(address)
         self._paired_phone_id = card.device_id
-        display_name = _compact_label(card.display_name(), 20)
-        self._tab_session_btn.setText(f"  {display_name}")
+        label = _session_tab_label(card.owner_name, card.display_name(), card.address)
+        self._tab_session_btn.setText(f"  {label}")
         self._tab_session.show()
         self._switch_page(1)
         self._connect_session_mode(
@@ -2553,7 +2541,6 @@ class MainWindow(QMainWindow):
 
         self._manual_disconnect = True
         self._btn_connect.setEnabled(False)
-        self._btn_remote_connect.setEnabled(False)
         self._set_status("Cihaz adresine baglaniliyor...")
         matching_card = next(
             (card for card in self._device_cards.values() if (card.connection_address() or "") == _format_address(raw_value)),
@@ -2562,10 +2549,13 @@ class MainWindow(QMainWindow):
         self._paired_phone_id = matching_card.device_id if matching_card else None
         self._paired_phone_address = raw_value
         save_paired_phone_address(raw_value)
-        display_name = None
         if matching_card:
-            display_name = _compact_label(matching_card.display_name(), 20)
-        self._tab_session_btn.setText(f"  {display_name or 'Baglaniyor'}")
+            label = _session_tab_label(matching_card.owner_name, matching_card.display_name(), matching_card.address)
+            self._tab_session_btn.setText(f"  {label}")
+        else:
+            # Kart yoksa owner/device adı bilinmeyebilir; adresi yine göster.
+            label = _session_tab_label(None, "Baglaniyor", raw_value)
+            self._tab_session_btn.setText(f"  {label}")
         self._tab_session.show()
         self._switch_page(1)
         self._connect_session_mode(
@@ -2579,10 +2569,6 @@ class MainWindow(QMainWindow):
     def _on_connect(self):
         self._submit_static_address("".join(ch for ch in self._inp_code.text() if ch.isdigit()))
 
-    @pyqtSlot()
-    def _on_remote_connect(self):
-        self._submit_static_address("".join(ch for ch in self._inp_remote_code.text() if ch.isdigit()))
-
     @pyqtSlot(str)
     def _on_address_text_changed(self, text: str):
         digits = "".join(ch for ch in text if ch.isdigit())[:12]
@@ -2595,19 +2581,6 @@ class MainWindow(QMainWindow):
             self._inp_code.blockSignals(False)
             new_cursor = _cursor_for_digit_count(formatted, digit_pos)
             self._inp_code.setCursorPosition(new_cursor)
-
-    @pyqtSlot(str)
-    def _on_remote_address_text_changed(self, text: str):
-        digits = "".join(ch for ch in text if ch.isdigit())[:12]
-        formatted = _format_address(digits)
-        if text != formatted:
-            old_cursor = self._inp_remote_code.cursorPosition()
-            digit_pos = _digits_before_cursor(text, old_cursor)
-            self._inp_remote_code.blockSignals(True)
-            self._inp_remote_code.setText(formatted)
-            self._inp_remote_code.blockSignals(False)
-            new_cursor = _cursor_for_digit_count(formatted, digit_pos)
-            self._inp_remote_code.setCursorPosition(new_cursor)
 
     @pyqtSlot()
     def _on_disconnect(self):
@@ -2696,7 +2669,6 @@ class MainWindow(QMainWindow):
             self._reconnect_session_code = None
         self._manual_disconnect = False
         self._btn_connect.setEnabled(True)
-        self._btn_remote_connect.setEnabled(True)
         if was_manual:
             return
         self._set_connected(False)
@@ -2863,7 +2835,6 @@ class MainWindow(QMainWindow):
                 logger.info("Erisilebilirlik hatası — yeniden baglanti kodu saklandı: %s", session_code)
 
             def _apply_banner() -> None:
-                # Oturumu duzgun sekilde kapat, anasayfaya don
                 self._mjpeg.stop()
                 self._screen.clear_frame()
                 self._phone_accessibility_enabled = False
@@ -2955,14 +2926,28 @@ class MainWindow(QMainWindow):
         if not self._connected:
             return
         self._ws_client.send_touch(x, y)
-        self._lbl_coords.setText(f"x={x:.3f}  y={y:.3f}")
 
     @pyqtSlot(float, float, float, float)
     def _on_swipe(self, x1, y1, x2, y2):
         if not self._connected:
             return
         self._ws_client.send_swipe(x1, y1, x2, y2)
-        self._lbl_coords.setText(f"({x1:.2f},{y1:.2f}) → ({x2:.2f},{y2:.2f})")
+
+    def _set_remote_controls_enabled(self, enabled: bool) -> None:
+        """Remote sayfası kontrol butonları: akış gelmeden kapalı kalsın."""
+        if hasattr(self, "_btn_rotate_left"):
+            self._btn_rotate_left.setEnabled(enabled)
+        if hasattr(self, "_btn_rotate_right"):
+            self._btn_rotate_right.setEnabled(enabled)
+        if hasattr(self, "_key_buttons"):
+            for btn in self._key_buttons:
+                btn.setEnabled(enabled)
+        if hasattr(self, "_btn_sess_clip"):
+            self._btn_sess_clip.setEnabled(enabled)
+        if hasattr(self, "_btn_sess_save"):
+            self._btn_sess_save.setEnabled(enabled)
+        if hasattr(self, "_btn_sess_paste"):
+            self._btn_sess_paste.setEnabled(enabled)
 
     # ── State helpers ────────────────────────────────────────────────────────
     def _request_phone_screen_capture(self) -> None:
@@ -2975,11 +2960,14 @@ class MainWindow(QMainWindow):
             return
         if self._phone_accessibility_enabled is False:
             self._set_status(Ui.MSG_PAIRED_A11Y_OFF)
+            self._set_remote_controls_enabled(False)
             return
         if self._remote_frame_visible:
             self._set_status(Ui.MSG_PAIRED_WS)
+            self._set_remote_controls_enabled(True)
             return
         self._set_status(Ui.MSG_PAIRED_WAIT_STREAM)
+        self._set_remote_controls_enabled(False)
 
     def _sync_stream_aspect_fit(self, ew: int | None = None, eh: int | None = None) -> None:
         if not hasattr(self, "_stream_aspect_host"):
@@ -3079,16 +3067,10 @@ class MainWindow(QMainWindow):
         else:
             self._fps_histogram_timer.start()
             self._session_ping_timer.start()
-        if hasattr(self, "_btn_sess_paste"):
-            self._btn_sess_paste.setEnabled(connected)
+        # Stream gelmeden kontrol butonları kapalı kalsın.
+        self._set_remote_controls_enabled(bool(connected and self._remote_frame_visible))
         self._btn_connect.setEnabled(not connected)
-        self._btn_remote_connect.setEnabled(not connected)
-        self._remote_pair_row.setVisible(not connected)
         self._btn_disconnect.setEnabled(connected)
-        self._btn_rotate_left.setEnabled(connected)
-        self._btn_rotate_right.setEnabled(connected)
-        for btn in self._key_buttons:
-            btn.setEnabled(connected)
         if connected:
             self._hide_warning_banner()
             self._header_status_dot.setStyleSheet(f"background-color: {_GREEN}; border-radius: 4px;")
