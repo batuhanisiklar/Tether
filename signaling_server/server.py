@@ -29,10 +29,41 @@ def _random_device_id() -> str:
     return "".join(secrets.choice("0123456789") for _ in range(12))
 
 
-def _device_payload(device: dict[str, Any], online_devices: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _owner_fields(
+    db: ServerDbClient | None,
+    user_id: int | None,
+    cache: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    if db is None or user_id is None:
+        return {"owner_name": "", "owner_phone": "", "owner_email": ""}
+    uid = int(user_id)
+    profile = cache.get(uid)
+    if profile is None:
+        profile = db.get_user_by_id(uid)
+        cache[uid] = profile or {}
+    fn = str((profile or {}).get("first_name") or "").strip()
+    ln = str((profile or {}).get("last_name") or "").strip()
+    full = f"{fn} {ln}".strip()
+    return {
+        "owner_name": full,
+        "owner_phone": str((profile or {}).get("phone") or "").strip(),
+        "owner_email": str((profile or {}).get("email") or "").strip(),
+    }
+
+
+def _device_payload(
+    device: dict[str, Any],
+    online_devices: dict[str, dict[str, Any]],
+    *,
+    db: ServerDbClient | None = None,
+    owner_cache: dict[int, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     device_id = str(device.get("device_id") or "")
     is_online_db = bool(device.get("is_online", False))
     is_online = device_id in online_devices if device_id else is_online_db
+    user_id = int(device.get("user_id")) if device.get("user_id") is not None else None
+    cache = owner_cache if owner_cache is not None else {}
+    owner = _owner_fields(db, user_id, cache)
     return {
         "device_id": device_id,
         "address": device_id,
@@ -40,7 +71,8 @@ def _device_payload(device: dict[str, Any], online_devices: dict[str, dict[str, 
         "device_name": str(device.get("device_name") or ""),
         "is_online": is_online,
         "mac_address": str(device.get("mac_address") or ""),
-        "owner_user_id": int(device.get("user_id")) if device.get("user_id") is not None else None,
+        "owner_user_id": user_id,
+        **owner,
     }
 
 
@@ -975,7 +1007,11 @@ async def list_devices(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
     user_id, _ = user
     devices = await asyncio.to_thread(request.app["db"].get_devices_for_user, int(user_id))
-    payload = [_device_payload(device, request.app["online_devices"]) for device in devices]
+    owner_cache: dict[int, dict[str, Any]] = {}
+    payload = [
+        _device_payload(device, request.app["online_devices"], db=request.app["db"], owner_cache=owner_cache)
+        for device in devices
+    ]
     return web.json_response({"ok": True, "devices": payload})
 
 
@@ -997,6 +1033,7 @@ async def list_pairings(request: web.Request) -> web.Response:
 
     seen: set[str] = set()
     pairings_payload: list[dict[str, Any]] = []
+    owner_cache: dict[int, dict[str, Any]] = {}
     for raw_partner_id in partner_ids_raw:
         partner_id = _normalize_device_id(str(raw_partner_id))
         if not partner_id or partner_id in seen:
@@ -1005,7 +1042,14 @@ async def list_pairings(request: web.Request) -> web.Response:
         partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
         if not partner_device:
             continue
-        pairings_payload.append(_device_payload(partner_device, request.app["online_devices"]))
+        pairings_payload.append(
+            _device_payload(
+                partner_device,
+                request.app["online_devices"],
+                db=request.app["db"],
+                owner_cache=owner_cache,
+            )
+        )
     return web.json_response({"ok": True, "pairings": pairings_payload})
 
 
@@ -1032,13 +1076,21 @@ async def list_recent_devices(request: web.Request) -> web.Response:
                 partner_ids.add(normalized_partner_id)
 
     devices_payload: list[dict[str, Any]] = []
+    owner_cache: dict[int, dict[str, Any]] = {}
     for partner_id in partner_ids:
         partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
         if not partner_device:
             continue
         if device_type and str(partner_device.get("device_type") or "") != device_type:
             continue
-        devices_payload.append(_device_payload(partner_device, request.app["online_devices"]))
+        devices_payload.append(
+            _device_payload(
+                partner_device,
+                request.app["online_devices"],
+                db=request.app["db"],
+                owner_cache=owner_cache,
+            )
+        )
     return web.json_response({"ok": True, "devices": devices_payload})
 
 
@@ -1059,9 +1111,10 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "message": "Bu cihaza erisim yetkiniz yok."}, status=403)
 
     online = request.app["online_devices"]
+    owner_cache: dict[int, dict[str, Any]] = {}
 
     devices = await asyncio.to_thread(request.app["db"].get_devices_for_user, int(user_id))
-    devices_payload = [_device_payload(device, online) for device in devices]
+    devices_payload = [_device_payload(device, online, db=request.app["db"], owner_cache=owner_cache) for device in devices]
 
     partner_ids_raw = await asyncio.to_thread(request.app["db"].get_connected_devices_as_controller, pc_id)
     partner_ids_raw += await asyncio.to_thread(request.app["db"].get_connected_devices_as_target, pc_id)
@@ -1075,7 +1128,7 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
         partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
         if not partner_device:
             continue
-        pairings_payload.append(_device_payload(partner_device, online))
+        pairings_payload.append(_device_payload(partner_device, online, db=request.app["db"], owner_cache=owner_cache))
 
     partner_ids: set[str] = set()
     for dev in devices:
@@ -1096,7 +1149,7 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
             continue
         if str(partner_device.get("device_type") or "") != "phone":
             continue
-        recent_payload.append(_device_payload(partner_device, online))
+        recent_payload.append(_device_payload(partner_device, online, db=request.app["db"], owner_cache=owner_cache))
 
     return web.json_response(
         {
