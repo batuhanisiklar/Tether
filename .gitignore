@@ -39,6 +39,8 @@ Thumbs.db
 
 # Proje özel
 *.log
+mobile_app/.gradle/
 mobile_app/build/
 mobile_app/app/build/
+mobile_app/local.properties
 *.apk
