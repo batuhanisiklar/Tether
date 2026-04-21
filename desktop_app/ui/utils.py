@@ -1,10 +1,3 @@
-"""
-UI Yardımcı Fonksiyonlar
-=========================
-Saf (pure) fonksiyonlar; PyQt6 bağımlılığı yoktur.
-Adres biçimlendirmeden oturum etiketlerine kadar ortak yardımcılar.
-"""
-
 import os
 
 
@@ -119,14 +112,15 @@ def merge_phone_device_row(existing: dict, row: dict) -> dict:
 
     if "is_online" in row:
         out["is_online"] = bool(row["is_online"])
+        
+    # Mevcut verideki bilgileri kaybetmemek için boş gelenleri geri yükle
+    for key in ("owner_name", "owner_phone", "owner_email", "owner_user_id", "device_name"):
+        if not str(out.get(key) or "").strip() and str(existing.get(key) or "").strip():
+            out[key] = existing[key]
 
-    for key in ("owner_name", "owner_phone", "owner_email", "owner_user_id"):
-        if key in row and row.get(key) is not None:
-            out[key] = row.get(key)
-
-    # owner nesnesinden ad/soyad çek
+    # owner veya user nesnesinden ad/soyad çek
     if not (str(out.get("owner_name") or "").strip()):
-        owner_obj = row.get("owner")
+        owner_obj = row.get("owner") or existing.get("owner") or row.get("user") or existing.get("user")
         if isinstance(owner_obj, dict):
             fn = str(owner_obj.get("first_name") or owner_obj.get("firstName") or "").strip()
             ln = str(owner_obj.get("last_name") or owner_obj.get("lastName") or "").strip()
@@ -137,13 +131,31 @@ def merge_phone_device_row(existing: dict, row: dict) -> dict:
                 name = str(owner_obj.get("name") or "").strip()
                 if name:
                     out["owner_name"] = name
+                else:
+                    alt = str(owner_obj.get("username") or owner_obj.get("email") or "").strip()
+                    if alt:
+                        out["owner_name"] = alt
         else:
-            fn = str(row.get("owner_first_name") or row.get("ownerFirstName") or "").strip()
-            ln = str(row.get("owner_last_name") or row.get("ownerLastName") or "").strip()
+            fn = str(
+                row.get("owner_first_name") or row.get("ownerFirstName") or existing.get("owner_first_name") or
+                row.get("user_first_name") or row.get("first_name") or row.get("firstName") or ""
+            ).strip()
+            ln = str(
+                row.get("owner_last_name") or row.get("ownerLastName") or existing.get("owner_last_name") or
+                row.get("user_last_name") or row.get("last_name") or row.get("lastName") or ""
+            ).strip()
             full = f"{fn} {ln}".strip()
             if full:
                 out["owner_name"] = full
-
+            else:
+                alt = str(
+                    row.get("username") or row.get("email") or
+                    row.get("owner_email") or row.get("user_email") or
+                    existing.get("owner_email") or existing.get("user_email") or
+                    row.get("owner_name") or existing.get("owner_name") or ""
+                ).strip()
+                if alt:
+                    out["owner_name"] = alt
     return out
 
 
