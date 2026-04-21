@@ -245,6 +245,7 @@ class MainActivity : AppCompatActivity() {
         pairingAwaitingAccessibility = false
         currentStatus = "Bilgisayar baglantisi kesildi"
         currentStatusDetail = "Oturumu masaustu uygulamasindan yeniden baslatin; telefon sabit adreste bekliyor."
+        navigateToHomeAfterDisconnect()
         refreshFragments()
     }
 
@@ -257,6 +258,7 @@ class MainActivity : AppCompatActivity() {
         pairingAwaitingAccessibility = false
         currentStatus = "Baglanti kesildi"
         currentStatusDetail = "Sunucuya yeniden baglaniliyor..."
+        navigateToHomeAfterDisconnect()
         refreshFragments()
         signalingClient?.disconnect(sendServerLogout = false)
         signalingClient = null
@@ -376,6 +378,33 @@ class MainActivity : AppCompatActivity() {
         signalingClient?.sendPairConfirm(pcDeviceId)
         refreshFragments()
         Log.i(TAG, "Pair confirmed with PC: $pcDeviceId")
+    }
+
+    /**
+     * Bilgisayar oturumu bittiğinde (veya transport koptuğunda) kullanıcıyı ana ekrana geri al.
+     * Yayın sırasında `moveTaskToBack(true)` ile arka plana atılmış olabilir; bu yüzden activity'yi öne getiriyoruz.
+     */
+    private fun navigateToHomeAfterDisconnect() {
+        try {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Disconnect redirect bring-to-front failed", e)
+        }
+        runOnUiThread {
+            try {
+                if (::binding.isInitialized && binding.bottomNavigation.selectedItemId != R.id.nav_home) {
+                    binding.bottomNavigation.selectedItemId = R.id.nav_home
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Disconnect redirect nav failed", e)
+            }
+        }
     }
 
     private fun applyRealtimePairingStatus(
