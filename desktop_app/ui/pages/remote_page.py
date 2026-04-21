@@ -111,7 +111,7 @@ def _build_session_top_bar(window: "MainWindow") -> QFrame:
     tbl.addWidget(stats_row, stretch=0)
 
     # Bağlantı kes butonu
-    window._btn_disconnect = QPushButton("Baglantıyi Kes")
+    window._btn_disconnect = QPushButton("Bağlantıyı kes")
     window._btn_disconnect.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_disconnect.setFixedHeight(32)
     window._btn_disconnect.setEnabled(False)
@@ -162,7 +162,7 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
     lay.setContentsMargins(12, 10, 12, 10)
     lay.setSpacing(8)
 
-    title = QLabel("Tus Kontrolleri")
+    title = QLabel("Tuş kontrolleri")
     title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 600;")
     lay.addWidget(title)
 
@@ -245,8 +245,8 @@ def _build_remote_shortcuts_panel() -> QFrame:
     root.addWidget(title)
 
     intro = QLabel(
-        "Tuşlar yalnızca sol taraftaki canlı görüntü odaktayken çalışır; "
-        "önce görüntüye tıklayın."
+        "Kısayollar yalnızca soldaki canlı görüntü odaktayken çalışır. "
+        "Kullanmadan önce görüntü alanına tıklayın."
     )
     intro.setWordWrap(True)
     intro.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px; background: transparent;")
@@ -278,11 +278,31 @@ def _build_remote_shortcuts_panel() -> QFrame:
     """)
 
     shortcuts_rows: list[tuple[str, str]] = [
-        ("Esc",           "Geri: bir önceki ekrana veya uygulamadan çıkışa benzer."),
-        ("Ctrl+H",        "Ana ekran: telefonun ana sayfasına döner."),
-        ("Ctrl+Tab",      "Son uygulamalar: çoklu görev / uygulama geçiş listesini açar."),
-        ("Ctrl+M",        "Medya sesini sessize alır veya sessizi açar (aynı düğme)."),
-        ("Ctrl+↑ / Ctrl+↓", "Ses aç / kıs (medya akışı)."),
+        (
+            "Esc",
+            "Geri: Aktif ekrandan bir önceki adıma döner. "
+            "Bazı uygulamalarda bu işlem çıkış veya iptal etme işlevi görebilir."
+        ),
+        (
+            "Ctrl+H",
+            "Ana ekran: Telefonun ana ekranına hızlı bir şekilde dönüş yapmanızı sağlar. "
+            "Açık olan uygulama arka planda çalışmaya devam eder."
+        ),
+        (
+            "Ctrl+Tab",
+            "Son uygulamalar: Arka planda çalışan uygulamaları görüntüler ve "
+            "uygulamalar arasında hızlı geçiş yapmanıza olanak tanır."
+        ),
+        (
+            "Ctrl+M",
+            "Medya sesi: Telefonun medya sesini kapatır veya tekrar açar. "
+            "Aynı kısayol tuşu ile sessize alma ve sesi geri açma işlemi yapılır."
+        ),
+        (
+            "Ctrl+↑ / Ctrl+↓",
+            "Ses kontrolü: Medya ses seviyesini artırır veya azaltır. "
+            "Video, müzik ve diğer medya içerikleri için geçerlidir."
+        ),
     ]
 
     inner = QWidget()

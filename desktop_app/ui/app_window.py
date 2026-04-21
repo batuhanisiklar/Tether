@@ -157,11 +157,11 @@ class MainWindow(QMainWindow):
         self._remote_frame_visible       = False
         self._logging_out                = False
         self._manual_disconnect          = False
-        self._ws_mode                    = "idle"    # "idle" | "presence" | "session"
+        self._ws_mode                    = "idle"
 
         # ── Kullanıcı bilgisi ────────────────────────────────────────────
         self._user_id: int | None = None
-        self._username            = "Kullanici"
+        self._username            = "Kullanıcı"
         self._user_email          = ""
         self._user_first_name     = ""
         self._user_last_name      = ""
@@ -202,10 +202,6 @@ class MainWindow(QMainWindow):
         self._presence_timer.setInterval(8_000)
         self._presence_timer.timeout.connect(self._on_presence_tick)
 
-        self._reconnect_timer = QTimer(self)
-        self._reconnect_timer.setSingleShot(True)
-        self._reconnect_timer.timeout.connect(self._reconnect_current_mode)
-
         self._fps_histogram_timer = QTimer(self)
         self._fps_histogram_timer.setInterval(1000)
         self._fps_histogram_timer.timeout.connect(self._tick_stream_fps_label)
@@ -220,7 +216,7 @@ class MainWindow(QMainWindow):
     def _load_user_prefs(self):
         prefs = read_prefs()
         self._user_id         = prefs.get("user_id")
-        self._username        = prefs.get("username", "Kullanici")
+        self._username        = prefs.get("username", "Kullanıcı")
         self._user_email      = (prefs.get(Prefs.KEY_USER_EMAIL) or "").strip()
         self._user_first_name = (prefs.get(Prefs.KEY_USER_FIRST_NAME) or "").strip()
         self._user_last_name  = (prefs.get(Prefs.KEY_USER_LAST_NAME) or "").strip()
@@ -325,7 +321,7 @@ class MainWindow(QMainWindow):
         self._btn_win_min = QPushButton("−")
         self._btn_win_min.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_win_min.setStyleSheet(WIN_TOOL_BTN_SS)
-        self._btn_win_min.setToolTip("Simge durumuna kucult")
+        self._btn_win_min.setToolTip("Simge durumuna küçült")
         self._btn_win_min.clicked.connect(self.showMinimized)
         lay.addWidget(self._btn_win_min)
 
@@ -383,7 +379,7 @@ class MainWindow(QMainWindow):
                 font-size: 13px; font-weight: 700; }}
             QPushButton:hover {{ color: {_RED}; }}
         """)
-        self._tab_session_close.setToolTip("Baglantıyi kes")
+        self._tab_session_close.setToolTip("Bağlantıyı kes")
         self._tab_session_close.clicked.connect(self._on_disconnect)
         tsl.addWidget(self._tab_session_close)
 
@@ -496,7 +492,6 @@ class MainWindow(QMainWindow):
             return
         self._ws_mode = "presence"
         self._mjpeg.stop()
-        self._reconnect_timer.stop()
         self._presence_timer.stop()
         if status_message:
             self._set_status(status_message)
@@ -516,7 +511,6 @@ class MainWindow(QMainWindow):
         self._mjpeg.stop()
         self._paired_phone_id      = partner_device_id
         self._paired_phone_address = addr_digits or None
-        self._reconnect_timer.stop()
         self._presence_timer.stop()
         if status_message:
             self._set_status(status_message)
@@ -534,23 +528,6 @@ class MainWindow(QMainWindow):
     def _schedule_reconnect(self, delay_ms: int = 1500):
         if self._logging_out:
             return
-        if not self._reconnect_timer.isActive():
-            self._reconnect_timer.start(delay_ms)
-
-    def _reconnect_current_mode(self):
-        if self._logging_out:
-            return
-        code = self._reconnect_session_code
-        self._reconnect_session_code = None
-        if code and len(code) == 12:
-            logger.info("Yeniden baglanti: oturum kodu ile")
-            self._connect_session_mode(
-                partner_device_id=self._paired_phone_id,
-                partner_address=code,
-                status_message="Oturum yeniden kuruluyor...",
-            )
-            return
-        self._connect_presence_mode("Cihaz durumu yeniden baglaniyor...")
 
     # ── Cihaz yükleme ────────────────────────────────────────────────────────
     def _load_paired_devices(self) -> list[dict]:
@@ -611,7 +588,7 @@ class MainWindow(QMainWindow):
     def _on_devices_loaded(self, devices: list):
         self._populate_device_cards(devices)
         if self._ws_mode == "session":
-            logger.debug("Cihaz listesi guncellendi; uzak oturum varken presence WS acilmadi")
+            logger.debug("Cihaz listesi güncellendi; uzak oturum varken presence WS açılmadı")
             return
         if not self._ws_client._ws:
             self._connect_presence_channel("Cihaz durumu izleniyor...")
@@ -678,17 +655,17 @@ class MainWindow(QMainWindow):
     # ── Home özet güncelleme ─────────────────────────────────────────────────
     def _refresh_home_summary(self):
         if self._connected:
-            self._addr_status_label.setText("Bagli")
+            self._addr_status_label.setText("Bağlı")
             self._hero_status_label.setText("  Aktif baglanti var")
             self._hero_status_label.setStyleSheet(f"color: {_GREEN}; font-size: 12px;")
         else:
-            self._addr_status_label.setText("Hazir")
+            self._addr_status_label.setText("Hazır")
             online = len(self._online_paired_devices)
             if online:
-                self._hero_status_label.setText(f"  {online} cihaz cevrimici")
+                self._hero_status_label.setText(f"  {online} cihaz çevrimiçi")
                 self._hero_status_label.setStyleSheet(f"color: {_GREEN}; font-size: 12px;")
             else:
-                self._hero_status_label.setText("  Baglanti bekleniyor")
+                self._hero_status_label.setText("  Bağlantı bekleniyor")
                 self._hero_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
 
         active_card = None
@@ -758,7 +735,7 @@ class MainWindow(QMainWindow):
         """)
         profile_action = menu.addAction("Profil")
         menu.addSeparator()
-        logout_action = menu.addAction("Cikis Yap")
+        logout_action = menu.addAction("Çıkış yap")
         selected = menu.exec(
             self._account_button.mapToGlobal(
                 self._account_button.rect().bottomLeft()
@@ -772,7 +749,7 @@ class MainWindow(QMainWindow):
     # ── Profil drawer eylemleri ──────────────────────────────────────────────
     def _open_profile_drawer(self) -> None:
         if not self._auth_token:
-            self._set_status("Profil icin yeniden giris yapin.", error=True)
+            self._set_status("Profil bilgilerine erişmek için tekrar giriş yapın.", error=True)
             return
         self._profile_err.setText("")
 
@@ -969,7 +946,7 @@ class MainWindow(QMainWindow):
         self._profile_view_phone.setText(ph_disp or "—")
         self._profile_readonly_name.setText(full)
         self._profile_avatar_lbl.setText(self._profile_initials(fn, ln, new_email))
-        self._set_status("Profil guncellendi.")
+        self._set_status("Profil güncellendi.")
         self._refresh_home_summary()
         self._close_profile_drawer()
 
@@ -990,7 +967,7 @@ class MainWindow(QMainWindow):
             self._profile_pwd_err.setText("Yeni sifreler eslesmiyor.")
             return
         if len(p1) < 6:
-            self._profile_pwd_err.setText("Sifre en az 6 karakter olmali.")
+            self._profile_pwd_err.setText("Şifre en az 6 karakter olmalıdır.")
             return
 
         email = (self._profile_inp_email.text() or "").strip().lower() or self._user_email
@@ -1006,7 +983,7 @@ class MainWindow(QMainWindow):
         if token:
             self._auth_token = token
             update_prefs(**{Prefs.KEY_AUTH_TOKEN: token})
-        self._set_status("Sifre guncellendi.")
+        self._set_status("Şifre güncellendi.")
         self._on_profile_pwd_cancel()
 
     # ── Kart eylemleri ───────────────────────────────────────────────────────
@@ -1016,7 +993,7 @@ class MainWindow(QMainWindow):
             return
         addr = card.connection_address()
         if not card.is_online():
-            self._set_status("Bu cihaz su an cevrimici degil.", error=True)
+            self._set_status("Bu cihaz su an çevrimiçi degil.", error=True)
             return
         if addr:
             self._inp_code.setText(addr)
@@ -1038,22 +1015,22 @@ class MainWindow(QMainWindow):
         if not card:
             return
         answer = QMessageBox.question(
-            self, "Eslesmeyi Kaldir",
-            "Bu eslesme kaldirilsin mi?",
+            self, "Eşleşmeyi kaldır",
+            "Bu eşleşmeyi kaldırmak istiyor musunuz?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
         if not self._auth_token:
-            self._set_status("Eslesmeyi sunucudan silmek icin yeniden giris yapin.", error=True)
+            self._set_status("Eşleşmeyi sunucudan silmek için tekrar giriş yapın.", error=True)
             return
 
         success, error_msg = self._backend_api.delete_pairing(
             self._auth_token, self._ws_client.device_id, card.device_id, card.address,
         )
         if not success:
-            self._set_status(error_msg or "Eslesme silinemedi.", error=True)
+            self._set_status(error_msg or "Eşleşme silinemedi.", error=True)
             return
 
         self._load_devices_from_db()
@@ -1070,7 +1047,7 @@ class MainWindow(QMainWindow):
 
         self._ws_client.send_request_presence()
         self._refresh_home_summary()
-        self._set_status("Eslesme kaldirildi.")
+        self._set_status("Eşleşme kaldırıldı.")
 
     # ── Adres giriş slotları ─────────────────────────────────────────────────
     def _submit_static_address(self, raw_value: str) -> None:
@@ -1078,10 +1055,10 @@ class MainWindow(QMainWindow):
             self._set_status("Adres girilmedi.", error=True)
             return
         if not raw_value.isdigit():
-            self._set_status("Adres sadece rakam olmali.", error=True)
+            self._set_status("Adres yalnızca rakamlardan oluşmalıdır.", error=True)
             return
         if len(raw_value) != 12:
-            self._set_status("12 haneli sabit adresi girin.", error=True)
+            self._set_status("Lütfen 12 haneli sabit adresi girin.", error=True)
             return
 
         self._manual_disconnect = True
@@ -1102,7 +1079,7 @@ class MainWindow(QMainWindow):
                 matching_card.owner_name, matching_card.display_name(), matching_card.address
             )
         else:
-            label = session_tab_label(None, "Baglaniyor", raw_value)
+            label = session_tab_label(None, "Bağlanıyor", raw_value)
         self._tab_session_btn.setText(f"  {label}")
         self._tab_session.show()
         self._switch_page(1)
@@ -1136,7 +1113,6 @@ class MainWindow(QMainWindow):
         self._ws_mode                     = "presence"
         self._reconnect_session_code      = None
         self._a11y_pending_reconnect_code = None
-        self._reconnect_timer.stop()
         self._presence_timer.stop()
         self._manual_disconnect = True
         self._mjpeg.stop()
@@ -1227,7 +1203,6 @@ class MainWindow(QMainWindow):
         self._phone_accessibility_enabled = None
         self._remote_frame_visible = False
         self._presence_timer.stop()
-        self._reconnect_timer.stop()
         for card in self._device_cards.values():
             card.set_online(False)
         self._online_paired_devices.clear()
@@ -1236,15 +1211,14 @@ class MainWindow(QMainWindow):
         if "10060" in reason or "timed out" in reason.lower():
             self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
         elif "already closed" in reason.lower():
-            self._set_status("Baglanti kapandi.", error=True)
+            self._set_status("Bağlantı kapandı.", error=True)
         else:
-            self._set_status(f"Baglanti kesildi: {reason}", error=True)
+            self._set_status(f"Bağlantı kesildi: {reason}", error=True)
         self._schedule_reconnect()
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
         self._remote_frame_visible = False
-        self._reconnect_timer.stop()
         paired_phone_id      = load_paired_phone_id()
         paired_phone_address = load_paired_phone_address()
 
@@ -1268,7 +1242,7 @@ class MainWindow(QMainWindow):
 
         self._set_connected(True)
         self._switch_page(1)
-        self._set_status("Eslesme tamamlandi. Akis bekleniyor...")
+        self._set_status("Eşleşme tamamlandı. Görüntü akışı bekleniyor…")
         self._refresh_home_summary()
 
         su       = (stream_url or "").strip()
@@ -1281,10 +1255,10 @@ class MainWindow(QMainWindow):
         if su and not mjpeg_unreachable:
             try:
                 self._mjpeg.start(su)
-                self._set_status("Baglandi - video akisi aktif.")
+                self._set_status("Bağlandı. Video akışı aktif.")
                 return
             except Exception:
-                logger.exception("MJPEG akisi baslatilamadi")
+                logger.exception("MJPEG akışı başlatılamadı")
 
         if not self._screen_capture_prompt_sent:
             self._screen_capture_prompt_sent = True
@@ -1328,7 +1302,7 @@ class MainWindow(QMainWindow):
 
         if not self._connected:
             if online_count:
-                self._set_status(f"Sunucuya baglandi - {online_count} cihaz cevrimici")
+                self._set_status(f"Sunucuya baglandi - {online_count} cihaz çevrimiçi")
             else:
                 self._set_status(Ui.MSG_SERVER_CONNECTED)
 
@@ -1364,8 +1338,8 @@ class MainWindow(QMainWindow):
     def _on_error(self, msg: str, code: str = ""):
         text = (msg or "").strip()
         if is_accessibility_ws_error(text, code):
-            banner_title = "Erisilebilirlik kapali"
-            banner_body  = text or "Telefonda Erisilebilirlik servisini acmadan baglanti baslatilamaz."
+            banner_title = "Erişilebilirlik kapalı"
+            banner_body  = text or "Telefonda Erişilebilirlik servisi açılmadan bağlantı başlatılamaz."
 
             session_code = address_digits(self._paired_phone_address or "")
             if len(session_code) != 12:
@@ -1374,7 +1348,7 @@ class MainWindow(QMainWindow):
                 session_code = address_digits(self._ws_client.join_session_code or "")
             if len(session_code) == 12:
                 self._a11y_pending_reconnect_code = session_code
-                logger.info("Erisilebilirlik hatasi — yeniden baglanti kodu: %s", session_code)
+                logger.info("Erişilebilirlik hatası — yeniden bağlantı kodu: %s", session_code)
 
             def _apply_banner() -> None:
                 self._mjpeg.stop()
@@ -1403,7 +1377,7 @@ class MainWindow(QMainWindow):
         if not pixmap.loadFromData(frame_bytes):
             img = QImage()
             if not img.loadFromData(frame_bytes):
-                logger.warning("Goruntu decode basarisiz! Boyut: %d bytes", len(frame_bytes))
+                logger.warning("Görüntü çözümlenemedi. Boyut: %d bayt", len(frame_bytes))
                 return
             pixmap = QPixmap.fromImage(img)
         if pixmap.isNull():
@@ -1554,7 +1528,7 @@ class MainWindow(QMainWindow):
             self._set_status("Kopyalanacak goruntu yok.", error=True)
             return
         QApplication.clipboard().setPixmap(pm)
-        self._set_status(f"Panoya kopyalandi ({pm.width()}x{pm.height()}).")
+        self._set_status(f"Panoya kopyalandı ({pm.width()}×{pm.height()}).")
 
     def _screenshot_save_png(self) -> None:
         pm = self._screen.get_export_pixmap()
@@ -1579,7 +1553,7 @@ class MainWindow(QMainWindow):
             return
         text = QApplication.clipboard().text()
         if not (text or "").strip():
-            self._set_status("Pano bos.", error=True)
+            self._set_status("Pano boş.", error=True)
             return
         self._ws_client.send_paste_text(text)
         self._set_status(f"Pano metni gonderildi ({len(text)} karakter).")
@@ -1618,7 +1592,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._mjpeg.stop()
         self._presence_timer.stop()
-        self._reconnect_timer.stop()
         self._fps_histogram_timer.stop()
         self._session_ping_timer.stop()
         self._manual_disconnect = True

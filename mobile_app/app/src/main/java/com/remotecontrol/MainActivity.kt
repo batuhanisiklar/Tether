@@ -357,7 +357,7 @@ class MainActivity : AppCompatActivity() {
         clientRef[0] = client
         signalingClient = client
         signalingClient?.connect()
-        currentStatus = "Cevrimici; baglanti bilgisayardan baslatilir"
+        currentStatus = "Çevrimiçi; baglanti bilgisayardan baslatilir"
         currentStatusDetail = "Sabit adres: $currentAddress"
         refreshFragments()
         Log.i(TAG, "Device address: $currentAddress")

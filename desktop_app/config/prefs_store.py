@@ -7,7 +7,7 @@ from desktop_app.config.constants import Prefs
 
 
 def read_prefs() -> dict[str, Any]:
-    """Tercih dosyasini guvenli sekilde oku."""
+    """Tercih dosyasını güvenli şekilde okur."""
     try:
         if os.path.exists(Prefs.PATH):
             with open(Prefs.PATH, "r", encoding="utf-8") as file:
@@ -18,7 +18,7 @@ def read_prefs() -> dict[str, Any]:
 
 
 def write_prefs(data: dict[str, Any]) -> None:
-    """Tercih dosyasini guvenli sekilde yaz."""
+    """Tercih dosyasını güvenli şekilde yazar."""
     try:
         with open(Prefs.PATH, "w", encoding="utf-8") as file:
             json.dump(data, file)
@@ -27,7 +27,7 @@ def write_prefs(data: dict[str, Any]) -> None:
 
 
 def update_prefs(**values: Any) -> dict[str, Any]:
-    """Mevcut tercihleri koruyarak verilen alanlari guncelle."""
+    """Mevcut tercihleri koruyarak verilen alanları günceller."""
     prefs = read_prefs()
     prefs.update(values)
     write_prefs(prefs)

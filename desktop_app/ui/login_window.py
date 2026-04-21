@@ -1,8 +1,8 @@
 """
-Login Penceresi — Remote Phone Control
+Giriş penceresi — Remote Phone Control
 =======================================
-Sekmeli kart tasarımı: Giriş Yap / Kayıt Ol
-Tüm auth işlemleri DbClient üzerinden Neon DB'ye gider.
+Sekmeli kart tasarımı: Giriş yap / Kayıt ol.
+Kimlik doğrulama işlemleri `BackendApi` üzerinden yürütülür.
 """
 
 import logging
@@ -83,7 +83,7 @@ class LoginWindow(QDialog):
 
     @property
     def shared_backend_api(self) -> BackendApi:
-        """Giris sonrasi MainWindow ile ayni requests.Session (TCP yeniden kullanimi)."""
+        """Giriş sonrası `MainWindow` ile aynı `requests.Session` kullanılır (TCP bağlantısı yeniden kullanılır)."""
         return self._backend_api
 
     # ──────── UI ──────────────────────────────────────────────────────────────
@@ -195,7 +195,7 @@ class LoginWindow(QDialog):
         lay.addWidget(app_name)
         lay.addSpacing(6)
 
-        tagline = QLabel("Telefonunuzu bilgisayarınızdan\ngüvenle kontrol edin")
+        tagline = QLabel("Telefonunuzu bilgisayarınızdan\nkolay ve güvenli şekilde yönetin")
         tagline.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tagline.setWordWrap(True)
         tagline.setStyleSheet(text_style(c.TEXT_MUTED, size=11))
@@ -212,10 +212,10 @@ class LoginWindow(QDialog):
 
         # ── Özellik listesi (minimal, modern) ────────────────────────────
         features = [
-            ("⚡", "Hızlı Eşleştirme", "Sabit adres ile anında bağlantı"),
-            ("📺", "Canlı Ekran", "Ekran aktarma ve dokunmatik kontrol"),
-            ("🔒", "Güvenli Bağlantı", "Uçtan uca şifreli iletişim"),
-            ("📱", "Erişilebilirlik", "Telefon durumu izleme ve kontrol"),
+            ("⚡", "Hızlı eşleştirme", "Sabit adres ile hızlı bağlantı"),
+            ("📺", "Canlı görüntü", "Ekran aktarımı ve dokunmatik kontrol"),
+            ("🔒", "Güvenli bağlantı", "Uçtan uca şifreli iletişim"),
+            ("📱", "Erişilebilirlik", "Telefon kontrolü için yardımcı servis"),
         ]
         for i, (emoji, title, desc) in enumerate(features):
             feat_row = QHBoxLayout()
@@ -851,7 +851,7 @@ class LoginWindow(QDialog):
                 "address": "",
             }
         if not api_result or not api_result.get("ok"):
-            msg = (api_result or {}).get("message", "Giris basarisiz.")
+            msg = (api_result or {}).get("message", "Giriş başarısız.")
             return {
                 "auth_result": None,
                 "auth_error": msg,
@@ -864,7 +864,7 @@ class LoginWindow(QDialog):
         if uid is None:
             return {
                 "auth_result": None,
-                "auth_error": "Sunucu yaniti gecersiz.",
+                    "auth_error": "Sunucu yanıtı geçersiz.",
                 "token": "",
                 "address": "",
             }
@@ -891,14 +891,14 @@ class LoginWindow(QDialog):
         password2: str,
     ) -> tuple[bool, str]:
         if password != password2:
-            return False, "Sifreler eslesmiyor."
+            return False, "Şifreler eşleşmiyor."
         if len(password) < 6:
-            return False, "Sifre en az 6 karakter olmali."
+            return False, "Şifre en az 6 karakter olmalıdır."
         em = email.strip().lower()
         if "@" not in em or len(em) < 5:
-            return False, "Gecerli bir e-posta girin."
+            return False, "Lütfen geçerli bir e-posta adresi girin."
         if not first_name.strip() or not last_name.strip():
-            return False, "Ad ve soyad zorunludur."
+            return False, "Ad ve soyad alanları zorunludur."
         device_id = load_or_create_device_id()
         mac_fp = get_mac_fingerprint()
         phone_digits = "".join(c for c in phone if c.isdigit())
@@ -915,8 +915,8 @@ class LoginWindow(QDialog):
         if err:
             return False, err
         if not data or not data.get("ok"):
-            return False, (data or {}).get("message", "Kayit basarisiz.")
-        return True, "Kayit basarili! Giris yapabilirsiniz."
+            return False, (data or {}).get("message", "Kayıt işlemi başarısız.")
+        return True, "Kayıt başarılı. Şimdi giriş yapabilirsiniz."
 
     def _start_auth_task(self, thread_attr: str, fn, done_handler, *args):
         thread = _AuthThread(fn, *args)
@@ -929,7 +929,7 @@ class LoginWindow(QDialog):
         uname = self._inp_user.text().strip()
         pwd   = self._inp_pass.text()
         if not uname or not pwd:
-            self._lbl_login_err.setText("E-posta ve sifre bos olamaz.")
+            self._lbl_login_err.setText("E-posta ve şifre alanları boş bırakılamaz.")
             return
 
         self._lbl_login_err.setText("")
@@ -950,7 +950,7 @@ class LoginWindow(QDialog):
             self._lbl_login_err.setText(auth_error)
             return
         if auth_result is None:
-            self._lbl_login_err.setText(result.get("auth_error") or "E-posta veya sifre hatali.")
+            self._lbl_login_err.setText(result.get("auth_error") or "E-posta veya şifre hatalı.")
             return
 
         user_id, username = auth_result
@@ -980,7 +980,7 @@ class LoginWindow(QDialog):
         self._lbl_reg_ok.setText("")
 
         if not em or not pwd:
-            self._lbl_reg_err.setText("E-posta ve sifre zorunludur.")
+            self._lbl_reg_err.setText("E-posta ve şifre alanları zorunludur.")
             return
 
         self._set_loading(True, self._btn_register)

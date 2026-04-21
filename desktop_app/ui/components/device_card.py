@@ -97,14 +97,14 @@ class DeviceCard(QFrame):
         root.addWidget(self._title)
 
         address_text = format_address(self.address) if self.address else ""
-        subtitle = address_text if address_text and address_text != formatted else "Eslesmis cihaz"
+        subtitle = address_text if address_text and address_text != formatted else "Eşleşmiş cihaz"
         self._lbl_address = QLabel(subtitle)
         self._lbl_address.setStyleSheet(
             f"color: {_C.TEXT_MUTED}; font-size: 12px; background: transparent;"
         )
         root.addWidget(self._lbl_address)
 
-        self._lbl_status = QLabel("Cevrimdisi")
+        self._lbl_status = QLabel("Çevrimdışı")
         self._lbl_status.setStyleSheet(
             f"color: {_C.TEXT_DIM}; font-size: 12px; background: transparent;"
         )
@@ -139,7 +139,7 @@ class DeviceCard(QFrame):
             self._dot.setStyleSheet(
                 f"background-color: {_C.GREEN}; border-radius: 4px;"
             )
-            self._lbl_status.setText("Cevrimici")
+            self._lbl_status.setText("Çevrimiçi")
             self._lbl_status.setStyleSheet(
                 f"color: {_C.GREEN}; font-size: 10px;"
                 f" font-weight: 600; background: transparent;"
@@ -148,7 +148,7 @@ class DeviceCard(QFrame):
             self._dot.setStyleSheet(
                 f"background-color: {_C.TEXT_DIM}; border-radius: 4px;"
             )
-            self._lbl_status.setText("Cevrimdisi")
+            self._lbl_status.setText("Çevrimdışı")
             self._lbl_status.setStyleSheet(
                 f"color: {_C.TEXT_DIM}; font-size: 10px; background: transparent;"
             )
@@ -158,7 +158,7 @@ class DeviceCard(QFrame):
         return self._online
 
     def set_connecting(self):
-        self._lbl_status.setText("Baglaniyor...")
+        self._lbl_status.setText("Bağlanıyor…")
 
     # ── qt events ─────────────────────────────────────────────────────────────
 

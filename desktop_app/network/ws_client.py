@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class WsClient(QObject):
-    """Eski sunucu device_ack'ta phone_accessibility_enabled yoksa emit'te bu sentinel kullanilir."""
+    """Eski sunucu sürümlerinde `device_ack` içinde `phone_accessibility_enabled` yoksa bu sentinel kullanılır."""
     PHONE_A11Y_UNCHANGED = object()
 
     connected = pyqtSignal()
@@ -107,7 +107,7 @@ class WsClient(QObject):
         self.send_command({"action": "camera_off"})
 
     def send_screen_capture_on(self) -> None:
-        """Telefonda ekran paylasim iznini baslatir (eslesme sonrasi)."""
+        """Telefonda ekran paylaşımı iznini başlatır (eşleşme sonrası)."""
         self.send_command({"action": "screen_capture_on"})
 
     def send_key_event(self, key_code: int) -> None:
@@ -126,7 +126,7 @@ class WsClient(QObject):
         self.send_command({"action": "paste_text", "text": safe})
 
     def send_session_ping(self) -> None:
-        """Oturum gecikmesi ölçümü — telefon session_pong ile yanıtlar."""
+        """Oturum gecikmesini ölçer — telefon `session_pong` ile yanıtlar."""
         self._ping_seq += 1
         pid = self._ping_seq
         self._ping_sent_at[pid] = time.perf_counter()
@@ -161,7 +161,7 @@ class WsClient(QObject):
         ws = self._ws
         if ws is None:
             if not silent:
-                self.error_occurred.emit("Baglanti acik degil.", "")
+                self.error_occurred.emit("Bağlantı açık değil.", "")
             return False
         try:
             ws.send(json.dumps(payload, separators=(",", ":")))
@@ -275,8 +275,8 @@ class WsClient(QObject):
             action = str(msg.get("action") or "").strip()
             if action == "accessibility_error":
                 code = str(msg.get("code") or "accessibility_required").strip()
-                text = msg.get("message", "Telefonda Erisilebilirlik servisi kapali.")
-                logger.warning("Telefon erisilebilirlik hatasi: %s", text)
+                text = msg.get("message", "Telefonda Erişilebilirlik servisi kapalı.")
+                logger.warning("Telefon erişilebilirlik hatası: %s", text)
                 self.error_occurred.emit(text, code)
             else:
                 self.command_received.emit(msg)

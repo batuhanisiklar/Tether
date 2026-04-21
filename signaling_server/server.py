@@ -232,7 +232,6 @@ async def _send_device_ack(app: web.Application, device_id: str) -> None:
 
 
 async def _refresh_device_ack_for_paired_pcs(app: web.Application, phone_device_id: str) -> None:
-    """Telefon meta/oturumu degisince eslesmis cevrimici PC'lere guncel device_ack gonder."""
     did = _normalize_device_id(phone_device_id)
     if not did:
         return
@@ -346,7 +345,6 @@ async def _relay_binary_frame(
                         meta["device_id"] = device_id
                     break
         if device_id:
-            # Once: cevrimici cihazlar arasindan peer bul (DB'ye gitme)
             db: ServerDbClient = app["db"]
             now = time.monotonic()
             cached = _binary_relay_db_cache.get(device_id)

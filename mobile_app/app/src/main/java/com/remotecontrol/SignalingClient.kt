@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
  * Signaling sunucusuyla WebSocket üzerinden haberleşir.
  *
  * Kalici kimlik:
- *  - device_hello: cihaz cevrimici ve presence takibi
+ *  - device_hello: cihaz Çevrimiçi ve presence takibi
  *  - register(code=deviceAddress): telefon bu adreste bekler; eslestirmeyi bilgisayar join ile baslatir
  */
 class SignalingClient(

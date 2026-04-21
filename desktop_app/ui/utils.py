@@ -2,7 +2,7 @@
 UI Yardımcı Fonksiyonlar
 =========================
 Saf (pure) fonksiyonlar; PyQt6 bağımlılığı yoktur.
-Formatlamadan adres yönetimine kadar ortak araç fonksiyonları.
+Adres biçimlendirmeden oturum etiketlerine kadar ortak yardımcılar.
 """
 
 import os
@@ -54,7 +54,7 @@ def display_username(username: str | None) -> str:
     """Kullanıcı adını büyük harfle başlatarak döner."""
     value = (username or "").strip()
     if not value:
-        return "Kullanici"
+        return "Kullanıcı"
     return value[:1].upper() + value[1:]
 
 

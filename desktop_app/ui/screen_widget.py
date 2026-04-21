@@ -244,7 +244,7 @@ class ScreenWidget(QLabel):
         if not self._current_pixmap:
             return
         w, h = self.width(), self.height()
-        # Layout henuz hazir degilken scaled(0,0) bos pixmap -> siyah ekran; resizeEvent tekrar dener.
+        # Layout henüz hazır değilken scaled(0,0) boş pixmap → siyah ekran; resizeEvent tekrar dener.
         if w < 4 or h < 4:
             return
 

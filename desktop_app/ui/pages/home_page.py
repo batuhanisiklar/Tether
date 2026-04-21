@@ -125,7 +125,7 @@ def _build_address_input_bar(window: "MainWindow") -> QWidget:
     window._btn_connect.setStyleSheet(REMOTE_BTN_ICON_PRIMARY_SS)
     lay.addWidget(window._btn_connect)
 
-    window._addr_status_label = QLabel("Hazir")
+    window._addr_status_label = QLabel("Hazır")
     window._addr_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
     window._addr_status_label.setFixedWidth(50)
     lay.addWidget(window._addr_status_label)
@@ -148,7 +148,7 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     left = QVBoxLayout()
     left.setSpacing(4)
 
-    lbl_title = QLabel("Senin Adresin")
+    lbl_title = QLabel("Adresiniz")
     lbl_title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 14px;")
     left.addWidget(lbl_title)
 
@@ -179,7 +179,7 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     right = QVBoxLayout()
     right.setSpacing(10)
 
-    info_title = QLabel("Bu Bilgisayar")
+    info_title = QLabel("Bu bilgisayar")
     info_title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 13px; font-weight: 600;")
     right.addWidget(info_title)
 
@@ -187,7 +187,7 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     info_pc.setStyleSheet(f"color: {_TEXT}; font-size: 14px; font-weight: 500;")
     right.addWidget(info_pc)
 
-    window._hero_status_label = QLabel("  Baglanti bekleniyor")
+    window._hero_status_label = QLabel("  Bağlantı bekleniyor")
     window._hero_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
     right.addWidget(window._hero_status_label)
 
@@ -225,7 +225,7 @@ def _build_warning_banner(window: "MainWindow") -> QWidget:
     text_col = QVBoxLayout()
     text_col.setSpacing(2)
 
-    window._warning_title = QLabel("Uyari")
+    window._warning_title = QLabel("Uyarı")
     window._warning_title.setStyleSheet(
         f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
     )
@@ -258,11 +258,36 @@ def _build_feature_cards() -> QWidget:
     lay.setSpacing(12)
 
     cards_data = [
-        ("Hizli Baglanti",   "Telefonunuzun sabit\nadresini ust cubuga\nyazarak baglanin.",   "#C84B31", "#A33B24"),
-        ("Nasil Calisir?",   "1. Telefonda uygulamayi acin\n2. Sabit adresi buraya girin\n3. Baglan!", "#2D6A4F", "#1B4332"),
-        ("Gizlilik",         "Tum baglantilar uctan\nuca sifrelidir. Cihaz\nsahipligi korunur.",  "#4A3B8F", "#362C6B"),
-        ("Cihaz Yonetimi",   "Eslesmis cihazlarinizi\nasagida gorebilir ve\nyonetebilirsiniz.",  "#8B6914", "#6B5010"),
-    ]
+    (
+        "Hızlı bağlantı",
+        "Telefonunuzun sabit adresini üst çubuğa girerek saniyeler içinde bağlantı kurabilirsiniz. "
+        "Herhangi bir ek ayar yapmanıza gerek kalmadan, hızlı ve pratik bir şekilde cihazınıza erişim sağlayın.",
+        "#C84B31", "#A33B24"
+    ),
+    (
+        "Nasıl çalışır?",
+        "Uygulamayı kullanmak oldukça basittir:\n"
+        "1. Telefonda uygulamayı başlatın\n"
+        "2. Size verilen sabit adresi bu ekrana girin\n"
+        "3. Bağlan butonuna tıklayarak anında erişim sağlayın\n"
+        "Tüm süreç yalnızca birkaç saniye sürer.",
+        "#2D6A4F", "#1B4332"
+    ),
+    (
+        "Gizlilik",
+        "Tüm bağlantılar uçtan uca şifreleme ile korunur ve verileriniz üçüncü taraflarla paylaşılmaz. "
+        "Cihaz sahipliği tamamen sizde kalır ve sadece sizin onay verdiğiniz bağlantılar gerçekleştirilir. "
+        "Güvenliğiniz her zaman önceliğimizdir.",
+        "#4A3B8F", "#362C6B"
+    ),
+    (
+        "Cihaz yönetimi",
+        "Daha önce bağlandığınız cihazları kolayca görüntüleyebilir, düzenleyebilir ve yönetebilirsiniz. "
+        "İhtiyacınız olmayan cihazları kaldırabilir, sık kullandıklarınızı hızlı erişim için saklayabilirsiniz. "
+        "Tüm kontrol tek bir ekranda sizin elinizde.",
+        "#8B6914", "#6B5010"
+    ),
+]
 
     for title, desc, bg_color, hover_color in cards_data:
         card = QFrame()
@@ -307,7 +332,7 @@ def _build_tab_strip(window: "MainWindow") -> QWidget:
     lay.setContentsMargins(28, 0, 28, 0)
     lay.setSpacing(24)
 
-    tab = QLabel("Recent Sessions")
+    tab = QLabel("Son oturumlar")
     tab.setStyleSheet(
         f"color: {_ACCENT}; font-size: 13px; font-weight: 600;"
         f" border-bottom: 2px solid {_ACCENT}; padding-bottom: 4px;"
@@ -334,7 +359,7 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     inner.setSpacing(10)
 
     header = QHBoxLayout()
-    icon_lbl = QLabel("Recent Sessions")
+    icon_lbl = QLabel("Son oturumlar")
     icon_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px; font-weight: 600;")
     header.addWidget(icon_lbl)
     header.addStretch()
@@ -361,7 +386,7 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     no_dev_lay.setSpacing(8)
     no_dev_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-    empty_title = QLabel("Henuz eslesmis cihaz yok")
+    empty_title = QLabel("Henüz eşleşmiş cihaz yok")
     empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_title.setStyleSheet(
         f"color: {_TEXT_SEC}; font-size: 14px; font-weight: 600; background: transparent;"
@@ -369,8 +394,8 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     no_dev_lay.addWidget(empty_title)
 
     empty_desc = QLabel(
-        "Telefonunuzdaki uygulamayi acin ve 12 haneli sabit adresi\n"
-        "yukardaki adres cubuguna girerek ilk baglantiyi kurun."
+        "Telefonunuzdaki uygulamayı açın ve 12 haneli sabit adresi\n"
+        "yukarıdaki alana girerek ilk bağlantıyı kurun."
     )
     empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_desc.setWordWrap(True)
