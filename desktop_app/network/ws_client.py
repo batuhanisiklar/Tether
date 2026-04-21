@@ -4,6 +4,7 @@ import json
 import base64
 import logging
 import threading
+import time
 import websocket
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class WsClient(QObject):
-    """Eski sunucu device_ack'ta phone_accessibility_enabled yoksa emit'te bu sentinel kullanilir."""
+    """Eski sunucu sürümlerinde `device_ack` içinde `phone_accessibility_enabled` yoksa bu sentinel kullanılır."""
     PHONE_A11Y_UNCHANGED = object()
 
     connected = pyqtSignal()
@@ -30,6 +31,7 @@ class WsClient(QObject):
     error_occurred = pyqtSignal(str, str)
     frame_received = pyqtSignal(bytes)
     paired_devices_status = pyqtSignal(list, list, object)
+    session_rtt_ms = pyqtSignal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -38,6 +40,8 @@ class WsClient(QObject):
         self._session_code: str = ""
         self._disconnect_emitted: bool = False
         self.device_id: str = load_or_create_device_id()
+        self._ping_sent_at: dict[int, float] = {}
+        self._ping_seq: int = 0
         logger.info("PC device_id: %s", self.device_id)
 
     @property
@@ -103,14 +107,30 @@ class WsClient(QObject):
         self.send_command({"action": "camera_off"})
 
     def send_screen_capture_on(self) -> None:
-        """Telefonda ekran paylasim iznini baslatir (eslesme sonrasi)."""
+        """Telefonda ekran paylaşımı iznini başlatır (eşleşme sonrası)."""
         self.send_command({"action": "screen_capture_on"})
 
     def send_key_event(self, key_code: int) -> None:
         self.send_command({"action": "key_event", "key_code": key_code})
 
-    def send_rotate_screen(self, landscape: bool) -> None:
-        self.send_command({"action": "rotate_screen", "landscape": landscape})
+    def send_rotate_screen(self, degrees: int) -> None:
+        """Telefon aktivitesinin fiziksel yönünü ayarlar (0, 90, 180, 270)."""
+        d = int(degrees) % 360
+        if d < 0:
+            d += 360
+        self.send_command({"action": "rotate_screen", "degrees": d})
+
+    def send_paste_text(self, text: str) -> None:
+        """Telefonda odaklı metin alanına yapıştırma (erişilebilirlik gerekir)."""
+        safe = (text or "")[:8000]
+        self.send_command({"action": "paste_text", "text": safe})
+
+    def send_session_ping(self) -> None:
+        """Oturum gecikmesini ölçer — telefon `session_pong` ile yanıtlar."""
+        self._ping_seq += 1
+        pid = self._ping_seq
+        self._ping_sent_at[pid] = time.perf_counter()
+        self._send_json({"type": "session_ping", "ping_id": pid}, silent=True)
 
     def send_heartbeat(self) -> None:
         self._send_json({"type": "heartbeat"}, silent=True)
@@ -141,7 +161,7 @@ class WsClient(QObject):
         ws = self._ws
         if ws is None:
             if not silent:
-                self.error_occurred.emit("Baglanti acik degil.", "")
+                self.error_occurred.emit("Bağlantı açık değil.", "")
             return False
         try:
             ws.send(json.dumps(payload, separators=(",", ":")))
@@ -241,12 +261,22 @@ class WsClient(QObject):
         elif msg_type == "peer_disconnected":
             self.peer_disconnected.emit()
 
+        elif msg_type == "session_pong":
+            try:
+                pid = int(msg.get("ping_id", 0))
+            except (TypeError, ValueError):
+                pid = 0
+            t0 = self._ping_sent_at.pop(pid, None)
+            if t0 is not None:
+                rtt_ms = (time.perf_counter() - t0) * 1000.0
+                self.session_rtt_ms.emit(rtt_ms)
+
         elif msg_type == "command":
             action = str(msg.get("action") or "").strip()
             if action == "accessibility_error":
                 code = str(msg.get("code") or "accessibility_required").strip()
-                text = msg.get("message", "Telefonda Erisilebilirlik servisi kapali.")
-                logger.warning("Telefon erisilebilirlik hatasi: %s", text)
+                text = msg.get("message", "Telefonda Erişilebilirlik servisi kapalı.")
+                logger.warning("Telefon erişilebilirlik hatası: %s", text)
                 self.error_occurred.emit(text, code)
             else:
                 self.command_received.emit(msg)

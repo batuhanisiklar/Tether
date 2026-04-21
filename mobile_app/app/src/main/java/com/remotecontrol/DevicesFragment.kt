@@ -89,7 +89,7 @@ class DevicesFragment : Fragment(), DashboardFragment {
         headerRow.addView(title)
 
         val statusLabel = TextView(requireContext()).apply {
-            text = if (device.online) "Cevrimici" else "Offline"
+            text = if (device.online) "çevrimiçi" else "Offline"
             setTextColor(ContextCompat.getColor(requireContext(),
                 if (device.online) R.color.success else R.color.text_tertiary))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)

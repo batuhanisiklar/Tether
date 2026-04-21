@@ -51,7 +51,7 @@ class BackendApi:
                 last = e
                 if attempt == 0:
                     logger.info(
-                        "Sunucu yanit vermedi (ilk deneme). Uyku modundan cikis 1-2 dk surebilir; tekrar deneniyor..."
+                        "Sunucu ilk denemede yanıt vermedi. Hizmet uyku modundaysa uyanması 1–2 dakika sürebilir; tekrar deneniyor…"
                     )
                     time.sleep(4)
         assert last is not None
@@ -92,9 +92,8 @@ class BackendApi:
             logger.warning("login zaman asimi: %s", e)
             return (
                 None,
-                "Sunucu yanit vermedi (zaman asimi). "
-                "Render gibi barindirmada servis uyuyorsa ilk giris 1-2 dakika surebilir; "
-                "bir sure sonra tekrar deneyin.",
+                "Sunucu zaman aşımına uğradı. Hizmet uyku modundaysa ilk giriş 1–2 dakika sürebilir; "
+                "kısa bir süre sonra tekrar deneyin.",
             )
         except RequestException as e:
             logger.warning("login ag hatasi: %s", e)
@@ -134,8 +133,8 @@ class BackendApi:
             logger.warning("register zaman asimi: %s", e)
             return (
                 None,
-                "Sunucu yanit vermedi (zaman asimi). "
-                "Ilk kayit/giris denemesinde servis uyanana kadar bekleyip tekrar deneyin.",
+                "Sunucu zaman aşımına uğradı. Hizmet uyku modundaysa ilk kayıt/giriş denemesi gecikebilir; "
+                "bir süre bekleyip tekrar deneyin.",
             )
         except RequestException as e:
             logger.warning("register ag hatasi: %s", e)

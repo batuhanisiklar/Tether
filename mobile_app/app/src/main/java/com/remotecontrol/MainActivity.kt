@@ -3,10 +3,13 @@ package com.remotecontrol
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
@@ -65,6 +68,8 @@ class MainActivity : AppCompatActivity() {
     private var currentAddress = "------------"
     private var currentPairings: List<DeviceSummary> = emptyList()
     private var streamRunning = false
+    /** MediaProjection sistem diyalogu acikken tekrar launch edilmesini engeller */
+    private var awaitingMediaProjectionConsent = false
     /** Bilgisayar eslesti; ekran/kamera yayini kullanici Ekrani paylas ile baslatilir. */
     private var remoteSessionPaired = false
     private var accessibilityEnabled = false
@@ -77,6 +82,7 @@ class MainActivity : AppCompatActivity() {
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        awaitingMediaProjectionConsent = false
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             startScreenStream(result.resultCode, result.data!!)
         } else {
@@ -351,7 +357,7 @@ class MainActivity : AppCompatActivity() {
         clientRef[0] = client
         signalingClient = client
         signalingClient?.connect()
-        currentStatus = "Cevrimici; baglanti bilgisayardan baslatilir"
+        currentStatus = "Çevrimiçi; baglanti bilgisayardan baslatilir"
         currentStatusDetail = "Sabit adres: $currentAddress"
         refreshFragments()
         Log.i(TAG, "Device address: $currentAddress")
@@ -435,23 +441,72 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             "rotate_screen" -> {
-                val landscape = params["landscape"] as? Boolean ?: false
                 runOnUiThread {
-                    requestedOrientation = if (landscape) {
-                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                    } else {
-                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    // Arka planda veya ana ekrandayken yön degisimi bazen uygulanmaz;
+                    // görevi öne alıp kısa gecikmeyle requestedOrientation veriyoruz.
+                    try {
+                        val intent = Intent(this, MainActivity::class.java).apply {
+                            addFlags(
+                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                            )
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "rotate_screen bring to front", e)
                     }
+                    val applyOrientation = Runnable {
+                        if (isDestroyed || isFinishing) return@Runnable
+                        val degRaw = params["degrees"] as? Number
+                        val orientation = when {
+                            degRaw != null -> {
+                                val deg = ((degRaw.toInt() % 360) + 360) % 360
+                                Log.i(TAG, "rotate_screen degrees=$deg")
+                                when (deg) {
+                                    0 -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                    180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+                                    270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+                                    else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                }
+                            }
+                            else -> {
+                                val landscape = params["landscape"] as? Boolean ?: false
+                                Log.i(TAG, "rotate_screen legacy landscape=$landscape")
+                                if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            }
+                        }
+                        requestedOrientation = orientation
+                        Log.i(TAG, "rotate_screen applied requestedOrientation=$requestedOrientation")
+                    }
+                    Handler(Looper.getMainLooper()).postDelayed(applyOrientation, 120L)
                 }
             }
             "screen_capture_on" -> runOnUiThread { startScreenShareFromRemote() }
             "camera_on" -> runOnUiThread { requestCameraAccess(useFront = false) }
             "camera_off" -> runOnUiThread { stopCameraStreamFromPc() }
+            "paste_text" -> {
+                val raw = params["text"]
+                val text = when (raw) {
+                    is String -> raw
+                    else -> raw?.toString() ?: ""
+                }
+                if (text.isBlank()) return
+                runOnUiThread {
+                    withControlReceiver("Metin gonder") { performPasteText(text) }
+                }
+            }
             else -> Log.w(TAG, "Unknown command: $action")
         }
     }
 
     private fun requestScreenCapture() {
+        if (awaitingMediaProjectionConsent) {
+            Log.i(TAG, "MediaProjection izni zaten bekleniyor — diyalog tekrar acilmiyor")
+            return
+        }
+        awaitingMediaProjectionConsent = true
         val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
     }
@@ -499,6 +554,9 @@ class MainActivity : AppCompatActivity() {
         }
         streamRunning = true
         updateStatus("Ekran yayini aktif")
+
+        // Uygulama arka plana alinsin; bilgisayara gerçek telefon ekranı gönderilsin
+        moveTaskToBack(true)
     }
 
     private fun requestCameraAccess(useFront: Boolean) {
@@ -541,6 +599,7 @@ class MainActivity : AppCompatActivity() {
         stopService(Intent(this, ScreenStreamService::class.java))
         stopService(Intent(this, CameraStreamService::class.java))
         streamRunning = false
+        awaitingMediaProjectionConsent = false
         currentStatusDetail = ""
         refreshFragments()
     }

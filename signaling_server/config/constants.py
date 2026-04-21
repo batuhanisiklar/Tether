@@ -32,6 +32,9 @@ class MessageTypes:
     REQUEST_PRESENCE: str = "request_presence"
     DEVICE_LOGOUT: str = "device_logout"
 
+    SESSION_PING: str = "session_ping"
+    SESSION_PONG: str = "session_pong"
+
     RELAY_TYPES: Set[str] = frozenset({
-        COMMAND, STREAM_INFO, RELAY, FRAME,
+        COMMAND, STREAM_INFO, RELAY, FRAME, SESSION_PING, SESSION_PONG,
     })

@@ -29,10 +29,41 @@ def _random_device_id() -> str:
     return "".join(secrets.choice("0123456789") for _ in range(12))
 
 
-def _device_payload(device: dict[str, Any], online_devices: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _owner_fields(
+    db: ServerDbClient | None,
+    user_id: int | None,
+    cache: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    if db is None or user_id is None:
+        return {"owner_name": "", "owner_phone": "", "owner_email": ""}
+    uid = int(user_id)
+    profile = cache.get(uid)
+    if profile is None:
+        profile = db.get_user_by_id(uid)
+        cache[uid] = profile or {}
+    fn = str((profile or {}).get("first_name") or "").strip()
+    ln = str((profile or {}).get("last_name") or "").strip()
+    full = f"{fn} {ln}".strip()
+    return {
+        "owner_name": full,
+        "owner_phone": str((profile or {}).get("phone") or "").strip(),
+        "owner_email": str((profile or {}).get("email") or "").strip(),
+    }
+
+
+def _device_payload(
+    device: dict[str, Any],
+    online_devices: dict[str, dict[str, Any]],
+    *,
+    db: ServerDbClient | None = None,
+    owner_cache: dict[int, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     device_id = str(device.get("device_id") or "")
     is_online_db = bool(device.get("is_online", False))
     is_online = device_id in online_devices if device_id else is_online_db
+    user_id = int(device.get("user_id")) if device.get("user_id") is not None else None
+    cache = owner_cache if owner_cache is not None else {}
+    owner = _owner_fields(db, user_id, cache)
     return {
         "device_id": device_id,
         "address": device_id,
@@ -40,7 +71,8 @@ def _device_payload(device: dict[str, Any], online_devices: dict[str, dict[str, 
         "device_name": str(device.get("device_name") or ""),
         "is_online": is_online,
         "mac_address": str(device.get("mac_address") or ""),
-        "owner_user_id": int(device.get("user_id")) if device.get("user_id") is not None else None,
+        "owner_user_id": user_id,
+        **owner,
     }
 
 
@@ -200,7 +232,6 @@ async def _send_device_ack(app: web.Application, device_id: str) -> None:
 
 
 async def _refresh_device_ack_for_paired_pcs(app: web.Application, phone_device_id: str) -> None:
-    """Telefon meta/oturumu degisince eslesmis cevrimici PC'lere guncel device_ack gonder."""
     did = _normalize_device_id(phone_device_id)
     if not did:
         return
@@ -233,13 +264,15 @@ async def _broadcast_presence_for_devices(app: web.Application, *device_ids: str
 
 
 async def _save_connection_pair(app: web.Application, controller_device_id: str, target_device_id: str) -> None:
+    """
+    PC (controller) → Telefon (target) bağlantısını kaydet.
+    DB'de ON CONFLICT DO NOTHING ile duplicate otomatik engellenir.
+    """
     controller_id = _normalize_device_id(controller_device_id) or controller_device_id
     target_id = _normalize_device_id(target_device_id) or target_device_id
     if not controller_id or not target_id or controller_id == target_id:
         return
-    exists = await asyncio.to_thread(app["db"].connection_exists, controller_id, target_id)
-    if not exists:
-        await asyncio.to_thread(app["db"].create_connection, controller_id, target_id)
+    await asyncio.to_thread(app["db"].create_connection, controller_id, target_id)
 
 
 def _session_peer_ws_only(
@@ -312,7 +345,6 @@ async def _relay_binary_frame(
                         meta["device_id"] = device_id
                     break
         if device_id:
-            # Once: cevrimici cihazlar arasindan peer bul (DB'ye gitme)
             db: ServerDbClient = app["db"]
             now = time.monotonic()
             cached = _binary_relay_db_cache.get(device_id)
@@ -349,25 +381,51 @@ async def _register_or_reuse_device(
     device_name: str,
     mac_address: str | None,
 ) -> tuple[str | None, str]:
+    """
+    Bu kullanıcı için cihazı bul veya oluştur.
+
+    Arama sırası:
+    1. Eğer mac_address verilmişse: bu user_id + mac_address çifti DB'de var mı?
+       → Varsa: mevcut device_id'yi kullan (aynı cihaz + kullanıcı).
+       → Yoksa: register_device ile yeni kayıt oluştur.
+    2. mac_address yoksa: client'ın verdiği device_id ile fallback kontrol.
+
+    Aynı fiziksel cihaz (mac_address) başka kullanıcılara ait olabilir — bu HATA DEĞİL.
+    Her kullanıcı kendi bağımsız device_id kaydını alır.
+    """
+    effective_mac = (mac_address or "").strip()
+
+    if effective_mac:
+        # Önce bu kullanıcı + MAC kombinasyonuna bak
+        resolved_id = await asyncio.to_thread(
+            app["db"].register_device,
+            device_name or "",
+            device_type,
+            user_id,
+            effective_mac,
+        )
+        if resolved_id:
+            return resolved_id, ""
+        return None, "Cihaz kaydi olusturulamadi."
+
+    # MAC adresi yoksa: client'ın device_id'sini kontrol et, sadece bu kullanıcıya aitse kullan
     normalized_id = _normalize_device_id(device_id) or _random_device_id()
     existing = await asyncio.to_thread(app["db"].get_device_by_id, normalized_id)
     if existing:
-        if int(existing.get("user_id")) != int(user_id):
-            return None, "Bu device_id baska bir hesaba ait."
-        return normalized_id, ""
-
-    effective_mac = (mac_address or "").strip() or f"{device_type}:{normalized_id}"
-    created = await asyncio.to_thread(
+        if int(existing.get("user_id")) == int(user_id):
+            return normalized_id, ""
+        # Başka kullanıcıya ait: bu kullanıcı için yeni bir tane üret
+    fallback_mac = f"{device_type}:{normalized_id}"
+    resolved_id = await asyncio.to_thread(
         app["db"].register_device,
-        normalized_id,
         device_name or "",
         device_type,
         user_id,
-        effective_mac,
+        fallback_mac,
     )
-    if not created:
-        return None, "Cihaz kaydi olusturulamadi."
-    return normalized_id, ""
+    if resolved_id:
+        return resolved_id, ""
+    return None, "Cihaz kaydi olusturulamadi."
 
 
 async def _handle_device_hello(
@@ -574,11 +632,15 @@ async def _notify_paired(app: web.Application, code: str) -> None:
 
 
 async def _handle_pair_confirm(app: web.Application, meta: dict[str, Any], message: dict[str, Any]) -> None:
+    """
+    Telefon, pair_confirm gonderdiginde cagirilir.
+    Baglanti kaydi _notify_paired tarafindan zaten PC→telefon yonunde yapildi;
+    burada tekrar kaydetmiyoruz (cift kayit ve ters yon engellemesi).
+    """
     first_device_id = _normalize_device_id(str(message.get("my_device_id") or ""))
     second_device_id = _normalize_device_id(str(message.get("paired_with") or ""))
     if not first_device_id or not second_device_id:
         return
-    await _save_connection_pair(app, first_device_id, second_device_id)
     await _broadcast_presence_for_devices(app, first_device_id, second_device_id)
 
 
@@ -943,7 +1005,11 @@ async def list_devices(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
     user_id, _ = user
     devices = await asyncio.to_thread(request.app["db"].get_devices_for_user, int(user_id))
-    payload = [_device_payload(device, request.app["online_devices"]) for device in devices]
+    owner_cache: dict[int, dict[str, Any]] = {}
+    payload = [
+        _device_payload(device, request.app["online_devices"], db=request.app["db"], owner_cache=owner_cache)
+        for device in devices
+    ]
     return web.json_response({"ok": True, "devices": payload})
 
 
@@ -965,6 +1031,7 @@ async def list_pairings(request: web.Request) -> web.Response:
 
     seen: set[str] = set()
     pairings_payload: list[dict[str, Any]] = []
+    owner_cache: dict[int, dict[str, Any]] = {}
     for raw_partner_id in partner_ids_raw:
         partner_id = _normalize_device_id(str(raw_partner_id))
         if not partner_id or partner_id in seen:
@@ -973,7 +1040,14 @@ async def list_pairings(request: web.Request) -> web.Response:
         partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
         if not partner_device:
             continue
-        pairings_payload.append(_device_payload(partner_device, request.app["online_devices"]))
+        pairings_payload.append(
+            _device_payload(
+                partner_device,
+                request.app["online_devices"],
+                db=request.app["db"],
+                owner_cache=owner_cache,
+            )
+        )
     return web.json_response({"ok": True, "pairings": pairings_payload})
 
 
@@ -1000,13 +1074,21 @@ async def list_recent_devices(request: web.Request) -> web.Response:
                 partner_ids.add(normalized_partner_id)
 
     devices_payload: list[dict[str, Any]] = []
+    owner_cache: dict[int, dict[str, Any]] = {}
     for partner_id in partner_ids:
         partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
         if not partner_device:
             continue
         if device_type and str(partner_device.get("device_type") or "") != device_type:
             continue
-        devices_payload.append(_device_payload(partner_device, request.app["online_devices"]))
+        devices_payload.append(
+            _device_payload(
+                partner_device,
+                request.app["online_devices"],
+                db=request.app["db"],
+                owner_cache=owner_cache,
+            )
+        )
     return web.json_response({"ok": True, "devices": devices_payload})
 
 
@@ -1027,9 +1109,10 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "message": "Bu cihaza erisim yetkiniz yok."}, status=403)
 
     online = request.app["online_devices"]
+    owner_cache: dict[int, dict[str, Any]] = {}
 
     devices = await asyncio.to_thread(request.app["db"].get_devices_for_user, int(user_id))
-    devices_payload = [_device_payload(device, online) for device in devices]
+    devices_payload = [_device_payload(device, online, db=request.app["db"], owner_cache=owner_cache) for device in devices]
 
     partner_ids_raw = await asyncio.to_thread(request.app["db"].get_connected_devices_as_controller, pc_id)
     partner_ids_raw += await asyncio.to_thread(request.app["db"].get_connected_devices_as_target, pc_id)
@@ -1043,7 +1126,7 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
         partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
         if not partner_device:
             continue
-        pairings_payload.append(_device_payload(partner_device, online))
+        pairings_payload.append(_device_payload(partner_device, online, db=request.app["db"], owner_cache=owner_cache))
 
     partner_ids: set[str] = set()
     for dev in devices:
@@ -1064,7 +1147,7 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
             continue
         if str(partner_device.get("device_type") or "") != "phone":
             continue
-        recent_payload.append(_device_payload(partner_device, online))
+        recent_payload.append(_device_payload(partner_device, online, db=request.app["db"], owner_cache=owner_cache))
 
     return web.json_response(
         {
@@ -1092,9 +1175,13 @@ async def delete_pairing(request: web.Request) -> web.Response:
     if not own_device or int(own_device.get("user_id")) != int(user_id):
         return web.json_response({"ok": False, "message": "Bu cihaza erisim yetkiniz yok."}, status=403)
 
-    deleted_ab = await asyncio.to_thread(request.app["db"].delete_connection, device_id, partner_device_id)
-    deleted_ba = await asyncio.to_thread(request.app["db"].delete_connection, partner_device_id, device_id)
-    if not (deleted_ab or deleted_ba):
+    # Tek yönlü kayıt: PC (controller) → telefon (target)
+    # Sadece bu yönde sil — ters yön ayrı kayıt içermez
+    deleted = await asyncio.to_thread(request.app["db"].delete_connection, device_id, partner_device_id)
+    if not deleted:
+        # Belki bu cihaz target rolündeydi; ters yönü dene
+        deleted = await asyncio.to_thread(request.app["db"].delete_connection, partner_device_id, device_id)
+    if not deleted:
         return web.json_response({"ok": False, "message": "Eslesme silinemedi."}, status=500)
 
     await _broadcast_presence_for_devices(request.app, device_id, partner_device_id)

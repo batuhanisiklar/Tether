@@ -7,7 +7,7 @@ from desktop_app.config.constants import Prefs
 
 
 def read_prefs() -> dict[str, Any]:
-    """Tercih dosyasini guvenli sekilde oku."""
+    """Tercih dosyasını güvenli şekilde okur."""
     try:
         if os.path.exists(Prefs.PATH):
             with open(Prefs.PATH, "r", encoding="utf-8") as file:
@@ -18,7 +18,7 @@ def read_prefs() -> dict[str, Any]:
 
 
 def write_prefs(data: dict[str, Any]) -> None:
-    """Tercih dosyasini guvenli sekilde yaz."""
+    """Tercih dosyasını güvenli şekilde yazar."""
     try:
         with open(Prefs.PATH, "w", encoding="utf-8") as file:
             json.dump(data, file)
@@ -27,7 +27,7 @@ def write_prefs(data: dict[str, Any]) -> None:
 
 
 def update_prefs(**values: Any) -> dict[str, Any]:
-    """Mevcut tercihleri koruyarak verilen alanlari guncelle."""
+    """Mevcut tercihleri koruyarak verilen alanları günceller."""
     prefs = read_prefs()
     prefs.update(values)
     write_prefs(prefs)
@@ -101,12 +101,14 @@ def save_session(
             Prefs.KEY_USER_ID: user_id,
             Prefs.KEY_USERNAME: username,
             Prefs.KEY_USER_ADDRESS: digits,
-            Prefs.KEY_DEVICE_ID: digits,
+            # KEY_DEVICE_ID burada kasıtlı olarak set edilmiyor — cihaz ID'si
+            # load_or_create_device_id() tarafından ayrıca yönetilir.
             **({Prefs.KEY_USER_EMAIL: em} if em else {}),
             Prefs.KEY_USER_FIRST_NAME: (first_name or "").strip(),
             Prefs.KEY_USER_LAST_NAME: (last_name or "").strip(),
         }
     )
+
 
 
 def save_auth_token(token: str) -> None:

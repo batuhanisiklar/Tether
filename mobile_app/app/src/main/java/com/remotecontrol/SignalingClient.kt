@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
  * Signaling sunucusuyla WebSocket üzerinden haberleşir.
  *
  * Kalici kimlik:
- *  - device_hello: cihaz cevrimici ve presence takibi
+ *  - device_hello: cihaz Çevrimiçi ve presence takibi
  *  - register(code=deviceAddress): telefon bu adreste bekler; eslestirmeyi bilgisayar join ile baslatir
  */
 class SignalingClient(
@@ -188,6 +188,19 @@ class SignalingClient(
                             scope.launch {
                                 delay(500)
                                 onPaired(8080, partnerDeviceId.ifBlank { null })
+                            }
+                        }
+
+                        "session_ping" -> {
+                            val pid = json.optInt("ping_id", 0)
+                            try {
+                                webSocket.send(
+                                    JSONObject().apply {
+                                        put("type", "session_pong")
+                                        put("ping_id", pid)
+                                    }.toString(),
+                                )
+                            } catch (_: Exception) {
                             }
                         }
 
