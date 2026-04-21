@@ -35,6 +35,7 @@ class DeviceCard(QFrame):
         self.device_name = device_name
         self.owner_name  = (owner_name or "").strip() or None
         self.owner_email = (owner_email or "").strip() or None
+        self.owner_phone = (owner_phone or "").strip() or None
         self._online       = False
         self._connect_cb   = None
         self._forget_cb    = None
@@ -77,8 +78,11 @@ class DeviceCard(QFrame):
         top_row.addWidget(self._btn_forget)
         root.addLayout(top_row)
 
-        # Sahip adı
+        # Sahip adı (Kişi bilgisi)
         owner = (self.owner_name or "").strip()
+        if not owner:
+            owner = (self.owner_email or self.owner_phone or "").strip()
+            
         self._owner = None
         if owner:
             self._owner = QLabel(compact_label(owner, 34))
