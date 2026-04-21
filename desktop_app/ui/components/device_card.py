@@ -79,14 +79,15 @@ class DeviceCard(QFrame):
 
         # Sahip adı
         owner = (self.owner_name or "").strip()
-        self._owner = QLabel(compact_label(owner, 34) if owner else "")
-        self._owner.setVisible(bool(owner))
-        self._owner.setStyleSheet(
-            f"color: {_C.ACCENT}; font-size: 14px; font-weight: 800;"
-            f" background: transparent;"
-        )
-        root.addWidget(self._owner)
-
+        self._owner = None
+        if owner:
+            self._owner = QLabel(compact_label(owner, 34))
+            self._owner.setStyleSheet(
+                f"color: {_C.ACCENT}; font-size: 14px; font-weight: 800;"
+                f" background: transparent;"
+            )
+            root.addWidget(self._owner)
+        
         # Cihaz adı / adres
         formatted = display_device_name(self.device_name, self.address, self.device_id)
         self._title = QLabel(compact_label(formatted, 28))
