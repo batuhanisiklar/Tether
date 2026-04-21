@@ -1281,7 +1281,7 @@ class MainWindow(QMainWindow):
         if su and not mjpeg_unreachable:
             try:
                 self._mjpeg.start(su)
-                self._set_status("Baglandi — video akisi aktif.")
+                self._set_status("Baglandi - video akisi aktif.")
                 return
             except Exception:
                 logger.exception("MJPEG akisi baslatilamadi")
@@ -1328,7 +1328,7 @@ class MainWindow(QMainWindow):
 
         if not self._connected:
             if online_count:
-                self._set_status(f"Sunucuya baglandi  —  {online_count} cihaz cevrimici")
+                self._set_status(f"Sunucuya baglandi - {online_count} cihaz cevrimici")
             else:
                 self._set_status(Ui.MSG_SERVER_CONNECTED)
 

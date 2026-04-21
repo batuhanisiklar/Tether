@@ -1,17 +1,3 @@
-"""
-Home Page — Ana sayfa UI builder'ı.
-=====================================
-build_home_page(window) çağrısı MainWindow'un ana sayfa widget'ını oluşturur
-ve gerekli widget referanslarını window.* üzerinde atar.
-
-Ayarlanan window öznitelikleri:
-    _inp_code, _btn_connect, _addr_status_label
-    _hero_address, _hero_status_label
-    _lbl_device_count
-    _recent_cards_container, _recent_devices_layout, _lbl_no_devices
-    _warning_banner, _warning_title, _warning_text, _warning_close
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -74,7 +60,6 @@ def build_home_page(window: "MainWindow") -> QWidget:
 
     layout.addWidget(_build_address_input_bar(window))
     layout.addWidget(_build_your_address_hero(window))
-    layout.addWidget(_build_warning_banner(window))
     layout.addWidget(_build_feature_cards())
     layout.addWidget(_build_tab_strip(window))
     layout.addWidget(_build_recent_sessions(window))
@@ -82,10 +67,21 @@ def build_home_page(window: "MainWindow") -> QWidget:
 
     scroll.setWidget(content)
 
-    outer = QVBoxLayout(page)
+    # Scroll + sol-altta "toast" gibi uyarı overlay'i
+    outer = QGridLayout(page)
     outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
-    outer.addWidget(scroll)
+    outer.setHorizontalSpacing(0)
+    outer.setVerticalSpacing(0)
+    outer.addWidget(scroll, 0, 0)
+
+    warning = _build_warning_banner(window)
+    toast_host = QWidget()
+    th = QVBoxLayout(toast_host)
+    th.setContentsMargins(18, 0, 0, 16)  # sol ve alttan boşluk
+    th.setSpacing(0)
+    th.addStretch(1)
+    th.addWidget(warning, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+    outer.addWidget(toast_host, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
     return page
 
 
@@ -205,22 +201,18 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
 
 def _build_warning_banner(window: "MainWindow") -> QWidget:
     banner = QFrame()
-    banner.setStyleSheet("background: transparent;")
-    lay = QHBoxLayout(banner)
-    lay.setContentsMargins(28, 0, 28, 10)
-    lay.setSpacing(10)
-
-    card = QFrame()
-    card.setStyleSheet(
-        "QFrame {"
-        "  background-color: rgba(248,113,113,0.10);"
-        "  border: 1px solid rgba(248,113,113,0.35);"
-        "  border-radius: 8px;"
+    banner.setObjectName("WarningToast")
+    banner.setMaximumWidth(520)
+    banner.setStyleSheet(
+        "QFrame#WarningToast {"
+        "  background-color: rgba(28, 16, 16, 0.92);"
+        "  border: 1px solid rgba(248,113,113,0.55);"
+        "  border-radius: 10px;"
         "}"
     )
-    cl = QHBoxLayout(card)
-    cl.setContentsMargins(14, 10, 14, 10)
-    cl.setSpacing(10)
+    lay = QHBoxLayout(banner)
+    lay.setContentsMargins(14, 10, 14, 10)
+    lay.setSpacing(10)
 
     icon = QLabel("!")
     icon.setFixedSize(18, 18)
@@ -228,7 +220,7 @@ def _build_warning_banner(window: "MainWindow") -> QWidget:
     icon.setStyleSheet(
         f"background-color: {_RED}; color: #1A1A1A; border-radius: 9px; font-weight: 800;"
     )
-    cl.addWidget(icon)
+    lay.addWidget(icon)
 
     text_col = QVBoxLayout()
     text_col.setSpacing(2)
@@ -243,16 +235,14 @@ def _build_warning_banner(window: "MainWindow") -> QWidget:
     window._warning_text.setWordWrap(True)
     window._warning_text.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px;")
     text_col.addWidget(window._warning_text)
-    cl.addLayout(text_col, stretch=1)
+    lay.addLayout(text_col, stretch=1)
 
     window._warning_close = QPushButton("Kapat")
     window._warning_close.setCursor(Qt.CursorShape.PointingHandCursor)
     window._warning_close.setFixedHeight(30)
     window._warning_close.setStyleSheet(WARNING_CLOSE_BTN_SS)
     window._warning_close.clicked.connect(window._hide_warning_banner)
-    cl.addWidget(window._warning_close)
-
-    lay.addWidget(card)
+    lay.addWidget(window._warning_close)
     banner.hide()
     window._warning_banner = banner
     return banner

@@ -234,18 +234,16 @@ def device_card_style(online: bool) -> str:
 WARNING_CLOSE_BTN_SS = f"""
     QPushButton {{
         color: #FFCCCC;
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 rgba(248,113,113,0.28), stop:1 rgba(220,80,80,0.18));
-        border: 1px solid rgba(248,113,113,0.45);
+        background-color: rgba(248,113,113,0.16);
+        border: none;
         border-radius: 10px;
         font-size: 11px;
         font-weight: 700;
-        padding: 0 14px;
+        padding: 0 12px;
+        min-width: 64px;
     }}
     QPushButton:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 rgba(255,140,140,0.35), stop:1 rgba(248,113,113,0.25));
-        border-color: rgba(255,160,160,0.55);
+        background-color: rgba(248,113,113,0.24);
     }}
     QPushButton:pressed {{ background-color: rgba(248,113,113,0.22); }}
 """
