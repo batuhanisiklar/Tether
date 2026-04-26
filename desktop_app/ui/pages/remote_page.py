@@ -177,7 +177,7 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(REMOTE_KEY_BTN_SS)
         btn.clicked.connect(
-            lambda _, code=key_codes[key_id]: window._ws_client.send_key_event(code)
+            lambda _, code=key_codes[key_id]: window._on_screen_remote_key(code)
         )
         if colspan > 1:
             grid.addWidget(btn, row, col, 1, colspan)

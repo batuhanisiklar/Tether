@@ -18,6 +18,7 @@ import os
 
 from PyQt6.QtCore import Qt, QPoint, QTimer, QPropertyAnimation, QEasingCurve, pyqtSlot, QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtMultimedia import QAudio, QAudioSink, QAudioFormat, QMediaDevices
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -158,6 +159,10 @@ class MainWindow(QMainWindow):
         self._logging_out                = False
         self._manual_disconnect          = False
         self._ws_mode                    = "idle"
+        
+        # ── Audio ────────────────────────────────────────────────────────
+        self._audio_sink = None
+        self._audio_device = None
 
         # ── Kullanıcı bilgisi ────────────────────────────────────────────
         self._user_id: int | None = None
@@ -211,6 +216,24 @@ class MainWindow(QMainWindow):
         self._session_ping_timer.timeout.connect(self._tick_session_ping)
 
         QTimer.singleShot(250, self._load_devices_from_db)
+        
+        self._init_audio_player()
+
+    def _init_audio_player(self):
+        try:
+            format = QAudioFormat()
+            format.setSampleRate(16000)
+            format.setChannelCount(1)
+            format.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+            
+            default_device = QMediaDevices.defaultAudioOutput()
+            if not default_device.isNull():
+                self._audio_sink = QAudioSink(default_device, format, self)
+                self._audio_device = self._audio_sink.start()
+            else:
+                logger.warning("No default audio output device found.")
+        except Exception as e:
+            logger.error("Audio player baslatilamadi: %s", e, exc_info=True)
 
     # ── Tercih yükleme ───────────────────────────────────────────────────────
     def _load_user_prefs(self):
@@ -459,6 +482,9 @@ class MainWindow(QMainWindow):
         )
         self._ws_client.frame_received.connect(
             self._on_frame_received, Qt.ConnectionType.QueuedConnection
+        )
+        self._ws_client.audio_received.connect(
+            self._on_audio_received, Qt.ConnectionType.QueuedConnection
         )
         self._ws_client.session_rtt_ms.connect(
             self._on_session_rtt, Qt.ConnectionType.QueuedConnection
@@ -1373,7 +1399,19 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, _apply_banner)
         self._set_status(f"Hata: {msg}", error=True)
 
-    # ── Frame slotları ───────────────────────────────────────────────────────
+    # ── Frame ve Ses slotları ────────────────────────────────────────────────
+    @pyqtSlot(bytes)
+    def _on_audio_received(self, pcm_bytes: bytes):
+        if not pcm_bytes:
+            return
+        if self._audio_device is not None and self._audio_sink is not None:
+            if self._audio_sink.state() == QAudio.State.StoppedState:
+                self._audio_device = self._audio_sink.start()
+            try:
+                self._audio_device.write(pcm_bytes)
+            except Exception as e:
+                pass
+
     @pyqtSlot(bytes)
     def _on_frame_received(self, frame_bytes: bytes):
         if not frame_bytes:
@@ -1449,6 +1487,21 @@ class MainWindow(QMainWindow):
     def _on_screen_remote_key(self, key_code: int) -> None:
         if self._connected:
             self._ws_client.send_key_event(int(key_code))
+            
+            from desktop_app.config.constants import AndroidKeyCodes
+            if getattr(self, "_audio_sink", None) is not None:
+                current_vol = self._audio_sink.volume()
+                if key_code == AndroidKeyCodes.VOL_UP:
+                    self._audio_sink.setVolume(min(1.0, current_vol + 0.1))
+                elif key_code == AndroidKeyCodes.VOL_DOWN:
+                    self._audio_sink.setVolume(max(0.0, current_vol - 0.1))
+                elif key_code == AndroidKeyCodes.VOL_MUTE:
+                    if current_vol > 0.0:
+                        self._last_volume = current_vol
+                        self._audio_sink.setVolume(0.0)
+                    else:
+                        prev = getattr(self, "_last_volume", 1.0)
+                        self._audio_sink.setVolume(max(0.1, prev))
 
     # ── Kontrol etkinleştirme ────────────────────────────────────────────────
     def _set_remote_controls_enabled(self, enabled: bool) -> None:

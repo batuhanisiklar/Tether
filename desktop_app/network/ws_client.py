@@ -30,6 +30,7 @@ class WsClient(QObject):
     command_received = pyqtSignal(dict)
     error_occurred = pyqtSignal(str, str)
     frame_received = pyqtSignal(bytes)
+    audio_received = pyqtSignal(bytes)
     paired_devices_status = pyqtSignal(list, list, object)
     session_rtt_ms = pyqtSignal(float)
 
@@ -312,9 +313,15 @@ class WsClient(QObject):
         if not frame_bytes:
             return
         try:
-            self.frame_received.emit(bytes(frame_bytes))
+            prefix = frame_bytes[0]
+            if prefix == 0x01:
+                self.frame_received.emit(bytes(frame_bytes[1:]))
+            elif prefix == 0x02:
+                self.audio_received.emit(bytes(frame_bytes[1:]))
+            elif prefix == 0xFF: # Legacy JPEG format (Starts with FF D8)
+                self.frame_received.emit(bytes(frame_bytes))
         except Exception as e:
-            logger.error("Frame emit hatasi: %s", e, exc_info=True)
+            logger.error("Binary frame emit hatasi: %s", e, exc_info=True)
 
 
 def load_paired_phone_id() -> str | None:
