@@ -100,6 +100,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var isAudioEnabledForStream = false
+
+    private val audioPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        isAudioEnabledForStream = granted
+        launchMediaProjectionDialog()
+    }
+
     private val notifPermLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
@@ -559,6 +568,21 @@ class MainActivity : AppCompatActivity() {
             Log.i(TAG, "MediaProjection izni zaten bekleniyor — diyalog tekrar acilmiyor")
             return
         }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                isAudioEnabledForStream = true
+                launchMediaProjectionDialog()
+            } else {
+                audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        } else {
+            isAudioEnabledForStream = false
+            launchMediaProjectionDialog()
+        }
+    }
+
+    private fun launchMediaProjectionDialog() {
         awaitingMediaProjectionConsent = true
         val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -599,6 +623,7 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, ScreenStreamService::class.java).apply {
             putExtra(ScreenStreamService.EXTRA_RESULT_CODE, resultCode)
             putExtra(ScreenStreamService.EXTRA_RESULT_DATA, data)
+            putExtra("EXTRA_AUDIO_ENABLED", isAudioEnabledForStream)
         }
         startForegroundService(intent)
 

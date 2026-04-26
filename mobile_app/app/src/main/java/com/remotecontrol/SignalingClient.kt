@@ -288,7 +288,11 @@ class SignalingClient(
             }
             consecutiveDrops = 0
 
-            var sent = currentWs.send(jpeg.toByteString())
+            val payload = ByteArray(jpeg.size + 1)
+            payload[0] = 0x01
+            System.arraycopy(jpeg, 0, payload, 1, jpeg.size)
+
+            var sent = currentWs.send(payload.toByteString())
             if (!sent && jpeg.size <= maxJsonFrameBytes) {
                 val b64 = android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP)
                 val msg = JSONObject().apply {
@@ -306,6 +310,26 @@ class SignalingClient(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Frame gönderme hatası: $e", e)
+        }
+    }
+
+    /**
+     * Ham PCM ses verisini binary WebSocket cercevesi olarak gonderir.
+     * Baslangicina 0x02 (Ses) bayragini ekler.
+     */
+    fun sendAudio(pcm: ByteArray) {
+        val currentWs = ws ?: return
+        try {
+            val queuedBytes = currentWs.queueSize()
+            if (queuedBytes > MAX_PENDING_FRAME_BYTES) {
+                return
+            }
+            val payload = ByteArray(pcm.size + 1)
+            payload[0] = 0x02
+            System.arraycopy(pcm, 0, payload, 1, pcm.size)
+            currentWs.send(payload.toByteString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Ses gönderme hatası: $e")
         }
     }
 

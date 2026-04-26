@@ -15,6 +15,10 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioPlaybackCaptureConfiguration
+import android.media.AudioRecord
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
@@ -45,6 +49,10 @@ class ScreenStreamService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val latestFrame = AtomicReference<ByteArray?>(null)
     private var frameCount = 0L  // Frame sayacı (log için)
+
+    private var audioRecord: AudioRecord? = null
+    private var audioThread: Thread? = null
+    @Volatile private var isAudioRecording = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -80,8 +88,10 @@ class ScreenStreamService : Service() {
             intent?.getParcelableExtra(EXTRA_RESULT_DATA)
         }
 
+        val isAudioEnabled = intent?.getBooleanExtra("EXTRA_AUDIO_ENABLED", false) ?: false
+
         if (resultCode == Activity.RESULT_OK && resultData != null) {
-            startCapture(resultCode, resultData)
+            startCapture(resultCode, resultData, isAudioEnabled)
         } else {
             Log.e(TAG, "MediaProjection izni verilmedi veya data null")
             stopSelf()
@@ -90,8 +100,8 @@ class ScreenStreamService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun startCapture(resultCode: Int, resultData: Intent) {
-        Log.i(TAG, "🎬 startCapture() çağrıldı - SignalingClient.instance = ${SignalingClient.instance != null}")
+    private fun startCapture(resultCode: Int, resultData: Intent, isAudioEnabled: Boolean) {
+        Log.i(TAG, "🎬 startCapture() çağrıldı - SignalingClient.instance = ${SignalingClient.instance != null}, Ses Açık: $isAudioEnabled")
         try {
             val pm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = pm.getMediaProjection(resultCode, resultData)
@@ -192,9 +202,12 @@ class ScreenStreamService : Service() {
             mjpegServer?.start()
             Log.i(TAG, "Screen stream started on port $PORT")
 
-            // Bildirimi güncelle
             val notifManager = getSystemService(NotificationManager::class.java)
-            notifManager.notify(1, buildNotification("Ekran yayını aktif — port $PORT"))
+            notifManager.notify(1, buildNotification("Ekran yayını aktif" + if (isAudioEnabled) " (Sesli)" else ""))
+
+            if (isAudioEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startAudioCapture()
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "startCapture error: $e")
@@ -202,7 +215,63 @@ class ScreenStreamService : Service() {
         }
     }
 
+    private fun startAudioCapture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || mediaProjection == null) return
+        try {
+            @Suppress("NewApi")
+            val audioConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection!!)
+                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                .build()
+
+            val format = AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(16000)
+                .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                .build()
+
+            val minBufferSize = maxOf(
+                4096, 
+                AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT) * 2
+            )
+            
+            @Suppress("NewApi")
+            val builder = AudioRecord.Builder()
+                .setAudioFormat(format)
+                .setAudioPlaybackCaptureConfig(audioConfig)
+                .setBufferSizeInBytes(minBufferSize)
+            
+            audioRecord = builder.build()
+            audioRecord?.startRecording()
+            isAudioRecording = true
+            
+            audioThread = Thread {
+                val buffer = ByteArray(2048)
+                while (isAudioRecording) {
+                    val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                    if (read > 0) {
+                        val client = SignalingClient.instance
+                        if (client != null) {
+                            val data = if (read == buffer.size) buffer else buffer.copyOf(read)
+                            client.sendAudio(data)
+                        }
+                    }
+                }
+            }
+            audioThread?.start()
+            Log.i(TAG, "🎧 Audio capture started")
+        } catch (e: Exception) {
+            Log.e(TAG, "AudioCapture error", e)
+        }
+    }
+
     override fun onDestroy() {
+        isAudioRecording = false
+        audioRecord?.stop()
+        audioRecord?.release()
+        audioThread?.interrupt()
+
         mjpegServer?.stop()
         virtualDisplay?.release()
         imageReader?.close()
