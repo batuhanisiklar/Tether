@@ -174,6 +174,12 @@ class MainActivity : AppCompatActivity() {
             val result = backendApi.deletePairing(token, deviceId, partnerDeviceId, partnerAddress)
             if (result.error.isNullOrBlank()) {
                 val normalizedPartnerAddress = partnerAddress?.filter(Char::isDigit)?.take(12)
+                // UI'yi anında güncelle (ağ çağrısını bekleme)
+                currentPairings = currentPairings.filterNot { d ->
+                    d.deviceId == partnerDeviceId ||
+                        (!normalizedPartnerAddress.isNullOrBlank() && d.address == normalizedPartnerAddress)
+                }
+                refreshFragments()
                 if (pairedPcId == partnerDeviceId || (!normalizedPartnerAddress.isNullOrBlank() && pairedPcAddress == normalizedPartnerAddress)) {
                     sessionStore.clearPairedPcId()
                     sessionStore.clearPairedPcAddress()
@@ -193,6 +199,20 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
+    fun startScreenShareFromUi() {
+        // Kullanıcı tıkladığında ekstra adım olmadan sistem izin diyalogu açılsın
+        if (!remoteSessionPaired) {
+            Toast.makeText(this, getString(R.string.pair_start_broadcast_hint), Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (streamRunning) return
+        if (IS_EMULATOR) {
+            requestCameraAccess(useFront = false)
+        } else {
+            requestScreenCapture()
+        }
+    }
+
     fun logout() {
         connectionGeneration += 1
         stopAllStreams()
@@ -210,6 +230,10 @@ class MainActivity : AppCompatActivity() {
 
     fun usernameText(): String = sessionStore.username().ifBlank { "Kullanici" }
         .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+
+    fun homeUserDisplayText(): String {
+        return fullNameText()
+    }
 
     fun fullNameText(): String {
         val fn = sessionStore.firstName().trim()
@@ -537,7 +561,13 @@ class MainActivity : AppCompatActivity() {
         }
         awaitingMediaProjectionConsent = true
         val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val config = android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay()
+            projectionManager.createScreenCaptureIntent(config)
+        } else {
+            projectionManager.createScreenCaptureIntent()
+        }
+        mediaProjectionLauncher.launch(intent)
     }
 
     /** Masaustunden gelen komut: eslestirme ve erisilebilirlik sonrasi ekran (veya emulatorda kamera) paylasimi. */
@@ -702,7 +732,10 @@ class MainActivity : AppCompatActivity() {
             .filter { it.deviceId != deviceId }
             .forEach {
                 val key = it.address?.filter(Char::isDigit)?.take(12).orEmpty().ifBlank { it.deviceId }
-                merged[key] = it.copy(address = it.address?.filter(Char::isDigit)?.take(12))
+                merged[key] = it.copy(
+                    address = it.address?.filter(Char::isDigit)?.take(12),
+                    paired = false,
+                )
             }
         (recentResult.data ?: emptyList())
             .filter { it.deviceId != deviceId }
@@ -711,12 +744,13 @@ class MainActivity : AppCompatActivity() {
                 val key = normalizedAddress.orEmpty().ifBlank { device.deviceId }
                 val existing = merged[key]
                 merged[key] = if (existing == null) {
-                    device.copy(address = normalizedAddress)
+                    device.copy(address = normalizedAddress, paired = false)
                 } else {
                     existing.copy(
                         deviceName = existing.deviceName ?: device.deviceName,
                         address = existing.address ?: normalizedAddress,
                         online = existing.online || device.online,
+                        paired = existing.paired,
                     )
                 }
             }
@@ -727,12 +761,13 @@ class MainActivity : AppCompatActivity() {
                 val key = normalizedAddress.orEmpty().ifBlank { device.deviceId }
                 val existing = merged[key]
                 merged[key] = if (existing == null) {
-                    device.copy(address = normalizedAddress)
+                    device.copy(address = normalizedAddress, paired = true)
                 } else {
                     existing.copy(
                         deviceName = existing.deviceName ?: device.deviceName,
                         address = existing.address ?: normalizedAddress,
                         online = existing.online || device.online,
+                        paired = true,
                     )
                 }
             }

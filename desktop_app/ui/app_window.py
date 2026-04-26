@@ -571,6 +571,11 @@ class MainWindow(QMainWindow):
             if pairings is not None:
                 _ingest(pairings)
             else:
+                if "Bu cihaza erisim yetkiniz yok" in (err or ""):
+                    logger.warning("Pairings yetkisiz (oturum sifirlanacak): %s", err)
+                    clear_logged_in()
+                    self._auth_token = ""
+                    return []
                 logger.warning("Server pairings alinamadi: %s", err)
 
             return list(merged.values()) if merged else []

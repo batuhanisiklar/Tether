@@ -83,4 +83,7 @@
     <string name="pair_screen_permission_hint">Ekranı bilgisayarda göstermek için açılan izin penceresini onaylayın.</string>
     <string name="pair_camera_starting_hint">Emülatör: kamera yayını için izin isteniyor.</string>
     <string name="logout">Cikis Yap</string>
+    <string name="copy">Kopyala</string>
+    <string name="share">Paylaş</string>
+    <string name="copied">Kopyalandı!</string>
 </resources>
