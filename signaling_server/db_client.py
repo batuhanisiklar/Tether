@@ -467,8 +467,9 @@ class ServerDbClient:
                         """,
                         (controller_device_id, target_device_id)
                     )
+                    deleted = (cur.rowcount or 0) > 0
                 conn.commit()
-            return True
+            return deleted
         except Exception as e:
             logger.exception("delete_connection: %s", e)
             return False
