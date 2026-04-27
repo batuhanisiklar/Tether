@@ -323,9 +323,9 @@ async def _relay_message(
     await peer_ws.send_str(raw_text if raw_text is not None else json.dumps(message, separators=(",", ":")))
 
 
-# Throttle: binary relay sirasinda peer bulunamadiginda DB sorgusunu saniyede 1 kez ile sinirla
+# Throttle: binary relay sirasinda peer bulunamadiginda DB sorgusunu sinirla
 _binary_relay_db_cache: dict[str, tuple[float, list[str]]] = {}
-_BINARY_RELAY_DB_TTL = 2.0  # saniye
+_BINARY_RELAY_DB_TTL = 10.0  # saniye (oturum sirasinda cifter degismez)
 
 
 async def _relay_binary_frame(
