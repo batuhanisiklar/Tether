@@ -13,7 +13,11 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
+import android.view.OrientationEventListener
+import android.view.Surface
+import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -21,6 +25,7 @@ import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -31,6 +36,13 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * Önemli: Android 14+ (API 34) startForeground() çağrısında
  * FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION gerektirir.
+ *
+ * Performans iyileştirmeleri:
+ *   • 30 FPS frame limiter (minFrameIntervalMs)
+ *   • Executor-tabanlı asenkron encoding (ImageReader callback'i bloklanmaz)
+ *   • 720p / %65 JPEG kalitesi (bant genişliği optimizasyonu)
+ *   • OrientationEventListener ile otomatik ekran döndürme algılama
+ *   • VirtualDisplay yeniden oluşturma (döndürmede)
  */
 class ScreenStreamService : Service() {
 
@@ -40,6 +52,12 @@ class ScreenStreamService : Service() {
         const val PORT = 8080
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+
+        // ── Performans sabitleri ─────────────────────────────────────────
+        private const val MAX_SIDE = 720          // Maksimum kenar uzunluğu (piksel)
+        private const val JPEG_QUALITY = 65       // JPEG sıkıştırma kalitesi (%)
+        private const val MIN_FRAME_INTERVAL_MS = 33L   // ~30 FPS
+        private const val IMAGE_READER_BUFFERS = 3      // ImageReader tampon sayısı
     }
 
     private var mediaProjection: MediaProjection? = null
@@ -50,9 +68,25 @@ class ScreenStreamService : Service() {
     private val latestFrame = AtomicReference<ByteArray?>(null)
     private var frameCount = 0L  // Frame sayacı (log için)
 
+    // ── Frame rate limiter ───────────────────────────────────────────────
+    private val encodingInProgress = AtomicBoolean(false)
+    private var lastFrameSentMs = 0L
+
+    // ── Döndürme algılama ────────────────────────────────────────────────
+    private var orientationListener: OrientationEventListener? = null
+    private var currentRotation: Int = Surface.ROTATION_0
+    private var captureWidth = 0
+    private var captureHeight = 0
+    private var captureDpi = 0
+
+    // ── Ses yakalama ─────────────────────────────────────────────────────
     private var audioRecord: AudioRecord? = null
     private var audioThread: Thread? = null
     @Volatile private var isAudioRecording = false
+
+    // ── MediaProjection parametreleri (yeniden oluşturma için) ────────────
+    private var savedResultCode: Int = Activity.RESULT_CANCELED
+    private var savedResultData: Intent? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -103,6 +137,9 @@ class ScreenStreamService : Service() {
     private fun startCapture(resultCode: Int, resultData: Intent, isAudioEnabled: Boolean) {
         Log.i(TAG, "🎬 startCapture() çağrıldı - SignalingClient.instance = ${SignalingClient.instance != null}, Ses Açık: $isAudioEnabled")
         try {
+            savedResultCode = resultCode
+            savedResultData = resultData
+
             val pm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = pm.getMediaProjection(resultCode, resultData)
 
@@ -113,13 +150,6 @@ class ScreenStreamService : Service() {
             }
             Log.i(TAG, "✅ MediaProjection oluşturuldu")
 
-            val metrics = resources.displayMetrics
-            val width = metrics.widthPixels
-            val height = metrics.heightPixels
-            val dpi = metrics.densityDpi
-
-            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-
             // Android 14+ (API 34+) için MediaProjection callback kaydetmek zorunlu
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
@@ -128,74 +158,17 @@ class ScreenStreamService : Service() {
                 }
             }, null)
 
-            virtualDisplay = mediaProjection?.createVirtualDisplay(
-                "ScreenCapture",
-                width, height, dpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface,
-                null, null
-            )
+            // Mevcut ekran boyutlarını al
+            readDisplayMetrics()
 
-            imageReader?.setOnImageAvailableListener({ reader ->
-                val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-                try {
-                    if (frameCount == 0L) {
-                        Log.i(TAG, "🎬 İlk frame yakalandı! SignalingClient.instance = ${SignalingClient.instance != null}")
-                    }
-                    val planes = image.planes
-                    val buffer = planes[0].buffer
-                    val pixelStride = planes[0].pixelStride
-                    val rowStride = planes[0].rowStride
-                    val rowPadding = rowStride - pixelStride * width
+            // Mevcut ekran rotasyonunu kaydet
+            currentRotation = getCurrentDisplayRotation()
 
-                    val bmp = Bitmap.createBitmap(
-                        width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888
-                    )
-                    bmp.copyPixelsFromBuffer(buffer)
+            // VirtualDisplay ve ImageReader oluştur
+            createCaptureResources()
 
-                    // --- KALİTE GÜNCELLEMESİ YAPILAN BÖLÜM ---
-                    // Görüntünün kenar sınırı 520'den 1080'e çıkarıldı.
-                    val maxSide = 1080 
-                    // Zorunlu küçültme oranı 0.5f'den 0.8f'e çekildi (Orijinale daha yakın).
-                    val scale = minOf(0.8f, maxSide.toFloat() / maxOf(width, height))
-                    val scaledW = maxOf(1, (width * scale).toInt())
-                    val scaledH = maxOf(1, (height * scale).toInt())
-                    
-                    val scaled = Bitmap.createScaledBitmap(bmp, scaledW, scaledH, true)
-                    bmp.recycle()
-
-                    val out = ByteArrayOutputStream()
-                    // Sıkıştırma kalitesi 58'den 80'e çıkarıldı (Minecraft görüntüsünü engeller).
-                    scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
-                    scaled.recycle()
-                    // ------------------------------------------
-
-                    val jpegBytes = out.toByteArray()
-                    latestFrame.set(jpegBytes)
-                    frameCount++
-                    
-                    val client = SignalingClient.instance
-                    if (client != null) {
-                        try {
-                            client.sendFrame(jpegBytes)
-                            if (frameCount % 30 == 0L) {
-                                Log.i(TAG, "✅ Frame sent via WebSocket: ${jpegBytes.size} bytes (frame #$frameCount)")
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "❌ Frame gönderme hatası: $e", e)
-                        }
-                    } else {
-                        if (frameCount <= 10 || frameCount % 100 == 0L) {
-                            Log.w(TAG, "⚠️ SignalingClient.instance is null - frame #$frameCount gönderilemedi (${jpegBytes.size} bytes)")
-                        }
-                    }
-
-                } catch (e: Exception) {
-                    Log.e(TAG, "Frame error: $e")
-                } finally {
-                    image.close()
-                }
-            }, null)
+            // Döndürme dinleyicisini başlat
+            startOrientationListener()
 
             // MJPEG sunucu başlat
             mjpegServer = MjpegServer(PORT, latestFrame)
@@ -212,6 +185,166 @@ class ScreenStreamService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "startCapture error: $e")
             stopSelf()
+        }
+    }
+
+    // ── Ekran boyutlarını oku ────────────────────────────────────────────
+    private fun readDisplayMetrics() {
+        val metrics = resources.displayMetrics
+        captureWidth = metrics.widthPixels
+        captureHeight = metrics.heightPixels
+        captureDpi = metrics.densityDpi
+    }
+
+    // ── Mevcut ekran rotasyonunu al ─────────────────────────────────────
+    private fun getCurrentDisplayRotation(): Int {
+        return try {
+            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay?.rotation ?: Surface.ROTATION_0
+        } catch (e: Exception) {
+            Log.w(TAG, "Rotasyon alınamadı (Service context): $e")
+            Surface.ROTATION_0
+        }
+    }
+
+    // ── VirtualDisplay + ImageReader oluştur ─────────────────────────────
+    private fun createCaptureResources() {
+        imageReader = ImageReader.newInstance(captureWidth, captureHeight, PixelFormat.RGBA_8888, IMAGE_READER_BUFFERS)
+
+        virtualDisplay = mediaProjection?.createVirtualDisplay(
+            "ScreenCapture",
+            captureWidth, captureHeight, captureDpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader?.surface,
+            null, null
+        )
+
+        imageReader?.setOnImageAvailableListener({ reader ->
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                val now = SystemClock.elapsedRealtime()
+
+                // Frame rate limiter: minimum 33ms aralık (~30 FPS) + önceki encode bitmeli
+                if (now - lastFrameSentMs < MIN_FRAME_INTERVAL_MS || !encodingInProgress.compareAndSet(false, true)) {
+                    image.close()
+                    return@setOnImageAvailableListener
+                }
+
+                if (frameCount == 0L) {
+                    Log.i(TAG, "🎬 İlk frame yakalandı! SignalingClient.instance = ${SignalingClient.instance != null}")
+                }
+
+                val planes = image.planes
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val rowPadding = rowStride - pixelStride * captureWidth
+                val imgWidth = captureWidth
+                val imgHeight = captureHeight
+
+                val bmp = Bitmap.createBitmap(
+                    imgWidth + rowPadding / pixelStride, imgHeight, Bitmap.Config.ARGB_8888
+                )
+                bmp.copyPixelsFromBuffer(buffer)
+                image.close()
+
+                // Mevcut rotasyonu yakala (closure'a al)
+                val rotation = currentRotation
+
+                // Encoding'i executor thread'e aktar — ImageReader callback bloklanmaz
+                executor.execute {
+                    try {
+                        val scale = minOf(0.8f, MAX_SIDE.toFloat() / maxOf(imgWidth, imgHeight))
+                        val scaledW = maxOf(1, (imgWidth * scale).toInt())
+                        val scaledH = maxOf(1, (imgHeight * scale).toInt())
+
+                        val scaled = Bitmap.createScaledBitmap(bmp, scaledW, scaledH, true)
+                        bmp.recycle()
+
+                        val out = ByteArrayOutputStream()
+                        scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+                        scaled.recycle()
+
+                        val jpegBytes = out.toByteArray()
+                        latestFrame.set(jpegBytes)
+                        frameCount++
+                        lastFrameSentMs = SystemClock.elapsedRealtime()
+
+                        val client = SignalingClient.instance
+                        if (client != null) {
+                            try {
+                                client.sendFrame(jpegBytes, rotation)
+                                if (frameCount % 30 == 0L) {
+                                    Log.i(TAG, "✅ Frame sent via WebSocket: ${jpegBytes.size} bytes (frame #$frameCount, rot=$rotation)")
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Frame gönderme hatası: $e", e)
+                            }
+                        } else {
+                            if (frameCount <= 10 || frameCount % 100 == 0L) {
+                                Log.w(TAG, "⚠️ SignalingClient.instance is null - frame #$frameCount gönderilemedi (${jpegBytes.size} bytes)")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Frame encode error: $e")
+                    } finally {
+                        encodingInProgress.set(false)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Frame error: $e")
+                encodingInProgress.set(false)
+                try { image.close() } catch (_: Exception) {}
+            }
+        }, null)
+    }
+
+    // ── Döndürme dinleyicisi ─────────────────────────────────────────────
+    private fun startOrientationListener() {
+        orientationListener = object : OrientationEventListener(this) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                val newRotation = getCurrentDisplayRotation()
+                if (newRotation != currentRotation) {
+                    Log.i(TAG, "🔄 Ekran döndü: $currentRotation → $newRotation")
+                    currentRotation = newRotation
+                    recreateVirtualDisplay()
+                }
+            }
+        }
+        if (orientationListener?.canDetectOrientation() == true) {
+            orientationListener?.enable()
+            Log.i(TAG, "✅ Döndürme dinleyicisi aktif")
+        } else {
+            Log.w(TAG, "⚠️ Döndürme algılanamıyor (sensör yok)")
+        }
+    }
+
+    /**
+     * Ekran döndüğünde VirtualDisplay ve ImageReader'ı yeniden oluşturur.
+     * Yeni boyutlara uygun capture başlatılır.
+     */
+    private fun recreateVirtualDisplay() {
+        try {
+            // Eski kaynakları serbest bırak
+            virtualDisplay?.release()
+            virtualDisplay = null
+            imageReader?.close()
+            imageReader = null
+
+            // Encoding'in bitmesini bekle
+            encodingInProgress.set(false)
+
+            // Yeni boyutları oku
+            readDisplayMetrics()
+
+            Log.i(TAG, "🔄 VirtualDisplay yeniden oluşturuluyor: ${captureWidth}x${captureHeight} dpi=$captureDpi rot=$currentRotation")
+
+            // Yeniden oluştur
+            createCaptureResources()
+        } catch (e: Exception) {
+            Log.e(TAG, "recreateVirtualDisplay error: $e", e)
         }
     }
 
@@ -247,7 +380,8 @@ class ScreenStreamService : Service() {
             isAudioRecording = true
             
             audioThread = Thread {
-                val buffer = ByteArray(2048)
+                // Daha büyük buffer: daha az paket, daha az overhead
+                val buffer = ByteArray(4096)
                 while (isAudioRecording) {
                     val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                     if (read > 0) {
@@ -271,6 +405,9 @@ class ScreenStreamService : Service() {
         audioRecord?.stop()
         audioRecord?.release()
         audioThread?.interrupt()
+
+        orientationListener?.disable()
+        orientationListener = null
 
         mjpegServer?.stop()
         virtualDisplay?.release()

@@ -117,6 +117,40 @@ _C = Colors
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Audio Jitter Buffer
+# ─────────────────────────────────────────────────────────────────────────────
+class AudioJitterBuffer:
+    """
+    Basit ring buffer — ağ titreşimini (jitter) emerek ses çıkışını düzgünleştirir.
+    İlk `pre_buffer_ms` kadar PCM biriktirir, ardından gelen her chunk'ı derhal döndürür.
+    """
+
+    def __init__(self, pre_buffer_ms: int = 100, sample_rate: int = 16000, channels: int = 1, sample_bytes: int = 2):
+        self._pre_buffer_bytes = int(sample_rate * channels * sample_bytes * (pre_buffer_ms / 1000))
+        self._buffer = bytearray()
+        self._started = False
+
+    def push(self, pcm: bytes) -> bytes | None:
+        """PCM verisini ekle; oynatmaya hazırsa bytes döndürür, değilse None."""
+        self._buffer.extend(pcm)
+        if not self._started:
+            if len(self._buffer) >= self._pre_buffer_bytes:
+                self._started = True
+                chunk = bytes(self._buffer)
+                self._buffer.clear()
+                return chunk
+            return None
+        chunk = bytes(self._buffer)
+        self._buffer.clear()
+        return chunk
+
+    def reset(self):
+        """Bağlantı kesildiğinde veya akış durduğunda sıfırla."""
+        self._buffer.clear()
+        self._started = False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Worker Threads
 # ─────────────────────────────────────────────────────────────────────────────
 class DeviceLoadThread(QThread):
@@ -163,6 +197,7 @@ class MainWindow(QMainWindow):
         # ── Audio ────────────────────────────────────────────────────────
         self._audio_sink = None
         self._audio_device = None
+        self._audio_jitter = AudioJitterBuffer(pre_buffer_ms=100, sample_rate=16000)
 
         # ── Kullanıcı bilgisi ────────────────────────────────────────────
         self._user_id: int | None = None
@@ -488,6 +523,12 @@ class MainWindow(QMainWindow):
         )
         self._ws_client.session_rtt_ms.connect(
             self._on_session_rtt, Qt.ConnectionType.QueuedConnection
+        )
+        self._ws_client.rotation_received.connect(
+            self._on_rotation_received, Qt.ConnectionType.QueuedConnection
+        )
+        self._ws_client.reconnecting.connect(
+            self._on_reconnecting, Qt.ConnectionType.QueuedConnection
         )
 
         self._mjpeg.frame_ready.connect(self._on_mjpeg_frame)
@@ -1404,11 +1445,15 @@ class MainWindow(QMainWindow):
     def _on_audio_received(self, pcm_bytes: bytes):
         if not pcm_bytes:
             return
+        # Jitter buffer üzerinden geçir — ilk 100ms tamponlanır, sonra akıcı çalınır
+        chunk = self._audio_jitter.push(pcm_bytes)
+        if chunk is None:
+            return
         if self._audio_device is not None and self._audio_sink is not None:
             if self._audio_sink.state() == QAudio.State.StoppedState:
                 self._audio_device = self._audio_sink.start()
             try:
-                self._audio_device.write(pcm_bytes)
+                self._audio_device.write(chunk)
             except Exception as e:
                 pass
 
@@ -1462,6 +1507,19 @@ class MainWindow(QMainWindow):
         deg = self._rotation_step * 90
         self._screen.set_rotation(deg)
         self._sync_stream_aspect_fit()
+
+    @pyqtSlot(int)
+    def _on_rotation_received(self, degrees: int):
+        """Telefon rotasyonu değiştiğinde otomatik döndür (metadata ile gelir)."""
+        step = (degrees // 90) % 4
+        if step != self._rotation_step:
+            self._rotation_step = step
+            self._apply_rotation_step()
+
+    @pyqtSlot(int)
+    def _on_reconnecting(self, attempt: int):
+        """Otomatik yeniden bağlanma denemesi başladığında durum güncelle."""
+        self._set_status(f"Yeniden bağlanılıyor... (deneme {attempt})")
 
     @pyqtSlot()
     def _on_rotate_left(self):
@@ -1625,6 +1683,7 @@ class MainWindow(QMainWindow):
             self._session_ping_timer.stop()
             self._reset_session_stats_labels()
             self._sync_stream_aspect_fit()
+            self._audio_jitter.reset()
         else:
             self._fps_histogram_timer.start()
             self._session_ping_timer.start()

@@ -266,8 +266,13 @@ class SignalingClient(
     /**
      * JPEG'i binary WebSocket cercevesi olarak gonderir (sunucu `send_bytes` ile PC'ye iletir).
      * Kucuk karelerde istege bagli JSON fallback (cok nadir proxy senaryolari).
+     *
+     * Binary frame format:
+     *   byte[0] = 0x01 (video marker)
+     *   byte[1] = rotation (0x00=0°, 0x01=90°, 0x02=180°, 0x03=270°)
+     *   byte[2..] = JPEG data
      */
-    fun sendFrame(jpeg: ByteArray) {
+    fun sendFrame(jpeg: ByteArray, rotation: Int = 0) {
         val currentWs = ws
         if (currentWs == null) {
             val now = System.currentTimeMillis()
@@ -288,9 +293,19 @@ class SignalingClient(
             }
             consecutiveDrops = 0
 
-            val payload = ByteArray(jpeg.size + 1)
-            payload[0] = 0x01
-            System.arraycopy(jpeg, 0, payload, 1, jpeg.size)
+            // Rotation → byte: Surface.ROTATION_0=0, _90=1, _180=2, _270=3
+            val rotByte: Byte = when (rotation) {
+                android.view.Surface.ROTATION_0   -> 0x00
+                android.view.Surface.ROTATION_90  -> 0x01
+                android.view.Surface.ROTATION_180 -> 0x02
+                android.view.Surface.ROTATION_270 -> 0x03
+                else -> 0x00
+            }
+
+            val payload = ByteArray(jpeg.size + 2)
+            payload[0] = 0x01          // video marker
+            payload[1] = rotByte       // rotation metadata
+            System.arraycopy(jpeg, 0, payload, 2, jpeg.size)
 
             var sent = currentWs.send(payload.toByteString())
             if (!sent && jpeg.size <= maxJsonFrameBytes) {
@@ -298,6 +313,7 @@ class SignalingClient(
                 val msg = JSONObject().apply {
                     put("type", "frame")
                     put("data", b64)
+                    put("rotation", rotation)
                 }
                 sent = currentWs.send(msg.toString())
             }
@@ -306,7 +322,7 @@ class SignalingClient(
                 return
             }
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "Frame gonderildi: ${jpeg.size} bytes (binary veya kucuk JSON)")
+                Log.d(TAG, "Frame gonderildi: ${jpeg.size} bytes rot=$rotation")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Frame gönderme hatası: $e", e)
