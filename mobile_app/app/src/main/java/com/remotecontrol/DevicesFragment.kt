@@ -9,8 +9,6 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.view.ContextThemeWrapper
-import androidx.appcompat.widget.AppCompatButton
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.remotecontrol.databinding.FragmentDevicesBinding
@@ -41,6 +39,7 @@ class DevicesFragment : Fragment(), DashboardFragment {
     override fun refreshContent() {
         val host = activity as? MainActivity ?: return
         val devices = host.currentPairings()
+            .filter { it.deviceType == "pc" && it.paired }
         binding.layoutDevices.removeAllViews()
         if (devices.isEmpty()) {
             binding.tvEmptyState.visibility = View.VISIBLE
@@ -96,6 +95,34 @@ class DevicesFragment : Fragment(), DashboardFragment {
             setPadding(dp(8), 0, 0, 0)
         }
         headerRow.addView(statusLabel)
+
+        val spacer = View(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+        }
+        headerRow.addView(spacer)
+
+        val deleteButton = androidx.appcompat.widget.AppCompatImageButton(requireContext()).apply {
+            setImageResource(R.drawable.ic_delete)
+            setColorFilter(ContextCompat.getColor(requireContext(), R.color.text_primary))
+            contentDescription = getString(R.string.remove_device)
+            setBackgroundResource(android.R.drawable.list_selector_background)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            setOnClickListener {
+                AlertDialog.Builder(requireContext())
+                    .setMessage(getString(R.string.forget_pairing_confirm))
+                    .setPositiveButton(R.string.forget_device) { _, _ ->
+                        host.forgetPairingFromUi(device.deviceId, device.address)
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
+        headerRow.addView(deleteButton)
+
         row.addView(headerRow)
 
         val subtitle = TextView(requireContext()).apply {
@@ -113,37 +140,6 @@ class DevicesFragment : Fragment(), DashboardFragment {
         }
         row.addView(subtitle)
 
-        val actions = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                topMargin = dp(10)
-            }
-        }
-
-        val forgetButton = AppCompatButton(
-            ContextThemeWrapper(requireContext(), R.style.WidgetRemoteControlSecondaryButton),
-            null, 0,
-        ).apply {
-            text = getString(R.string.remove_device)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
-            setOnClickListener {
-                AlertDialog.Builder(requireContext())
-                    .setMessage(getString(R.string.forget_pairing_confirm))
-                    .setPositiveButton(R.string.forget_device) { _, _ ->
-                        host.forgetPairingFromUi(device.deviceId, device.address)
-                    }
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show()
-            }
-        }
-        actions.addView(forgetButton)
-        row.addView(actions)
         return row
     }
 

@@ -29,6 +29,8 @@ data class DeviceSummary(
     val deviceName: String?,
     val address: String?,
     val online: Boolean,
+    /** Yalnızca pairings endpoint'inden gelen (gerçek eşleşme) */
+    val paired: Boolean = false,
 ) {
     fun displayName(): String = deviceName?.takeIf { it.isNotBlank() }
         ?: address
@@ -228,7 +230,6 @@ class BackendApi(
             val payload = JSONObject().apply {
                 put("device_id", deviceId)
                 put("partner_device_id", partnerDeviceId)
-                put("partner_address", partnerAddress.orEmpty())
             }
             val request = Request.Builder()
                 .url("$baseHttpUrl/pairings/delete")
@@ -443,6 +444,7 @@ class BackendApi(
                         deviceName = item.optString("device_name").takeIf { it.isNotBlank() },
                         address = item.optString("address").takeIf { it.isNotBlank() },
                         online = item.optBoolean("is_online", false),
+                        paired = false,
                     )
                 )
             }

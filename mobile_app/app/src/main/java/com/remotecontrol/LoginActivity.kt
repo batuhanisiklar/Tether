@@ -280,7 +280,15 @@ class LoginActivity : AppCompatActivity() {
             }
 
             sessionStore.save(result.data)
-            deviceIdentityStore.saveDeviceId(result.data.address)
+            val savedDeviceId = result.data.address.filter { it.isDigit() }.take(12).ifBlank { deviceIdentityStore.deviceId() }
+            deviceIdentityStore.saveDeviceId(savedDeviceId)
+            
+            // Login sirasinda db'den profil bilgisini onceden cek ki ana Ekranda ad-soyad hemen gelsin
+            val profileRes = backendApi.getProfile(result.data.token, savedDeviceId)
+            profileRes.data?.let { p ->
+                sessionStore.saveProfile(p.firstName, p.lastName, p.email, p.phone)
+            }
+
             hideError()
             goToMain()
         }

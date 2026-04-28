@@ -24,6 +24,7 @@ from desktop_app.config.prefs_store import (
     clear_remembered_login_email,
     save_remembered_login_email,
     save_session,
+    update_prefs,
 )
 from desktop_app.network.backend_api import BackendApi
 from desktop_app.network.hardware_id import get_mac_fingerprint
@@ -869,7 +870,16 @@ class LoginWindow(QDialog):
                 "address": "",
             }
         username = str(user.get("username") or email)
-        address = str(user.get("address") or "")
+        # Sunucu, device_id'yi MAC/çakışma durumuna göre yeniden çözebilir.
+        # Daha sonra /pairings gibi endpoint'ler, bu resolved device_id'nin kullanıcıya ait olmasını bekler.
+        resolved_device_id = str(user.get("device_id") or user.get("address") or "").strip()
+        address = resolved_device_id
+        if resolved_device_id and resolved_device_id.isdigit() and len(resolved_device_id) == 12 and resolved_device_id != device_id:
+            try:
+                update_prefs(**{"device_id": resolved_device_id})
+            except Exception:
+                # Prefs yazımı başarısız olsa bile login devam edebilsin.
+                pass
         first_name = str(user.get("first_name") or "").strip()
         last_name = str(user.get("last_name") or "").strip()
         return {

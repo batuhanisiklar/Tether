@@ -83,6 +83,35 @@
                     android:textSize="28sp"
                     android:textStyle="bold" />
 
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal"
+                    android:gravity="center">
+
+                    <ImageButton
+                        android:id="@+id/btn_home_copy_code"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:background="?android:attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/copy"
+                        android:padding="10dp"
+                        android:src="@drawable/ic_copy"
+                        android:tint="@color/text_primary" />
+
+                    <ImageButton
+                        android:id="@+id/btn_home_share_code"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_marginStart="10dp"
+                        android:background="?android:attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/share"
+                        android:padding="10dp"
+                        android:src="@drawable/ic_share"
+                        android:tint="@color/text_primary" />
+                </LinearLayout>
+
                 <TextView
                     style="@style/TextRemoteControlCaption"
                     android:layout_width="wrap_content"

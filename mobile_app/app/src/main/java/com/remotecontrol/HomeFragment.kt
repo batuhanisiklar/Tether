@@ -26,6 +26,31 @@ class HomeFragment : Fragment(), DashboardFragment {
         binding.btnHomeAccessibility.setOnClickListener {
             (activity as? MainActivity)?.openAccessibilitySettingsScreen()
         }
+        binding.btnHomeCopyCode.setOnClickListener {
+            val host = activity as? MainActivity ?: return@setOnClickListener
+            val raw = host.sessionStoreRef().address().filter(Char::isDigit).take(12)
+            if (raw.isBlank()) return@setOnClickListener
+            val clipboard = requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("address", raw))
+            android.widget.Toast.makeText(requireContext(), getString(R.string.copied), android.widget.Toast.LENGTH_SHORT).show()
+        }
+        binding.btnHomeShareCode.setOnClickListener {
+            val host = activity as? MainActivity ?: return@setOnClickListener
+            val raw = host.sessionStoreRef().address().filter(Char::isDigit).take(12)
+            if (raw.isBlank()) return@setOnClickListener
+            val formatted = raw.chunked(4).joinToString("-")
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_TEXT, formatted)
+            }
+            runCatching {
+                startActivity(android.content.Intent.createChooser(intent, getString(R.string.share)))
+            }.onFailure {
+                val clipboard = requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("address", raw))
+                android.widget.Toast.makeText(requireContext(), getString(R.string.copied), android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
         refreshContent()
     }
 
@@ -36,7 +61,7 @@ class HomeFragment : Fragment(), DashboardFragment {
 
     override fun refreshContent() {
         val host = activity as? MainActivity ?: return
-        binding.tvUser.text = host.fullNameText()
+        binding.tvUser.text = host.homeUserDisplayText()
         binding.tvCode.text = host.currentCodeText()
         binding.tvHomeAccessibility.text = host.accessibilitySummaryText()
         val a11yOn = host.isAccessibilityServiceEnabledForUi()
