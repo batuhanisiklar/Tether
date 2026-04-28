@@ -76,8 +76,14 @@ class MainActivity : AppCompatActivity() {
     private var connectionGeneration = 0
     /** Son device_ack partner_online (PC presence). */
     private var lastAckPartnerOnline: Boolean? = null
+    /** Gecici partner_online=false dalgalanmalari icin tolerans sayaci. */
+    private var partnerOfflineAckStreak = 0
     /** paired geldi ama erisilebilirlik kapaliydi; kullanici ayarlardan acinca yayin dugmesi icin hazirlik. */
     private var pairingAwaitingAccessibility = false
+    /** Erisilebilirlik ayarina gecis akisi aktifken zorla one getirmeyi engeller. */
+    private var openingAccessibilitySettings = false
+    /** Activity gorunurlugu (arka planda iken bring-to-front yapmamak icin). */
+    private var isAppInForeground = false
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -204,6 +210,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun openAccessibilitySettingsScreen() {
+        openingAccessibilitySettings = true
         Toast.makeText(this, "Dokunma kontrolu icin erisilebilirlik servisini acin.", Toast.LENGTH_LONG).show()
         startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
@@ -327,6 +334,7 @@ class MainActivity : AppCompatActivity() {
     private fun connectSignaling() {
         val generation = ++connectionGeneration
         lastAckPartnerOnline = null
+        partnerOfflineAckStreak = 0
         remoteSessionPaired = false
         pairingAwaitingAccessibility = false
         currentStatus = "Signaling sunucusuna baglaniyor"
@@ -418,6 +426,14 @@ class MainActivity : AppCompatActivity() {
      * Yayın sırasında `moveTaskToBack(true)` ile arka plana atılmış olabilir; bu yüzden activity'yi öne getiriyoruz.
      */
     private fun navigateToHomeAfterDisconnect() {
+        if (openingAccessibilitySettings) {
+            Log.i(TAG, "A11y ayari acik; disconnect sonrasi bring-to-front atlandi")
+            return
+        }
+        if (!isAppInForeground) {
+            Log.i(TAG, "App arka planda; disconnect sonrasi bring-to-front atlandi")
+            return
+        }
         try {
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(
@@ -450,9 +466,16 @@ class MainActivity : AppCompatActivity() {
         val pcNorm = pairedPcId?.filter { it.isDigit() }?.take(12).orEmpty()
         val prevPartnerOnline = lastAckPartnerOnline
         lastAckPartnerOnline = partnerOnlineFromAck
+        if (partnerOnlineFromAck) {
+            partnerOfflineAckStreak = 0
+        } else if (prevPartnerOnline == true) {
+            partnerOfflineAckStreak = 1
+        } else if (!partnerOnlineFromAck && partnerOfflineAckStreak > 0) {
+            partnerOfflineAckStreak += 1
+        }
         if (prevPartnerOnline == true && !partnerOnlineFromAck && pcNorm.isNotEmpty()) {
             val pcStillListed = pairedDeviceIds.any { it.filter { ch -> ch.isDigit() }.take(12) == pcNorm }
-            if (pcStillListed && (remoteSessionPaired || streamRunning)) {
+            if (pcStillListed && (remoteSessionPaired || streamRunning) && partnerOfflineAckStreak >= 2) {
                 handlePeerSessionEnded()
                 return
             }
@@ -928,21 +951,25 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         val nowA11y = isAccessibilityServiceEnabled()
         val hadA11y = accessibilityEnabled
+        if (openingAccessibilitySettings) {
+            openingAccessibilitySettings = false
+        }
         if (sessionStore.isLoggedIn() && nowA11y && !hadA11y) {
             if (pairingAwaitingAccessibility) {
                 // Mevcut oturumu KORU — signaling sifirlanmasin!
                 // Sadece durumu guncelle; oturum canli kaliyor.
                 Log.i(TAG, "Erisilebilirlik acildi — mevcut oturum korunuyor")
                 pairingAwaitingAccessibility = false
-                remoteSessionPaired = true
+                remoteSessionPaired = false
                 accessibilityEnabled = true
-                currentStatus = getString(R.string.pair_pc_connected_title)
-                currentStatusDetail = getString(R.string.pair_start_broadcast_hint)
+                currentStatus = "Erisilebilirlik aktif"
+                currentStatusDetail = "Bilgisayardan tekrar baglanin."
                 refreshFragments()
                 signalingClient?.pushAccessibilityToServer()
-                Toast.makeText(this, "Erisilebilirlik aktif — bilgisayardan tekrar baglanin.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Erisilebilirlik aktif.", Toast.LENGTH_SHORT).show()
             } else {
-                restartSignalingAfterAccessibilityOpened()
+                accessibilityEnabled = true
+                signalingClient?.pushAccessibilityToServer()
             }
         }
         updateAccessibilityHint()
@@ -957,6 +984,16 @@ class MainActivity : AppCompatActivity() {
         }
         refreshFragments()
         signalingClient?.pushAccessibilityToServer()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        isAppInForeground = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        isAppInForeground = false
     }
 
     override fun onDestroy() {
