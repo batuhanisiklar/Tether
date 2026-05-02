@@ -1,19 +1,23 @@
-"""
-HTTP MJPEG akışından JPEG kareleri ayıklar (boundary veya ham akış).
+﻿"""
+HTTP MJPEG stream receiver.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+import time
 
 import requests
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 
 from desktop_app.config import Network
 
 logger = logging.getLogger(__name__)
+
+_MIN_FRAME_INTERVAL = 1.0 / 30.0
+_RETRY_DELAY_SEC = 1.0
 
 
 class MjpegReceiver(QObject):
@@ -56,30 +60,50 @@ class MjpegReceiver(QObject):
         QTimer.singleShot(0, _work)
 
     def _run(self) -> None:
-        try:
-            with requests.get(self._url, stream=True, timeout=Network.MJPEG_REQUEST_TIMEOUT_SEC) as r:
-                r.raise_for_status()
-                buf = b""
-                for chunk in r.iter_content(chunk_size=Network.MJPEG_CHUNK_SIZE):
-                    if self._stop.is_set():
-                        break
-                    if not chunk:
-                        continue
-                    buf += chunk
-                    jstart = buf.find(Network.JPEG_MARKER_START)
-                    while jstart >= 0:
-                        jend = buf.find(Network.JPEG_MARKER_END, jstart + 2)
-                        if jend < 0:
-                            buf = buf[jstart:]
+        while not self._stop.is_set():
+            try:
+                # Keep connect timeout low but allow longer read timeout for live streams.
+                with requests.get(
+                    self._url,
+                    stream=True,
+                    timeout=(5, 45),
+                ) as r:
+                    r.raise_for_status()
+                    buf = bytearray()
+                    last_emit = 0.0
+
+                    for chunk in r.iter_content(chunk_size=Network.MJPEG_CHUNK_SIZE):
+                        if self._stop.is_set():
                             break
-                        jpeg = buf[jstart : jend + 2]
-                        self._emit_frame(jpeg)
-                        buf = buf[jend + 2 :]
+                        if not chunk:
+                            continue
+                        buf.extend(chunk)
+
                         jstart = buf.find(Network.JPEG_MARKER_START)
-                    if len(buf) > 2_000_000:
-                        buf = buf[-800_000:]
-        except Exception as e:
-            logger.warning("MJPEG: %s", e)
-            QTimer.singleShot(0, lambda: self.error_occurred.emit(str(e)))
-        finally:
-            QTimer.singleShot(0, self.stream_stopped.emit)
+                        while jstart >= 0:
+                            jend = buf.find(Network.JPEG_MARKER_END, jstart + 2)
+                            if jend < 0:
+                                if jstart > 0:
+                                    del buf[:jstart]
+                                break
+
+                            jpeg = bytes(buf[jstart : jend + 2])
+                            now = time.monotonic()
+                            if (now - last_emit) >= _MIN_FRAME_INTERVAL:
+                                self._emit_frame(jpeg)
+                                last_emit = now
+
+                            del buf[: jend + 2]
+                            jstart = buf.find(Network.JPEG_MARKER_START)
+
+                        if len(buf) > 2_000_000:
+                            del buf[: len(buf) - 800_000]
+
+            except Exception as e:
+                if self._stop.is_set():
+                    break
+                logger.warning("MJPEG: %s", e)
+                QTimer.singleShot(0, lambda err=str(e): self.error_occurred.emit(err))
+                time.sleep(_RETRY_DELAY_SEC)
+
+        QTimer.singleShot(0, self.stream_stopped.emit)

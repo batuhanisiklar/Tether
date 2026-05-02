@@ -37,7 +37,7 @@ class WsClient(QObject):
     reconnecting = pyqtSignal(int)             # Yeniden bağlanma denemesi numarası
 
     # ── Reconnect sabitleri ──────────────────────────────────────────────
-    _MAX_RECONNECT_ATTEMPTS = 5
+    _MAX_RECONNECT_ATTEMPTS = 10
     _RECONNECT_BASE_MS = 1500
     _RECONNECT_MAX_MS = 15000
 
@@ -50,6 +50,9 @@ class WsClient(QObject):
         self.device_id: str = load_or_create_device_id()
         self._ping_sent_at: dict[int, float] = {}
         self._ping_seq: int = 0
+        self._last_paired_url: str = ""
+        self._last_paired_time: float = 0.0
+        self._PAIRED_DEBOUNCE_SEC: float = 2.0
 
         # ── Reconnect durumu ─────────────────────────────────────────────
         self._last_url: str = ""
@@ -70,6 +73,8 @@ class WsClient(QObject):
         self._last_url = url
         self._reconnect_attempt = 0
         self._reconnect_enabled = True
+        self._last_paired_url = ""
+        self._last_paired_time = 0.0
         self._start_ws(url, on_open=self._on_open_join)
 
     def connect_with_device_id(self, url: str) -> None:
@@ -84,14 +89,27 @@ class WsClient(QObject):
     def disconnect(self, send_logout: bool = False) -> None:
         self._reconnect_enabled = False
         self._reconnect_attempt = 0
-        if self._ws and send_logout:
+        ws = self._ws
+        if ws is None:
+            return
+
+        if send_logout:
+            # Önce karşı tarafa oturumun kapandığını bildir, ardından kısa gecikmeyle socket'i kapat.
+            # Bu gecikme düşük ağ kalitesinde "logout" paketinin düşmesini azaltır.
             self._send_json(
                 {"type": "device_logout", "device_id": self.device_id},
                 silent=True,
             )
-        if self._ws:
+            QTimer.singleShot(120, self._finalize_disconnect)
+            return
+
+        self._finalize_disconnect()
+
+    def _finalize_disconnect(self) -> None:
+        ws = self._ws
+        if ws:
             try:
-                self._ws.close()
+                ws.close()
             except Exception:
                 pass
         self._ws = None
@@ -174,8 +192,8 @@ class WsClient(QObject):
             target=self._ws.run_forever,
             kwargs={
                 "skip_utf8_validation": True,
-                "ping_interval": 20,
-                "ping_timeout": 15,
+                "ping_interval": 25,
+                "ping_timeout": 20,
             },
             daemon=True,
         )
@@ -256,7 +274,15 @@ class WsClient(QObject):
             partner_id = msg.get("partner_device_id", "")
             if partner_id:
                 save_paired_phone_id(partner_id)
-            self.paired.emit(msg.get("stream_url", ""))
+            stream_url = msg.get("stream_url", "")
+            # Boş stream_url ile gelen tekrarlayıcı paired mesajlarını debounce et
+            now = time.perf_counter()
+            if not stream_url and (now - self._last_paired_time) < self._PAIRED_DEBOUNCE_SEC:
+                logger.debug("Tekrarlayan boş paired mesajı yoksayıldı (debounce)")
+            else:
+                self._last_paired_url = stream_url
+                self._last_paired_time = now
+                self.paired.emit(stream_url)
 
         elif msg_type == "device_ack":
             paired_devices = msg.get("paired_devices", []) or []
@@ -272,7 +298,17 @@ class WsClient(QObject):
             url = msg.get("url", "")
             if isinstance(url, str):
                 logger.info("stream_info url=%r", url)
-            self.paired.emit(url if isinstance(url, str) else "")
+            stream_url = url if isinstance(url, str) else ""
+            # stream_info ile gelen URL aynıysa ve kısa süre içinde tekrar geldiyse debounce et
+            now = time.perf_counter()
+            if (stream_url == self._last_paired_url
+                    and stream_url
+                    and (now - self._last_paired_time) < self._PAIRED_DEBOUNCE_SEC):
+                logger.debug("Tekrarlayan stream_info mesajı yoksayıldı (debounce, url=%r)", stream_url)
+            else:
+                self._last_paired_url = stream_url
+                self._last_paired_time = now
+                self.paired.emit(stream_url)
 
         elif msg_type == "frame":
             data_str = msg.get("data", "")

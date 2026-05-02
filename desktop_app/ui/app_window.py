@@ -197,7 +197,7 @@ class MainWindow(QMainWindow):
         # ── Audio ────────────────────────────────────────────────────────
         self._audio_sink = None
         self._audio_device = None
-        self._audio_jitter = AudioJitterBuffer(pre_buffer_ms=100, sample_rate=16000)
+        self._audio_jitter = AudioJitterBuffer(pre_buffer_ms=60, sample_rate=16000)
 
         # ── Kullanıcı bilgisi ────────────────────────────────────────────
         self._user_id: int | None = None
@@ -216,6 +216,7 @@ class MainWindow(QMainWindow):
         # ── Profil drawer ────────────────────────────────────────────────
         self._reconnect_session_code: str | None = None
         self._a11y_pending_reconnect_code: str | None = None
+        self._a11y_recovery_token: int = 0
         self._profile_drawer_open    = False
         self._profile_drawer_width   = 432
         self._profile_cache: dict    = {}
@@ -247,7 +248,7 @@ class MainWindow(QMainWindow):
         self._fps_histogram_timer.timeout.connect(self._tick_stream_fps_label)
 
         self._session_ping_timer = QTimer(self)
-        self._session_ping_timer.setInterval(2500)
+        self._session_ping_timer.setInterval(3000)
         self._session_ping_timer.timeout.connect(self._tick_session_ping)
 
         QTimer.singleShot(250, self._load_devices_from_db)
@@ -574,6 +575,7 @@ class MainWindow(QMainWindow):
         addr_digits = address_digits(partner_address or "")
         if not partner_device_id and not addr_digits:
             return
+        self._a11y_recovery_token += 1
         self._ws_mode = "session"
         self._mjpeg.stop()
         self._paired_phone_id      = partner_device_id
@@ -1182,13 +1184,14 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_disconnect(self):
+        self._a11y_recovery_token += 1
         self._ws_mode                     = "presence"
         self._reconnect_session_code      = None
         self._a11y_pending_reconnect_code = None
         self._presence_timer.stop()
         self._manual_disconnect = True
         self._mjpeg.stop()
-        self._ws_client.disconnect()
+        self._ws_client.disconnect(send_logout=True)
         self._screen.clear_frame()
         self._phone_accessibility_enabled = None
         self._remote_frame_visible = False
@@ -1202,6 +1205,7 @@ class MainWindow(QMainWindow):
     def _on_logout(self):
         if self._logging_out:
             return
+        self._a11y_recovery_token += 1
         self._logging_out = True
         self._mjpeg.stop()
         self._presence_timer.stop()
@@ -1290,7 +1294,32 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
-        self._remote_frame_visible = False
+        # Zaten bağlıyken ve akış aktifken, tekrarlayan paired sinyallerini yoksay
+        already_streaming = self._connected and self._remote_frame_visible
+
+        su       = (stream_url or "").strip()
+        su_lower = su.lower()
+        mjpeg_unreachable = (
+            not su.startswith("http")
+            or "0.0.0.0" in su or "10.0.2." in su
+            or "127.0.0.1" in su_lower or "localhost" in su_lower
+        )
+
+        # Eğer aynı URL ile zaten akış yapılıyorsa, tekrar başlatma
+        same_url = (
+            su and not mjpeg_unreachable
+            and hasattr(self._mjpeg, '_url')
+            and self._mjpeg._url == su
+            and self._mjpeg._thread is not None
+            and self._mjpeg._thread.is_alive()
+        )
+        if already_streaming and same_url:
+            logger.debug("Tekrarlayan paired/stream_info sinyali — akış zaten aktif, yoksayıldı")
+            return
+
+        if not already_streaming:
+            self._remote_frame_visible = False
+
         paired_phone_id      = load_paired_phone_id()
         paired_phone_address = load_paired_phone_address()
 
@@ -1312,18 +1341,12 @@ class MainWindow(QMainWindow):
                 self._paired_phone_address = card.address
                 card.set_online(True)
 
-        self._set_connected(True)
-        self._switch_page(1)
-        self._set_status("Eşleşme tamamlandı. Görüntü akışı bekleniyor…")
+        if not self._connected:
+            self._set_connected(True)
+            self._switch_page(1)
+            self._set_status("Eşleşme tamamlandı. Görüntü akışı bekleniyor…")
         self._refresh_home_summary()
 
-        su       = (stream_url or "").strip()
-        su_lower = su.lower()
-        mjpeg_unreachable = (
-            not su.startswith("http")
-            or "0.0.0.0" in su or "10.0.2." in su
-            or "127.0.0.1" in su_lower or "localhost" in su_lower
-        )
         if su and not mjpeg_unreachable:
             try:
                 self._mjpeg.start(su)
@@ -1412,6 +1435,8 @@ class MainWindow(QMainWindow):
         if is_accessibility_ws_error(text, code):
             banner_title = "Erişilebilirlik kapalı"
             banner_body  = text or "Telefonda Erişilebilirlik servisi açılmadan bağlantı başlatılamaz."
+            self._a11y_recovery_token += 1
+            recovery_token = self._a11y_recovery_token
 
             session_code = address_digits(self._paired_phone_address or "")
             if len(session_code) != 12:
@@ -1433,8 +1458,19 @@ class MainWindow(QMainWindow):
                 self._refresh_home_summary()
                 if self._ws_mode == "session":
                     self._ws_mode = "presence"
+                    self._manual_disconnect = True
+                    self._ws_client.disconnect()
                     QTimer.singleShot(
-                        300, lambda: self._connect_presence_channel("Cihaz durumu izleniyor...")
+                        300,
+                        lambda: (
+                            self._connect_presence_channel("Cihaz durumu izleniyor...")
+                            if (
+                                self._a11y_recovery_token == recovery_token
+                                and self._ws_mode == "presence"
+                                and not self._connected
+                            )
+                            else None
+                        ),
                     )
 
             QTimer.singleShot(0, _apply_banner)
@@ -1462,12 +1498,14 @@ class MainWindow(QMainWindow):
         if not frame_bytes:
             return
         pixmap = QPixmap()
-        if not pixmap.loadFromData(frame_bytes):
-            img = QImage()
-            if not img.loadFromData(frame_bytes):
-                logger.warning("Görüntü çözümlenemedi. Boyut: %d bayt", len(frame_bytes))
-                return
-            pixmap = QPixmap.fromImage(img)
+        if not pixmap.loadFromData(frame_bytes, "JPEG"):
+            # JPEG değilse genel format dene
+            if not pixmap.loadFromData(frame_bytes):
+                img = QImage()
+                if not img.loadFromData(frame_bytes):
+                    logger.warning("Görüntü çözümlenemedi. Boyut: %d bayt", len(frame_bytes))
+                    return
+                pixmap = QPixmap.fromImage(img)
         if pixmap.isNull():
             return
         if not self._connected:
@@ -1582,13 +1620,17 @@ class MainWindow(QMainWindow):
     def _refresh_paired_stream_status(self) -> None:
         if not self._connected:
             return
+        # Kare akışı geliyorsa erişilebilirlik kesinlikle çalışıyordur
+        if self._remote_frame_visible:
+            if self._phone_accessibility_enabled is False:
+                logger.debug("Kare akışı aktif — erişilebilirlik bayrağı True olarak düzeltildi")
+                self._phone_accessibility_enabled = True
+            self._set_status(Ui.MSG_PAIRED_WS)
+            self._set_remote_controls_enabled(True)
+            return
         if self._phone_accessibility_enabled is False:
             self._set_status(Ui.MSG_PAIRED_A11Y_OFF)
             self._set_remote_controls_enabled(False)
-            return
-        if self._remote_frame_visible:
-            self._set_status(Ui.MSG_PAIRED_WS)
-            self._set_remote_controls_enabled(True)
             return
         self._set_status(Ui.MSG_PAIRED_WAIT_STREAM)
         self._set_remote_controls_enabled(False)

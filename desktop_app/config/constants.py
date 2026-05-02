@@ -60,11 +60,11 @@ class ServerDefaults:
 
 @dataclass(frozen=True)
 class Network:
-    PING_INTERVAL_SEC:         int   = 20
-    PING_TIMEOUT_SEC:          int   = 10
+    PING_INTERVAL_SEC:         int   = 25
+    PING_TIMEOUT_SEC:          int   = 20
     HEARTBEAT_INTERVAL_MS:     int   = 30_000
-    MJPEG_REQUEST_TIMEOUT_SEC: int   = 10
-    MJPEG_CHUNK_SIZE:          int   = 4096
+    MJPEG_REQUEST_TIMEOUT_SEC: int   = 15
+    MJPEG_CHUNK_SIZE:          int   = 65_536
     JPEG_MARKER_START:         bytes = b"\xff\xd8"
     JPEG_MARKER_END:           bytes = b"\xff\xd9"
     MJPEG_JOIN_TIMEOUT_SEC:    float = 2.0

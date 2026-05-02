@@ -80,7 +80,6 @@ class ScreenWidget(QLabel):
         self._current_pixmap = pixmap
         self._last_source_key = pixmap.cacheKey()
         self._render()
-        self.update()
 
     def clear_frame(self):
         """Stream durduğunda placeholder göster."""
