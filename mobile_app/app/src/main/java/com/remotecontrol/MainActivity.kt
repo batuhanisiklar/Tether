@@ -82,6 +82,9 @@ class MainActivity : AppCompatActivity() {
     private var openingAccessibilitySettings = false
     /** Activity gorunurlugu (arka planda iken bring-to-front yapmamak icin). */
     private var isAppInForeground = false
+    /** Panelden gelen son mutlak ekran rotasyonu: 0, 90, 180, 270. */
+    private var remoteRotationDegrees = 0
+    private var hasRemoteRotationOverride = false
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -281,6 +284,8 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "PC oturumu sona erdi — yayin durduruldu, WS acik")
         stopAllStreams()
         remoteSessionPaired = false
+        hasRemoteRotationOverride = false
+        remoteRotationDegrees = 0
         pairingAwaitingAccessibility = false
         currentStatus = "Bilgisayar baglantisi kesildi"
         currentStatusDetail = "Oturumu masaustu uygulamasindan yeniden baslatin; telefon sabit adreste bekliyor."
@@ -525,10 +530,19 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             "rotate_screen" -> {
+                val degrees = normalizeRotationDegrees((params["degrees"] as? Number)?.toInt() ?: 0)
                 runOnUiThread {
                     if (isDestroyed || isFinishing) return@runOnUiThread
-                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                    Log.i(TAG, "rotate_screen ignored: portrait-only mode enabled")
+                    remoteRotationDegrees = degrees
+                    hasRemoteRotationOverride = true
+                    ScreenStreamService.instance?.setRemoteRotationDegrees(degrees)
+                    if (!streamRunning) {
+                        requestedOrientation = orientationForDegrees(degrees)
+                        Log.i(TAG, "rotate_screen applied: ${degrees}deg orientation=$requestedOrientation")
+                        refreshScreenStreamRotationSoon()
+                    } else {
+                        Log.i(TAG, "rotate_screen applied to stream metadata: ${degrees}deg")
+                    }
                 }
             }
             "screen_capture_on" -> runOnUiThread { startScreenShareFromRemote() }
@@ -546,6 +560,29 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             else -> Log.w(TAG, "Unknown command: $action")
+        }
+    }
+
+    private fun normalizeRotationDegrees(degrees: Int): Int {
+        val normalized = ((degrees % 360) + 360) % 360
+        return ((normalized + 45) / 90 * 90) % 360
+    }
+
+    private fun orientationForDegrees(degrees: Int): Int {
+        return when (normalizeRotationDegrees(degrees)) {
+            90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+            270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
+    private fun refreshScreenStreamRotationSoon() {
+        scope.launch {
+            delay(350)
+            ScreenStreamService.instance?.refreshRotationFromRemote()
+            delay(700)
+            ScreenStreamService.instance?.refreshRotationFromRemote()
         }
     }
 
@@ -610,6 +647,8 @@ class MainActivity : AppCompatActivity() {
             putExtra(ScreenStreamService.EXTRA_RESULT_CODE, resultCode)
             putExtra(ScreenStreamService.EXTRA_RESULT_DATA, data)
             putExtra("EXTRA_AUDIO_ENABLED", isAudioEnabledForStream)
+            putExtra(ScreenStreamService.EXTRA_REMOTE_ROTATION_ENABLED, hasRemoteRotationOverride)
+            putExtra(ScreenStreamService.EXTRA_REMOTE_ROTATION_DEGREES, remoteRotationDegrees)
         }
         startForegroundService(intent)
 

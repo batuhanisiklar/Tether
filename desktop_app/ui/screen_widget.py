@@ -95,7 +95,12 @@ class ScreenWidget(QLabel):
         Görüntüyü belirtilen açıda döndür (0, 90, 180, 270).
         Koordinat normalizasyonu otomatik güncellenir.
         """
-        self._rotation_deg = degrees % 360
+        try:
+            deg = int(degrees)
+        except (TypeError, ValueError):
+            deg = 0
+        # Yakın 90 katına snap et; beklenmeyen değerlerde de stabil kalır.
+        self._rotation_deg = (round(deg / 90.0) * 90) % 360
         self._last_render_key = None
         if self._current_pixmap:
             self._render()

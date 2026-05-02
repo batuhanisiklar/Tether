@@ -52,6 +52,10 @@ class ScreenStreamService : Service() {
         const val PORT = 8080
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+        const val EXTRA_REMOTE_ROTATION_ENABLED = "remote_rotation_enabled"
+        const val EXTRA_REMOTE_ROTATION_DEGREES = "remote_rotation_degrees"
+        @Volatile var instance: ScreenStreamService? = null
+            private set
 
         // ── Performans sabitleri ─────────────────────────────────────────
         private const val MAX_SIDE = 720          // Maksimum kenar uzunluğu (piksel)
@@ -75,6 +79,7 @@ class ScreenStreamService : Service() {
     // ── Döndürme algılama ────────────────────────────────────────────────
     private var orientationListener: OrientationEventListener? = null
     private var currentRotation: Int = Surface.ROTATION_0
+    @Volatile private var remoteRotationOverride: Int? = null
     private var captureWidth = 0
     private var captureHeight = 0
     private var captureDpi = 0
@@ -98,6 +103,7 @@ class ScreenStreamService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
     }
 
@@ -123,6 +129,13 @@ class ScreenStreamService : Service() {
         }
 
         val isAudioEnabled = intent?.getBooleanExtra("EXTRA_AUDIO_ENABLED", false) ?: false
+        val remoteRotationEnabled = intent?.getBooleanExtra(EXTRA_REMOTE_ROTATION_ENABLED, false) ?: false
+        val remoteRotationDegrees = intent?.getIntExtra(EXTRA_REMOTE_ROTATION_DEGREES, 0) ?: 0
+        remoteRotationOverride = if (remoteRotationEnabled) {
+            surfaceRotationForDegrees(remoteRotationDegrees)
+        } else {
+            null
+        }
 
         if (resultCode == Activity.RESULT_OK && resultData != null) {
             startCapture(resultCode, resultData, isAudioEnabled)
@@ -190,10 +203,20 @@ class ScreenStreamService : Service() {
 
     // ── Ekran boyutlarını oku ────────────────────────────────────────────
     private fun readDisplayMetrics() {
-        val metrics = resources.displayMetrics
-        captureWidth = metrics.widthPixels
-        captureHeight = metrics.heightPixels
-        captureDpi = metrics.densityDpi
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        captureDpi = resources.displayMetrics.densityDpi
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            captureWidth = bounds.width()
+            captureHeight = bounds.height()
+        } else {
+            @Suppress("DEPRECATION")
+            val metrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealMetrics(metrics)
+            captureWidth = metrics.widthPixels
+            captureHeight = metrics.heightPixels
+        }
     }
 
     // ── Mevcut ekran rotasyonunu al ─────────────────────────────────────
@@ -249,8 +272,8 @@ class ScreenStreamService : Service() {
                 bmp.copyPixelsFromBuffer(buffer)
                 image.close()
 
-                // Mevcut rotasyonu yakala (closure'a al)
-                val rotation = currentRotation
+                // Mevcut frame rotasyonunu yakala (closure'a al)
+                val rotation = frameRotation()
 
                 // Encoding'i executor thread'e aktar — ImageReader callback bloklanmaz
                 executor.execute {
@@ -348,6 +371,35 @@ class ScreenStreamService : Service() {
         }
     }
 
+    fun refreshRotationFromRemote() {
+        val newRotation = getCurrentDisplayRotation()
+        if (newRotation == currentRotation) {
+            return
+        }
+        Log.i(TAG, "Remote rotation refresh: $currentRotation -> $newRotation")
+        currentRotation = newRotation
+        recreateVirtualDisplay()
+    }
+
+    fun setRemoteRotationDegrees(degrees: Int) {
+        remoteRotationOverride = surfaceRotationForDegrees(degrees)
+        Log.i(TAG, "Remote rotation override set: ${degrees}deg -> ${remoteRotationOverride}")
+    }
+
+    private fun frameRotation(): Int {
+        return remoteRotationOverride ?: currentRotation
+    }
+
+    private fun surfaceRotationForDegrees(degrees: Int): Int {
+        val normalized = ((degrees % 360) + 360) % 360
+        return when (((normalized + 45) / 90 * 90) % 360) {
+            90 -> Surface.ROTATION_90
+            180 -> Surface.ROTATION_180
+            270 -> Surface.ROTATION_270
+            else -> Surface.ROTATION_0
+        }
+    }
+
     private fun startAudioCapture() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || mediaProjection == null) return
         try {
@@ -401,6 +453,7 @@ class ScreenStreamService : Service() {
     }
 
     override fun onDestroy() {
+        if (instance === this) instance = null
         isAudioRecording = false
         audioRecord?.stop()
         audioRecord?.release()

@@ -185,6 +185,7 @@ class MainWindow(QMainWindow):
         # ── Oturum durumu ────────────────────────────────────────────────
         self._connected                  = False
         self._rotation_step              = 0
+        self._manual_rotation_override   = False
         self._paired_phone_id: str | None = None
         self._paired_phone_address: str | None = None
         self._online_paired_devices: set[str]  = set()
@@ -578,6 +579,9 @@ class MainWindow(QMainWindow):
         self._a11y_recovery_token += 1
         self._ws_mode = "session"
         self._mjpeg.stop()
+        self._rotation_step = 0
+        self._manual_rotation_override = False
+        self._apply_rotation_step()
         self._paired_phone_id      = partner_device_id
         self._paired_phone_address = addr_digits or None
         self._presence_timer.stop()
@@ -1188,6 +1192,8 @@ class MainWindow(QMainWindow):
         self._ws_mode                     = "presence"
         self._reconnect_session_code      = None
         self._a11y_pending_reconnect_code = None
+        self._rotation_step               = 0
+        self._manual_rotation_override    = False
         self._presence_timer.stop()
         self._manual_disconnect = True
         self._mjpeg.stop()
@@ -1546,10 +1552,26 @@ class MainWindow(QMainWindow):
         self._screen.set_rotation(deg)
         self._sync_stream_aspect_fit()
 
+    @staticmethod
+    def _normalize_rotation_step(degrees: int | float) -> int:
+        """Her türlü derece değerini 0..3 (0/90/180/270) adımına normalize et."""
+        try:
+            deg = int(degrees)
+        except (TypeError, ValueError):
+            deg = 0
+        return ((deg % 360) // 90) % 4
+
     @pyqtSlot(int)
     def _on_rotation_received(self, degrees: int):
         """Telefon rotasyonu değiştiğinde otomatik döndür (metadata ile gelir)."""
-        step = (degrees // 90) % 4
+        step = self._normalize_rotation_step(degrees)
+        if self._manual_rotation_override and step != self._rotation_step:
+            logger.debug(
+                "Telefon rotation metadata'si manuel secimi ezmedi: gelen=%s aktif=%s",
+                step * 90,
+                self._rotation_step * 90,
+            )
+            return
         if step != self._rotation_step:
             self._rotation_step = step
             self._apply_rotation_step()
@@ -1562,12 +1584,19 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_rotate_left(self):
         self._rotation_step = (self._rotation_step + 3) % 4
+        self._manual_rotation_override = True
         self._apply_rotation_step()
+        if self._connected:
+            # Telefon tarafını da döndür; aksi halde yeni frame metadata'sı local rotasyonu geri ezer.
+            self._ws_client.send_rotate_screen(self._rotation_step * 90)
 
     @pyqtSlot()
     def _on_rotate_right(self):
         self._rotation_step = (self._rotation_step + 1) % 4
+        self._manual_rotation_override = True
         self._apply_rotation_step()
+        if self._connected:
+            self._ws_client.send_rotate_screen(self._rotation_step * 90)
 
     # ── Dokunma / kaydırma slotları ──────────────────────────────────────────
     @pyqtSlot(float, float)
