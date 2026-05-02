@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="page_padding_h">16dp</dimen>
+    <dimen name="page_padding_top">12dp</dimen>
+    <dimen name="page_padding_bottom">16dp</dimen>
+    <dimen name="page_padding_bottom_large">20dp</dimen>
+
+    <dimen name="card_padding">14dp</dimen>
+    <dimen name="card_padding_large">16dp</dimen>
+    <dimen name="section_gap">12dp</dimen>
+    <dimen name="section_gap_small">8dp</dimen>
+    <dimen name="item_gap">6dp</dimen>
+</resources>

@@ -8,8 +8,6 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
@@ -121,6 +119,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         sessionStore = SessionStore(this)
         deviceIdentityStore = DeviceIdentityStore(this)
@@ -527,45 +526,9 @@ class MainActivity : AppCompatActivity() {
             }
             "rotate_screen" -> {
                 runOnUiThread {
-                    // Arka planda veya ana ekrandayken yön degisimi bazen uygulanmaz;
-                    // görevi öne alıp kısa gecikmeyle requestedOrientation veriyoruz.
-                    try {
-                        val intent = Intent(this, MainActivity::class.java).apply {
-                            addFlags(
-                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                            )
-                        }
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "rotate_screen bring to front", e)
-                    }
-                    val applyOrientation = Runnable {
-                        if (isDestroyed || isFinishing) return@Runnable
-                        val degRaw = params["degrees"] as? Number
-                        val orientation = when {
-                            degRaw != null -> {
-                                val deg = ((degRaw.toInt() % 360) + 360) % 360
-                                Log.i(TAG, "rotate_screen degrees=$deg")
-                                when (deg) {
-                                    0 -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                    90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                    180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-                                    270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
-                                    else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                                }
-                            }
-                            else -> {
-                                val landscape = params["landscape"] as? Boolean ?: false
-                                Log.i(TAG, "rotate_screen legacy landscape=$landscape")
-                                if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            }
-                        }
-                        requestedOrientation = orientation
-                        Log.i(TAG, "rotate_screen applied requestedOrientation=$requestedOrientation")
-                    }
-                    Handler(Looper.getMainLooper()).postDelayed(applyOrientation, 120L)
+                    if (isDestroyed || isFinishing) return@runOnUiThread
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    Log.i(TAG, "rotate_screen ignored: portrait-only mode enabled")
                 }
             }
             "screen_capture_on" -> runOnUiThread { startScreenShareFromRemote() }

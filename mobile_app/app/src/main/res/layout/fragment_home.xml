@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_app"
     android:fillViewport="true"
-    android:paddingHorizontal="20dp"
-    android:paddingTop="20dp"
-    android:paddingBottom="28dp">
+    android:paddingHorizontal="@dimen/page_padding_h"
+    android:paddingTop="@dimen/page_padding_top"
+    android:paddingBottom="@dimen/page_padding_bottom">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,10 +17,10 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/section_gap"
             android:background="@drawable/home_hero_bg"
             android:orientation="vertical"
-            android:padding="20dp">
+            android:padding="@dimen/card_padding_large">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -53,12 +53,12 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="@dimen/section_gap"
                 android:background="@drawable/home_code_inner_bg"
                 android:gravity="center_horizontal"
                 android:orientation="vertical"
-                android:paddingHorizontal="18dp"
-                android:paddingVertical="20dp">
+                android:paddingHorizontal="@dimen/card_padding"
+                android:paddingVertical="@dimen/card_padding">
 
                 <TextView
                     style="@style/TextRemoteControlSectionLabel"
@@ -80,7 +80,7 @@
                     android:singleLine="true"
                     android:text="@string/connection_code_placeholder"
                     android:textColor="@color/primary"
-                    android:textSize="28sp"
+                    android:textSize="24sp"
                     android:textStyle="bold" />
 
                 <LinearLayout
@@ -127,10 +127,10 @@
             android:id="@+id/layout_home_accessibility_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="@dimen/section_gap"
             android:background="@drawable/card_warning_bg"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/card_padding">
 
             <TextView
                 style="@style/TextRemoteControlSectionLabel"
@@ -171,19 +171,20 @@
         <!-- Kisa rehber: 2 sutun, satir basina 2 esit kutu -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="172dp"
-            android:layout_marginBottom="10dp"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/section_gap_small"
             android:baselineAligned="false"
             android:orientation="horizontal">
 
             <LinearLayout
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="132dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
                 android:background="@drawable/home_info_tile_1_bg"
                 android:orientation="vertical"
-                android:padding="12dp">
+                android:padding="10dp">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -196,12 +197,11 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:gravity="top"
                     android:lineSpacingMultiplier="1.15"
-                    android:maxLines="8"
+                    android:maxLines="6"
                     android:text="@string/home_info_tile_1_body"
                     android:textColor="@color/text_secondary"
                     android:textSize="11sp" />
@@ -209,12 +209,13 @@
 
             <LinearLayout
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="132dp"
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
                 android:background="@drawable/home_info_tile_2_bg"
                 android:orientation="vertical"
-                android:padding="12dp">
+                android:padding="10dp">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -227,12 +228,11 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:gravity="top"
                     android:lineSpacingMultiplier="1.15"
-                    android:maxLines="8"
+                    android:maxLines="6"
                     android:text="@string/home_info_tile_2_body"
                     android:textColor="@color/text_secondary"
                     android:textSize="11sp" />
@@ -241,18 +241,19 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="172dp"
+            android:layout_height="wrap_content"
             android:baselineAligned="false"
             android:orientation="horizontal">
 
             <LinearLayout
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="132dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
                 android:background="@drawable/home_info_tile_3_bg"
                 android:orientation="vertical"
-                android:padding="12dp">
+                android:padding="10dp">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -265,12 +266,11 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:gravity="top"
                     android:lineSpacingMultiplier="1.15"
-                    android:maxLines="8"
+                    android:maxLines="6"
                     android:text="@string/home_info_tile_3_body"
                     android:textColor="@color/text_secondary"
                     android:textSize="11sp" />
@@ -278,12 +278,13 @@
 
             <LinearLayout
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="132dp"
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
                 android:background="@drawable/card_soft_bg"
                 android:orientation="vertical"
-                android:padding="12dp">
+                android:padding="10dp">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -296,16 +297,15 @@
 
                 <TextView
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:gravity="top"
                     android:lineSpacingMultiplier="1.15"
-                    android:maxLines="8"
+                    android:maxLines="6"
                     android:text="@string/home_info_tile_4_body"
                     android:textColor="@color/text_secondary"
                     android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
-</ScrollView>
+</androidx.core.widget.NestedScrollView>

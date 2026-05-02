@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
     android:background="@color/bg_app"
-    android:paddingHorizontal="16dp"
-    android:paddingBottom="20dp">
+    android:paddingHorizontal="@dimen/page_padding_h"
+    android:paddingTop="@dimen/page_padding_top"
+    android:paddingBottom="@dimen/page_padding_bottom">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,15 +18,15 @@
             android:layout_height="wrap_content"
             android:background="@drawable/card_bg"
             android:orientation="vertical"
-            android:padding="18dp"
-            android:layout_marginBottom="14dp">
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/section_gap">
 
             <TextView
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/help_title"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginBottom="@dimen/item_gap" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -33,7 +34,7 @@
                 android:text="@string/help_step_1"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp"
-                android:layout_marginBottom="10dp" />
+                android:layout_marginBottom="8dp" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -41,7 +42,7 @@
                 android:text="@string/help_step_2"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp"
-                android:layout_marginBottom="10dp" />
+                android:layout_marginBottom="8dp" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -49,7 +50,7 @@
                 android:text="@string/help_step_3"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp"
-                android:layout_marginBottom="10dp" />
+                android:layout_marginBottom="8dp" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -60,4 +61,4 @@
         </LinearLayout>
 
     </LinearLayout>
-</ScrollView>
+</androidx.core.widget.NestedScrollView>

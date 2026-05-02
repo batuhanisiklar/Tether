@@ -90,9 +90,7 @@ def build_home_page(window: "MainWindow") -> QWidget:
 def _build_address_input_bar(window: "MainWindow") -> QWidget:
     bar = QFrame()
     bar.setFixedHeight(42)
-    bar.setStyleSheet(
-        f"background-color: {_BG_RAISED}; border-bottom: 1px solid {_BORDER_SUBTLE};"
-    )
+    bar.setStyleSheet(f"QFrame {{ background-color: {_BG_RAISED}; }}")
     lay = QHBoxLayout(bar)
     lay.setContentsMargins(14, 0, 14, 0)
     lay.setSpacing(8)
@@ -376,10 +374,9 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     )
     inner.addWidget(window._recent_cards_container)
 
-    # Cihaz yok bildirimi
     window._lbl_no_devices = QFrame()
     window._lbl_no_devices.setStyleSheet(
-        f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 8px;"
+        f"QFrame {{ background-color: {_BG_CARD}; border-radius: 8px; }}"
     )
     no_dev_lay = QVBoxLayout(window._lbl_no_devices)
     no_dev_lay.setContentsMargins(0, 30, 0, 30)
@@ -389,7 +386,7 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     empty_title = QLabel("Henüz eşleşmiş cihaz yok")
     empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_title.setStyleSheet(
-        f"color: {_TEXT_SEC}; font-size: 14px; font-weight: 600; background: transparent;"
+        f"color: {_TEXT_SEC}; font-size: 14px; font-weight: 600; background: transparent; border: none;"
     )
     no_dev_lay.addWidget(empty_title)
 
@@ -400,7 +397,7 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_desc.setWordWrap(True)
     empty_desc.setStyleSheet(
-        f"color: {_TEXT_DIM}; font-size: 12px; background: transparent;"
+        f"color: {_TEXT_DIM}; font-size: 12px; background: transparent; border: none;"
     )
     no_dev_lay.addWidget(empty_desc)
 

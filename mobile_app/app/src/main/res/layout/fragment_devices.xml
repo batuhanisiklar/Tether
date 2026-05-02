@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
     android:background="@color/bg_app"
-    android:paddingHorizontal="18dp"
-    android:paddingTop="18dp"
-    android:paddingBottom="24dp">
+    android:paddingHorizontal="@dimen/page_padding_h"
+    android:paddingTop="@dimen/page_padding_top"
+    android:paddingBottom="@dimen/page_padding_bottom">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -19,15 +19,15 @@
             android:layout_height="wrap_content"
             android:background="@drawable/card_soft_bg"
             android:orientation="vertical"
-            android:padding="18dp"
-            android:layout_marginBottom="14dp">
+            android:padding="@dimen/card_padding"
+            android:layout_marginBottom="@dimen/section_gap">
 
             <TextView
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/paired_devices_title"
-                android:layout_marginBottom="6dp" />
+                android:layout_marginBottom="@dimen/item_gap" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -45,15 +45,15 @@
             android:background="@drawable/card_soft_bg"
             android:orientation="vertical"
             android:gravity="center"
-            android:paddingHorizontal="24dp"
-            android:paddingVertical="32dp">
+            android:paddingHorizontal="@dimen/card_padding_large"
+            android:paddingVertical="@dimen/card_padding_large">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="📱"
-                android:textSize="36sp"
-                android:layout_marginBottom="8dp" />
+                android:textSize="30sp"
+                android:layout_marginBottom="@dimen/item_gap" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -71,7 +71,7 @@
                 android:textColor="@color/text_tertiary"
                 android:textSize="12sp"
                 android:gravity="center"
-                android:layout_marginTop="4dp" />
+                android:layout_marginTop="@dimen/item_gap" />
         </LinearLayout>
 
         <!-- Cihaz Listesi -->
@@ -83,4 +83,4 @@
             android:visibility="gone" />
 
     </LinearLayout>
-</ScrollView>
+</androidx.core.widget.NestedScrollView>
