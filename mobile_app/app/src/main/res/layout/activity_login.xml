@@ -50,7 +50,6 @@
             android:padding="@dimen/card_padding"
             android:layout_marginBottom="@dimen/section_gap">
 
-            <!-- Kayıt: Ad | Soyad yan yana -->
             <LinearLayout
                 android:id="@+id/register_fields_block"
                 android:layout_width="match_parent"
@@ -119,7 +118,6 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- E-posta | Telefon: kayıtta yan yana; girişte yalnızca e-posta (telefon sütunu gizli) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

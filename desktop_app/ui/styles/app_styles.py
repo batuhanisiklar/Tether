@@ -7,7 +7,6 @@ Colors sınıfından referans alır; hiçbir renk burada tekrar tanımlanmaz.
 
 from desktop_app.config import Colors
 
-# ── Kısa referanslar (okunabilirlik için) ────────────────────────────────────
 _BG           = Colors.BG_APP
 _BG_RAISED    = Colors.BG_RAISED
 _BG_CARD      = Colors.BG_CARD
@@ -23,7 +22,6 @@ _TEXT         = Colors.TEXT
 _TEXT_SEC     = Colors.TEXT_MUTED
 _TEXT_DIM     = Colors.TEXT_DIM
 
-# ── Layout sabit yükseklik/marj değerleri ───────────────────────────────────
 MAIN_SHELL_MARGIN       = 10
 WIN_CHROME_BAR_HEIGHT   = 36
 MAIN_NAV_BAR_HEIGHT     = 38
@@ -33,7 +31,6 @@ PROFILE_DRAWER_TOP_OFFSET = (
 )
 PROFILE_DRAWER_BOTTOM_GAP = MAIN_SHELL_MARGIN + MAIN_FOOTER_BAR_HEIGHT
 
-# ── Sekme (nav) stilleri ─────────────────────────────────────────────────────
 TAB_STYLE_ACTIVE = (
     f"QPushButton {{ background: transparent; color: {_TEXT}; border: none;"
     f" border-bottom: 2px solid {_ACCENT}; font-size: 12px; font-weight: 600;"
@@ -46,7 +43,6 @@ TAB_STYLE_INACTIVE = (
     f" QPushButton:hover {{ color: {_TEXT}; }}"
 )
 
-# ── Remote sayfası — birincil (turuncu gradyan) buton ───────────────────────
 REMOTE_BTN_PRIMARY_SS = f"""
     QPushButton {{
         color: #FFFFFF;
@@ -69,7 +65,6 @@ REMOTE_BTN_PRIMARY_SS = f"""
     }}
 """
 
-# ── Remote sayfası — ikon/ok birincil buton ──────────────────────────────────
 REMOTE_BTN_ICON_PRIMARY_SS = f"""
     QPushButton {{
         color: #FFFFFF;
@@ -91,7 +86,6 @@ REMOTE_BTN_ICON_PRIMARY_SS = f"""
     }}
 """
 
-# ── Remote sayfası — tehlike (bağlantı kes) butonu ──────────────────────────
 REMOTE_BTN_DANGER_SS = f"""
     QPushButton {{
         color: #FFB8B8;
@@ -116,7 +110,6 @@ REMOTE_BTN_DANGER_SS = f"""
     }}
 """
 
-# ── Remote sayfası — hayalet (gri zemin) buton ──────────────────────────────
 REMOTE_BTN_GHOST_SS = f"""
     QPushButton {{
         color: {_TEXT_SEC};
@@ -134,7 +127,6 @@ REMOTE_BTN_GHOST_SS = f"""
     QPushButton:disabled {{ color: {_TEXT_DIM}; border-color: {_BORDER_SUBTLE}; }}
 """
 
-# ── Remote sayfası — tuş kontrol butonu ─────────────────────────────────────
 REMOTE_KEY_BTN_SS = f"""
     QPushButton {{
         background-color: {_BG_INPUT};
@@ -151,7 +143,6 @@ REMOTE_KEY_BTN_SS = f"""
     QPushButton:disabled {{ color: {_TEXT_DIM}; }}
 """
 
-# ── Profil drawer — kapat butonu ────────────────────────────────────────────
 PROFILE_DRAWER_CLOSE_BTN_SS = f"""
     QPushButton {{
         color: {_TEXT};
@@ -171,7 +162,6 @@ PROFILE_DRAWER_CLOSE_BTN_SS = f"""
     QPushButton:pressed {{ background-color: #2C2C2C; }}
 """
 
-# ── Pencere / hesap buton eleman stilleri ───────────────────────────────────
 WIN_TOOL_BTN_SS = f"""
     QPushButton {{
         background: transparent; color: {_TEXT_SEC}; border: none;
@@ -199,7 +189,6 @@ ACCOUNT_BTN_SS = f"""
     QPushButton:hover {{ color: {_TEXT}; border-color: #555; }}
 """
 
-# ── Genel uygulama stylesheet ────────────────────────────────────────────────
 GLOBAL_STYLESHEET = f"""
     QMainWindow {{ background-color: {_BG}; }}
     QWidget {{
@@ -217,7 +206,6 @@ GLOBAL_STYLESHEET = f"""
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 """
 
-# ── DeviceCard online/offline stili (fonksiyon şeklinde) ────────────────────
 def device_card_style(online: bool) -> str:
     border_color = _GREEN_DIM if online else _BORDER_SUBTLE
     border_hover  = _GREEN if online else _BORDER
@@ -230,7 +218,6 @@ def device_card_style(online: bool) -> str:
         f"DeviceCard:hover {{ border-color: {border_hover}; }}"
     )
 
-# ── Uyarı banner — kapat butonu ─────────────────────────────────────────────
 WARNING_CLOSE_BTN_SS = f"""
     QPushButton {{
         color: #FFCCCC;

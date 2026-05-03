@@ -17,17 +17,17 @@ import logging
 import os
 
 from PyQt6.QtCore import Qt, QPoint, QTimer, QPropertyAnimation, QEasingCurve, pyqtSlot, QThread, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QColor, QImage, QPixmap
 from PyQt6.QtMultimedia import QAudio, QAudioSink, QAudioFormat, QMediaDevices
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
-    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -53,7 +53,6 @@ from desktop_app.config.prefs_store import (
 from desktop_app.network.backend_api import BackendApi
 from desktop_app.network.mjpeg_receiver import MjpegReceiver
 from desktop_app.network.ws_client import WsClient
-# screen_widget bileşenleri remote_page.py içinde kullanılır
 from desktop_app.ui.theme import (
     card_style,
     filled_button_style,
@@ -62,7 +61,6 @@ from desktop_app.ui.theme import (
     text_style,
 )
 
-# Stil sabitleri
 from desktop_app.ui.styles.app_styles import (
     ACCOUNT_BTN_SS,
     GLOBAL_STYLESHEET,
@@ -90,7 +88,6 @@ from desktop_app.ui.styles.app_styles import (
     _TEXT_SEC,
 )
 
-# Yardımcı fonksiyonlar
 from desktop_app.ui.utils import (
     address_digits,
     cursor_for_digit_count,
@@ -103,11 +100,9 @@ from desktop_app.ui.utils import (
     ws_device_id_set,
 )
 
-# Bileşenler
 from desktop_app.ui.components.device_card import DeviceCard
 from desktop_app.ui.components.draggable_title_bar import DraggableTitleBar
 
-# Sayfa builder'ları
 from desktop_app.ui.pages.home_page import build_home_page
 from desktop_app.ui.pages.remote_page import build_remote_page
 from desktop_app.ui.pages.profile_drawer import build_profile_drawer
@@ -116,9 +111,6 @@ logger = logging.getLogger(__name__)
 _C = Colors
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Audio Jitter Buffer
-# ─────────────────────────────────────────────────────────────────────────────
 class AudioJitterBuffer:
     """
     Basit ring buffer — ağ titreşimini (jitter) emerek ses çıkışını düzgünleştirir.
@@ -150,9 +142,6 @@ class AudioJitterBuffer:
         self._started = False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Worker Threads
-# ─────────────────────────────────────────────────────────────────────────────
 class DeviceLoadThread(QThread):
     finished_loading = pyqtSignal(list)
 
@@ -165,9 +154,6 @@ class DeviceLoadThread(QThread):
         self.finished_loading.emit(devices)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MainWindow
-# ─────────────────────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
     """
     Ana uygulama penceresi.
@@ -177,15 +163,12 @@ class MainWindow(QMainWindow):
     def __init__(self, backend_api: BackendApi | None = None):
         super().__init__()
 
-        # ── Ağ ──────────────────────────────────────────────────────────
         self._ws_client   = WsClient()
         self._mjpeg       = MjpegReceiver()
         self._backend_api = backend_api if backend_api is not None else BackendApi()
 
-        # ── Oturum durumu ────────────────────────────────────────────────
         self._connected                  = False
         self._rotation_step              = 0
-        self._manual_rotation_override   = False
         self._paired_phone_id: str | None = None
         self._paired_phone_address: str | None = None
         self._online_paired_devices: set[str]  = set()
@@ -195,12 +178,10 @@ class MainWindow(QMainWindow):
         self._manual_disconnect          = False
         self._ws_mode                    = "idle"
         
-        # ── Audio ────────────────────────────────────────────────────────
         self._audio_sink = None
         self._audio_device = None
         self._audio_jitter = AudioJitterBuffer(pre_buffer_ms=60, sample_rate=16000)
 
-        # ── Kullanıcı bilgisi ────────────────────────────────────────────
         self._user_id: int | None = None
         self._username            = "Kullanıcı"
         self._user_email          = ""
@@ -209,12 +190,10 @@ class MainWindow(QMainWindow):
         self._user_address        = ""
         self._auth_token          = ""
 
-        # ── UI durumu ────────────────────────────────────────────────────
         self._current_page           = 0
         self._account_button: QPushButton | None = None
         self._device_cards: dict[str, DeviceCard] = {}
 
-        # ── Profil drawer ────────────────────────────────────────────────
         self._reconnect_session_code: str | None = None
         self._a11y_pending_reconnect_code: str | None = None
         self._a11y_recovery_token: int = 0
@@ -223,12 +202,10 @@ class MainWindow(QMainWindow):
         self._profile_cache: dict    = {}
         self._profile_anim: QPropertyAnimation | None = None
 
-        # ── Akış istatistikleri ──────────────────────────────────────────
         self._screen_capture_prompt_sent = False
         self._fps_frame_counter          = 0
         self._last_stream_size: tuple[int, int] = (0, 0)
 
-        # ── Pencere kurulumu ─────────────────────────────────────────────
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -239,7 +216,6 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._connect_signals()
 
-        # ── Timer'lar ────────────────────────────────────────────────────
         self._presence_timer = QTimer(self)
         self._presence_timer.setInterval(8_000)
         self._presence_timer.timeout.connect(self._on_presence_tick)
@@ -247,10 +223,6 @@ class MainWindow(QMainWindow):
         self._fps_histogram_timer = QTimer(self)
         self._fps_histogram_timer.setInterval(1000)
         self._fps_histogram_timer.timeout.connect(self._tick_stream_fps_label)
-
-        self._session_ping_timer = QTimer(self)
-        self._session_ping_timer.setInterval(3000)
-        self._session_ping_timer.timeout.connect(self._tick_session_ping)
 
         QTimer.singleShot(250, self._load_devices_from_db)
         
@@ -272,7 +244,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error("Audio player baslatilamadi: %s", e, exc_info=True)
 
-    # ── Tercih yükleme ───────────────────────────────────────────────────────
     def _load_user_prefs(self):
         prefs = read_prefs()
         self._user_id         = prefs.get("user_id")
@@ -306,7 +277,6 @@ class MainWindow(QMainWindow):
             self._user_email = self._username
         self._ws_client.set_device_address(self._user_address)
 
-    # ── UI kurulumu ──────────────────────────────────────────────────────────
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -339,11 +309,9 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._build_footer_bar())
 
-        # Profil drawer (float üzerinde)
         self._profile_drawer = build_profile_drawer(self, getattr(self, "_main_card", central))
         self._profile_drawer.hide()
 
-    # ── Pencere krom çubuğu (logo + başlık + min/kapat) ─────────────────────
     def _build_chrome_bar(self) -> QWidget:
         bar = DraggableTitleBar(self)
         bar.setFixedHeight(WIN_CHROME_BAR_HEIGHT)
@@ -394,7 +362,6 @@ class MainWindow(QMainWindow):
 
         return bar
 
-    # ── Navigasyon çubuğu (sekmeler + hesap butonu) ──────────────────────────
     def _build_nav_bar(self) -> QWidget:
         bar = QFrame()
         bar.setFixedHeight(MAIN_NAV_BAR_HEIGHT)
@@ -405,21 +372,18 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(14, 0, 14, 0)
         lay.setSpacing(0)
 
-        # Küçük aksan noktası
         logo = QFrame()
         logo.setFixedSize(10, 10)
         logo.setStyleSheet(f"background-color: {_ACCENT}; border-radius: 5px;")
         lay.addWidget(logo)
         lay.addSpacing(10)
 
-        # Ana sayfa sekmesi
         self._tab_home = QPushButton("Ana Sayfa")
         self._tab_home.setCursor(Qt.CursorShape.PointingHandCursor)
         self._tab_home.setStyleSheet(TAB_STYLE_ACTIVE)
         self._tab_home.clicked.connect(lambda: self._switch_page(0))
         lay.addWidget(self._tab_home)
 
-        # Oturum sekmesi (bağlantı varken görünür)
         self._tab_session = QFrame()
         tsl = QHBoxLayout(self._tab_session)
         tsl.setContentsMargins(0, 0, 0, 0)
@@ -447,7 +411,6 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._tab_session)
         lay.addStretch()
 
-        # Bağlantı durum noktası
         self._header_status_dot = QFrame()
         self._header_status_dot.setFixedSize(8, 8)
         self._header_status_dot.setStyleSheet(
@@ -456,7 +419,6 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._header_status_dot)
         lay.addSpacing(6)
 
-        # Hesap butonu
         self._account_button = QPushButton(
             f"{self._user_email or self._username}  ▾"
         )
@@ -468,7 +430,6 @@ class MainWindow(QMainWindow):
 
         return bar
 
-    # ── Alt durum çubuğu ─────────────────────────────────────────────────────
     def _build_footer_bar(self) -> QFrame:
         bar = QFrame()
         bar.setFixedHeight(MAIN_FOOTER_BAR_HEIGHT)
@@ -489,7 +450,6 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._footer_status_label)
         return bar
 
-    # ── Logo yükleme ─────────────────────────────────────────────────────────
     def _load_logo_pixmap(self, size: int) -> QPixmap | None:
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         logo_path = os.path.join(root, "logo.png")
@@ -502,12 +462,9 @@ class MainWindow(QMainWindow):
             Qt.TransformationMode.SmoothTransformation,
         )
 
-    # ── Sinyal bağlama ───────────────────────────────────────────────────────
     def _connect_signals(self):
         self._btn_connect.clicked.connect(self._on_connect)
         self._btn_disconnect.clicked.connect(self._on_disconnect)
-        self._btn_rotate_left.clicked.connect(self._on_rotate_left)
-        self._btn_rotate_right.clicked.connect(self._on_rotate_right)
 
         self._ws_client.connected.connect(self._on_ws_connected)
         self._ws_client.disconnected.connect(self._on_ws_disconnected)
@@ -522,9 +479,6 @@ class MainWindow(QMainWindow):
         )
         self._ws_client.audio_received.connect(
             self._on_audio_received, Qt.ConnectionType.QueuedConnection
-        )
-        self._ws_client.session_rtt_ms.connect(
-            self._on_session_rtt, Qt.ConnectionType.QueuedConnection
         )
         self._ws_client.rotation_received.connect(
             self._on_rotation_received, Qt.ConnectionType.QueuedConnection
@@ -541,7 +495,6 @@ class MainWindow(QMainWindow):
         self._screen.swipe_event.connect(self._on_swipe)
         self._screen.remote_key_pressed.connect(self._on_screen_remote_key)
 
-    # ── Sayfa geçişleri ──────────────────────────────────────────────────────
     def _switch_page(self, index: int):
         self._current_page = index
         self._pages.setCurrentIndex(index)
@@ -552,7 +505,6 @@ class MainWindow(QMainWindow):
             self._tab_home.setStyleSheet(TAB_STYLE_INACTIVE)
             self._tab_session_btn.setStyleSheet(TAB_STYLE_ACTIVE)
 
-    # ── WS bağlantı modları ──────────────────────────────────────────────────
     def _connect_presence_mode(self, status_message: str | None = None):
         if self._logging_out:
             return
@@ -580,7 +532,6 @@ class MainWindow(QMainWindow):
         self._ws_mode = "session"
         self._mjpeg.stop()
         self._rotation_step = 0
-        self._manual_rotation_override = False
         self._apply_rotation_step()
         self._paired_phone_id      = partner_device_id
         self._paired_phone_address = addr_digits or None
@@ -602,7 +553,6 @@ class MainWindow(QMainWindow):
         if self._logging_out:
             return
 
-    # ── Cihaz yükleme ────────────────────────────────────────────────────────
     def _load_paired_devices(self) -> list[dict]:
         merged: dict[str, dict] = {}
         pc_id = self._ws_client.device_id
@@ -730,7 +680,6 @@ class MainWindow(QMainWindow):
         for idx, (_, card) in enumerate(ordered):
             self._recent_devices_layout.addWidget(card, idx // cols, idx % cols)
 
-    # ── Home özet güncelleme ─────────────────────────────────────────────────
     def _refresh_home_summary(self):
         if self._connected:
             self._addr_status_label.setText("Bağlı")
@@ -781,7 +730,6 @@ class MainWindow(QMainWindow):
             )
             self._account_button.setText(f"{acct}  ▾")
 
-    # ── Warning banner ───────────────────────────────────────────────────────
     def _show_warning_banner(self, title: str, message: str) -> None:
         banner = getattr(self, "_warning_banner", None)
         if banner is None:
@@ -795,7 +743,6 @@ class MainWindow(QMainWindow):
         if banner is not None:
             banner.hide()
 
-    # ── Hesap menüsü ─────────────────────────────────────────────────────────
     def _show_account_menu(self):
         if self._account_button is None:
             return
@@ -824,7 +771,6 @@ class MainWindow(QMainWindow):
         elif selected == logout_action:
             self._on_logout()
 
-    # ── Profil drawer eylemleri ──────────────────────────────────────────────
     def _open_profile_drawer(self) -> None:
         if not self._auth_token:
             self._set_status("Profil bilgilerine erişmek için tekrar giriş yapın.", error=True)
@@ -980,7 +926,6 @@ class MainWindow(QMainWindow):
             x = (cw_w - self._profile_drawer_width) if self._profile_drawer_open else cw_w
             self._profile_drawer.move(x, top)
 
-    # ── Profil kaydetme ──────────────────────────────────────────────────────
     def _save_profile_from_drawer(self) -> None:
         if not self._auth_token:
             self._profile_err.setText("Oturum bulunamadi. Tekrar giris yapin.")
@@ -1064,7 +1009,6 @@ class MainWindow(QMainWindow):
         self._set_status("Şifre güncellendi.")
         self._on_profile_pwd_cancel()
 
-    # ── Kart eylemleri ───────────────────────────────────────────────────────
     def _on_card_connect(self, card_key: str):
         card = self._device_cards.get(card_key)
         if not card:
@@ -1092,23 +1036,17 @@ class MainWindow(QMainWindow):
         card = self._device_cards.get(card_key)
         if not card:
             return
-        answer = QMessageBox.question(
-            self, "Eşleşmeyi kaldır",
-            "Bu eşleşmeyi kaldırmak istiyor musunuz?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
+        if not self._confirm_forget_pairing(card.display_name()):
             return
         if not self._auth_token:
-            self._set_status("Eşleşmeyi sunucudan silmek için tekrar giriş yapın.", error=True)
+            self._set_status("Eslesmeyi sunucudan silmek icin tekrar giris yapin.", error=True)
             return
 
         success, error_msg = self._backend_api.delete_pairing(
             self._auth_token, self._ws_client.device_id, card.device_id, card.address,
         )
         if not success:
-            self._set_status(error_msg or "Eşleşme silinemedi.", error=True)
+            self._set_status(error_msg or "Eslesme silinemedi.", error=True)
             return
 
         self._load_devices_from_db()
@@ -1125,9 +1063,151 @@ class MainWindow(QMainWindow):
 
         self._ws_client.send_request_presence()
         self._refresh_home_summary()
-        self._set_status("Eşleşme kaldırıldı.")
+        self._set_status("Eslesme kaldirildi.")
 
-    # ── Adres giriş slotları ─────────────────────────────────────────────────
+    def _confirm_forget_pairing(self, device_label: str) -> bool:
+        dialog = QDialog(self)
+        dialog.setModal(True)
+        dialog.setWindowFlags(
+            Qt.WindowType.Dialog
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.CustomizeWindowHint
+        )
+        dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        dialog.setMinimumWidth(420)
+        dialog.setStyleSheet(f"""
+            QDialog {{
+                background: transparent;
+            }}
+            QLabel {{
+                background: transparent;
+            }}
+            QPushButton {{
+                min-height: 40px;
+                border-radius: 10px;
+                padding: 0 16px;
+                font-size: 12px;
+                font-weight: 700;
+            }}
+            QPushButton#cancelButton {{
+                background-color: {_BG_RAISED};
+                color: {_TEXT};
+                border: 1px solid {_BORDER};
+            }}
+            QPushButton#cancelButton:hover {{
+                border-color: {_ACCENT};
+            }}
+            QPushButton#confirmButton {{
+                color: #1A1A1A;
+                border: 1px solid rgba(255,138,128,0.55);
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #FF8A80,
+                    stop:1 #FF6E6E
+                );
+            }}
+            QPushButton#confirmButton:hover {{
+                border: 1px solid rgba(255,165,156,0.75);
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #FF9C93,
+                    stop:1 #FF7C7C
+                );
+            }}
+            QPushButton#confirmButton:pressed {{
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #F07F77,
+                    stop:1 #E56767
+                );
+            }}
+        """)
+
+        root = QVBoxLayout(dialog)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(0)
+
+        card = QFrame()
+        card.setObjectName("forgetPairCard")
+        card.setStyleSheet(f"""
+            QFrame#forgetPairCard {{
+                background-color: {_BG_CARD};
+                border: 1px solid {_BORDER_SUBTLE};
+                border-radius: 16px;
+            }}
+        """)
+        shadow = QGraphicsDropShadowEffect(card)
+        shadow.setBlurRadius(40)
+        shadow.setOffset(0, 12)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        card.setGraphicsEffect(shadow)
+        root.addWidget(card)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(22, 22, 22, 18)
+        card_layout.setSpacing(18)
+
+        header = QHBoxLayout()
+        header.setSpacing(14)
+
+        icon = QLabel("!")
+        icon.setFixedSize(38, 38)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setStyleSheet(
+            "background-color: rgba(248,113,113,0.16);"
+            "color: #f87171;"
+            "border: 1px solid rgba(248,113,113,0.38);"
+            "border-radius: 19px;"
+            "font-size: 18px;"
+            "font-weight: 800;"
+        )
+        header.addWidget(icon, alignment=Qt.AlignmentFlag.AlignTop)
+
+        copy = QVBoxLayout()
+        copy.setSpacing(6)
+
+        title = QLabel("Eslesmeyi kaldir?")
+        title.setStyleSheet(f"color: {_TEXT}; font-size: 18px; font-weight: 800;")
+        copy.addWidget(title)
+
+        body = QLabel(
+            "Bu islem mevcut cihaz eslesmesini kaldirir. Devam etmek istiyor musun?"
+        )
+        body.setWordWrap(True)
+        body.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 12px;")
+        copy.addWidget(body)
+
+        if device_label:
+            caption = QLabel(device_label)
+            caption.setWordWrap(True)
+            caption.setStyleSheet(
+                f"color: {_ACCENT}; font-size: 11px; font-weight: 700;"
+                f"background-color: rgba(232,93,58,0.10);"
+                f"border: 1px solid rgba(232,93,58,0.24);"
+                f"border-radius: 8px; padding: 8px 10px;"
+            )
+            copy.addWidget(caption)
+
+        header.addLayout(copy, stretch=1)
+        card_layout.addLayout(header)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(10)
+        actions.addStretch(1)
+
+        cancel_btn = QPushButton("Iptal")
+        cancel_btn.setObjectName("cancelButton")
+        cancel_btn.clicked.connect(dialog.reject)
+        actions.addWidget(cancel_btn)
+
+        confirm_btn = QPushButton("Eslesmeyi Kaldir")
+        confirm_btn.setObjectName("confirmButton")
+        confirm_btn.clicked.connect(dialog.accept)
+        confirm_btn.setDefault(True)
+        actions.addWidget(confirm_btn)
+
+        card_layout.addLayout(actions)
+        return dialog.exec() == QDialog.DialogCode.Accepted
     def _submit_static_address(self, raw_value: str) -> None:
         if not raw_value:
             self._set_status("Adres girilmedi.", error=True)
@@ -1193,7 +1273,6 @@ class MainWindow(QMainWindow):
         self._reconnect_session_code      = None
         self._a11y_pending_reconnect_code = None
         self._rotation_step               = 0
-        self._manual_rotation_override    = False
         self._presence_timer.stop()
         self._manual_disconnect = True
         self._mjpeg.stop()
@@ -1242,11 +1321,9 @@ class MainWindow(QMainWindow):
             return
         self._logging_out = False
 
-    # ── Presence ─────────────────────────────────────────────────────────────
     def _on_presence_tick(self):
         self._ws_client.send_request_presence()
 
-    # ── WS slotları ──────────────────────────────────────────────────────────
     @pyqtSlot()
     def _on_ws_connected(self):
         self._manual_disconnect = False
@@ -1300,7 +1377,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
-        # Zaten bağlıyken ve akış aktifken, tekrarlayan paired sinyallerini yoksay
         already_streaming = self._connected and self._remote_frame_visible
 
         su       = (stream_url or "").strip()
@@ -1311,7 +1387,6 @@ class MainWindow(QMainWindow):
             or "127.0.0.1" in su_lower or "localhost" in su_lower
         )
 
-        # Eğer aynı URL ile zaten akış yapılıyorsa, tekrar başlatma
         same_url = (
             su and not mjpeg_unreachable
             and hasattr(self._mjpeg, '_url')
@@ -1482,12 +1557,10 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, _apply_banner)
         self._set_status(f"Hata: {msg}", error=True)
 
-    # ── Frame ve Ses slotları ────────────────────────────────────────────────
     @pyqtSlot(bytes)
     def _on_audio_received(self, pcm_bytes: bytes):
         if not pcm_bytes:
             return
-        # Jitter buffer üzerinden geçir — ilk 100ms tamponlanır, sonra akıcı çalınır
         chunk = self._audio_jitter.push(pcm_bytes)
         if chunk is None:
             return
@@ -1505,7 +1578,6 @@ class MainWindow(QMainWindow):
             return
         pixmap = QPixmap()
         if not pixmap.loadFromData(frame_bytes, "JPEG"):
-            # JPEG değilse genel format dene
             if not pixmap.loadFromData(frame_bytes):
                 img = QImage()
                 if not img.loadFromData(frame_bytes):
@@ -1546,7 +1618,6 @@ class MainWindow(QMainWindow):
         else:
             self._screen.clear_frame()
 
-    # ── Döndürme slotları ────────────────────────────────────────────────────
     def _apply_rotation_step(self) -> None:
         deg = self._rotation_step * 90
         self._screen.set_rotation(deg)
@@ -1565,40 +1636,14 @@ class MainWindow(QMainWindow):
     def _on_rotation_received(self, degrees: int):
         """Telefon rotasyonu değiştiğinde otomatik döndür (metadata ile gelir)."""
         step = self._normalize_rotation_step(degrees)
-        if self._manual_rotation_override and step != self._rotation_step:
-            logger.debug(
-                "Telefon rotation metadata'si manuel secimi ezmedi: gelen=%s aktif=%s",
-                step * 90,
-                self._rotation_step * 90,
-            )
-            return
         if step != self._rotation_step:
             self._rotation_step = step
             self._apply_rotation_step()
-
     @pyqtSlot(int)
     def _on_reconnecting(self, attempt: int):
         """Otomatik yeniden bağlanma denemesi başladığında durum güncelle."""
         self._set_status(f"Yeniden bağlanılıyor... (deneme {attempt})")
 
-    @pyqtSlot()
-    def _on_rotate_left(self):
-        self._rotation_step = (self._rotation_step + 3) % 4
-        self._manual_rotation_override = True
-        self._apply_rotation_step()
-        if self._connected:
-            # Telefon tarafını da döndür; aksi halde yeni frame metadata'sı local rotasyonu geri ezer.
-            self._ws_client.send_rotate_screen(self._rotation_step * 90)
-
-    @pyqtSlot()
-    def _on_rotate_right(self):
-        self._rotation_step = (self._rotation_step + 1) % 4
-        self._manual_rotation_override = True
-        self._apply_rotation_step()
-        if self._connected:
-            self._ws_client.send_rotate_screen(self._rotation_step * 90)
-
-    # ── Dokunma / kaydırma slotları ──────────────────────────────────────────
     @pyqtSlot(float, float)
     def _on_touch(self, x: float, y: float):
         if self._connected:
@@ -1628,20 +1673,13 @@ class MainWindow(QMainWindow):
                         prev = getattr(self, "_last_volume", 1.0)
                         self._audio_sink.setVolume(max(0.1, prev))
 
-    # ── Kontrol etkinleştirme ────────────────────────────────────────────────
     def _set_remote_controls_enabled(self, enabled: bool) -> None:
-        for attr in ("_btn_rotate_left", "_btn_rotate_right"):
-            btn = getattr(self, attr, None)
-            if btn is not None:
-                btn.setEnabled(enabled)
         for btn in getattr(self, "_key_buttons", []):
             btn.setEnabled(enabled)
         for attr in ("_btn_sess_clip", "_btn_sess_save", "_btn_sess_paste"):
             btn = getattr(self, attr, None)
             if btn is not None:
                 btn.setEnabled(enabled)
-
-    # ── Akış durum yardımcıları ──────────────────────────────────────────────
     def _request_phone_screen_capture(self) -> None:
         if self._connected:
             self._ws_client.send_screen_capture_on()
@@ -1649,7 +1687,6 @@ class MainWindow(QMainWindow):
     def _refresh_paired_stream_status(self) -> None:
         if not self._connected:
             return
-        # Kare akışı geliyorsa erişilebilirlik kesinlikle çalışıyordur
         if self._remote_frame_visible:
             if self._phone_accessibility_enabled is False:
                 logger.debug("Kare akışı aktif — erişilebilirlik bayrağı True olarak düzeltildi")
@@ -1679,36 +1716,22 @@ class MainWindow(QMainWindow):
         self._sync_stream_aspect_fit(ew, eh)
         self._fps_frame_counter += 1
 
-    # ── FPS & ping ───────────────────────────────────────────────────────────
     @pyqtSlot()
     def _tick_stream_fps_label(self) -> None:
         if not hasattr(self, "_lbl_sess_fps"):
             return
         if not self._connected:
-            self._lbl_sess_fps.setText("FPS —")
+            self._lbl_sess_fps.setText("FPS --")
             self._fps_frame_counter = 0
             return
         fps = self._fps_frame_counter
         self._fps_frame_counter = 0
         self._lbl_sess_fps.setText(f"FPS {fps}")
 
-    @pyqtSlot()
-    def _tick_session_ping(self) -> None:
-        if self._connected:
-            self._ws_client.send_session_ping()
-
-    @pyqtSlot(float)
-    def _on_session_rtt(self, ms: float) -> None:
-        if hasattr(self, "_lbl_sess_rtt"):
-            self._lbl_sess_rtt.setText(f"RTT {ms:.0f} ms")
-
     def _reset_session_stats_labels(self) -> None:
         if hasattr(self, "_lbl_sess_res"):
-            self._lbl_sess_res.setText("— × —")
-            self._lbl_sess_fps.setText("FPS —")
-            self._lbl_sess_rtt.setText("RTT —")
-
-    # ── Ekran görüntüsü ──────────────────────────────────────────────────────
+            self._lbl_sess_res.setText("-- x --")
+            self._lbl_sess_fps.setText("FPS --")
     def _screenshot_to_clipboard(self) -> None:
         pm = self._screen.get_export_pixmap()
         if pm is None or pm.isNull():
@@ -1745,19 +1768,16 @@ class MainWindow(QMainWindow):
         self._ws_client.send_paste_text(text)
         self._set_status(f"Pano metni gonderildi ({len(text)} karakter).")
 
-    # ── Bağlantı durumu ──────────────────────────────────────────────────────
     def _set_connected(self, connected: bool):
         self._connected = connected
         if not connected:
             self._screen_capture_prompt_sent = False
             self._fps_histogram_timer.stop()
-            self._session_ping_timer.stop()
             self._reset_session_stats_labels()
             self._sync_stream_aspect_fit()
             self._audio_jitter.reset()
         else:
             self._fps_histogram_timer.start()
-            self._session_ping_timer.start()
         self._set_remote_controls_enabled(bool(connected and self._remote_frame_visible))
         self._btn_connect.setEnabled(not connected)
         self._btn_disconnect.setEnabled(connected)
@@ -1767,7 +1787,6 @@ class MainWindow(QMainWindow):
         else:
             self._header_status_dot.setStyleSheet(f"background-color: {_TEXT_DIM}; border-radius: 4px;")
         self._refresh_home_summary()
-
     def _set_status(self, msg: str, error: bool = False):
         color = _RED if error else _TEXT_SEC
         label = getattr(self, "_footer_status_label", None)
@@ -1776,12 +1795,10 @@ class MainWindow(QMainWindow):
         label.setStyleSheet(f"color: {color}; font-size: 11px; background: transparent;")
         label.setText(msg)
 
-    # ── Pencere kapanışı ─────────────────────────────────────────────────────
     def closeEvent(self, event):
         self._mjpeg.stop()
         self._presence_timer.stop()
         self._fps_histogram_timer.stop()
-        self._session_ping_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect()
         super().closeEvent(event)

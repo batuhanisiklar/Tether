@@ -38,7 +38,6 @@ if TYPE_CHECKING:
 _C = Colors
 
 
-# ── Ana builder ──────────────────────────────────────────────────────────────
 
 def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     """Profil drawer widget'ını oluşturur; pencere (parent) üzerinde float eder."""
@@ -56,7 +55,6 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     root.setContentsMargins(16, 14, 16, 14)
     root.setSpacing(0)
 
-    # Başlık satırı: "Profil" + Kapat butonu
     header = QHBoxLayout()
     title = QLabel("Profil")
     title.setStyleSheet(f"color: {_TEXT}; font-size: 16px; font-weight: 600;")
@@ -84,7 +82,6 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     window._profile_load_err.hide()
     root.addWidget(window._profile_load_err)
 
-    # Kaydırılabilir içerik
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -99,7 +96,6 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     scroll.setWidget(inner)
     root.addWidget(scroll, stretch=1)
 
-    # İçerik blokları
     _build_account_card(window, lay)
     _build_action_buttons(window, lay)
     _build_edit_block(window, lay)
@@ -109,7 +105,6 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     return drawer
 
 
-# ── Hesap özet kartı ─────────────────────────────────────────────────────────
 
 def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     card_css = (
@@ -125,7 +120,6 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
 
     summary_lay.addWidget(_section_lbl("Hesap"))
 
-    # Avatar + ad satırı
     head_row = QHBoxLayout()
     head_row.setSpacing(12)
 
@@ -158,7 +152,6 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     sep1.setStyleSheet(f"background-color: {_BORDER_SUBTLE}; border: none;")
     summary_lay.addWidget(sep1)
 
-    # E-posta / Telefon ızgarası
     grid = QGridLayout()
     grid.setHorizontalSpacing(16)
     grid.setVerticalSpacing(10)
@@ -177,7 +170,6 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     parent_lay.addWidget(account_card)
 
 
-# ── İşlem butonları ──────────────────────────────────────────────────────────
 
 def _build_action_buttons(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     parent_lay.addWidget(_section_lbl("İşlemler"))
@@ -211,7 +203,6 @@ def _build_action_buttons(window: "MainWindow", parent_lay: QVBoxLayout) -> None
     parent_lay.addLayout(ops_col)
 
 
-# ── Düzenleme bloğu (email / telefon) ────────────────────────────────────────
 
 def _build_edit_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     window._profile_edit_block = QFrame()
@@ -225,7 +216,6 @@ def _build_edit_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
 
     edit_lay.addWidget(_section_lbl("İletişim bilgileri"))
 
-    # Salt okunur ad/soyad
     edit_lay.addWidget(_field_lbl("Ad ve soyad"))
     window._profile_readonly_name = QLabel("")
     window._profile_readonly_name.setWordWrap(True)
@@ -242,27 +232,23 @@ def _build_edit_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     cap.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
     edit_lay.addWidget(cap)
 
-    # E-posta
     edit_lay.addWidget(_field_lbl("E-posta"))
     window._profile_inp_email = QLineEdit()
     window._profile_inp_email.setFixedHeight(34)
     window._profile_inp_email.setStyleSheet(line_edit_style())
     edit_lay.addWidget(window._profile_inp_email)
 
-    # Telefon
     edit_lay.addWidget(_field_lbl("Telefon"))
     window._profile_inp_phone = QLineEdit()
     window._profile_inp_phone.setFixedHeight(34)
     window._profile_inp_phone.setStyleSheet(line_edit_style())
     edit_lay.addWidget(window._profile_inp_phone)
 
-    # Hata etiketi
     window._profile_err = QLabel("")
     window._profile_err.setWordWrap(True)
     window._profile_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
     edit_lay.addWidget(window._profile_err)
 
-    # Buton satırı
     btn_row = QHBoxLayout()
     btn_row.setSpacing(8)
     window._profile_btn_cancel = QPushButton("Vazgeç")
@@ -284,7 +270,6 @@ def _build_edit_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     window._profile_edit_block.hide()
 
 
-# ── Şifre değiştirme bloğu ───────────────────────────────────────────────────
 
 def _build_password_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     window._profile_pwd_block = QFrame()
@@ -337,7 +322,6 @@ def _build_password_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None
     window._profile_pwd_block.hide()
 
 
-# ── Widget yardımcıları ───────────────────────────────────────────────────────
 
 def _field_lbl(text: str) -> QLabel:
     l = QLabel(text)

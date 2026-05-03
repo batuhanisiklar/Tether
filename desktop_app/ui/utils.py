@@ -8,14 +8,12 @@ Adres biçimlendirmeden oturum etiketlerine kadar ortak yardımcılar.
 import os
 
 
-# ── Cihaz / sistem ───────────────────────────────────────────────────────────
 
 def desktop_device_name() -> str:
     """Mevcut bilgisayarın adını döner."""
     return os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "Bu Bilgisayar"
 
 
-# ── Adres formatlamak ────────────────────────────────────────────────────────
 
 def address_digits(value: str | None) -> str:
     """Verilen değerden en fazla 12 rakam çeker."""
@@ -33,7 +31,6 @@ def format_address_spaced(addr: str) -> str:
     return format_address(addr)
 
 
-# ── Cihaz görüntü adı ────────────────────────────────────────────────────────
 
 def display_device_name(device_name: str | None, address: str | None, device_id: str) -> str:
     """Öncelik sırasıyla device_name → address → device_id döner."""
@@ -58,7 +55,6 @@ def display_username(username: str | None) -> str:
     return value[:1].upper() + value[1:]
 
 
-# ── Sekme etiketleri ─────────────────────────────────────────────────────────
 
 def session_tab_label(
     owner_name: str | None,
@@ -74,7 +70,6 @@ def session_tab_label(
     return " - ".join(parts) if parts else "Oturum"
 
 
-# ── WebSocket yardımcıları ───────────────────────────────────────────────────
 
 def ws_device_id_set(items: list | None) -> set[str]:
     """WS device_ack listesinden temiz device_id seti oluşturur."""
@@ -96,7 +91,6 @@ def is_accessibility_ws_error(message: str, code: str) -> bool:
     return "erisilebilirlik" in folded or "accessibility" in folded
 
 
-# ── Cihaz satırı birleştirme ─────────────────────────────────────────────────
 
 def merge_phone_device_row(existing: dict, row: dict) -> dict:
     """
@@ -124,7 +118,6 @@ def merge_phone_device_row(existing: dict, row: dict) -> dict:
         if key in row and row.get(key) is not None:
             out[key] = row.get(key)
 
-    # owner nesnesinden ad/soyad çek
     if not (str(out.get("owner_name") or "").strip()):
         owner_obj = row.get("owner")
         if isinstance(owner_obj, dict):
@@ -147,7 +140,6 @@ def merge_phone_device_row(existing: dict, row: dict) -> dict:
     return out
 
 
-# ── Adres input imleci yönetimi ──────────────────────────────────────────────
 
 def digits_before_cursor(text: str, cursor: int) -> int:
     """İmlecin solundaki rakam sayısını döner."""

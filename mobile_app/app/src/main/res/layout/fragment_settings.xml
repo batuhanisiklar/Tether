@@ -14,7 +14,6 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- Profil özeti (her zaman görünür) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -119,7 +118,6 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <!-- Düzenleme: yalnızca "Düzenle" sonrası -->
         <LinearLayout
             android:id="@+id/layout_profile_edit_panel"
             android:layout_width="match_parent"
@@ -242,7 +240,6 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Şifre değiştir: yalnızca buton sonrası -->
         <LinearLayout
             android:id="@+id/layout_profile_password_panel"
             android:layout_width="match_parent"
@@ -359,7 +356,6 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Cihaz -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

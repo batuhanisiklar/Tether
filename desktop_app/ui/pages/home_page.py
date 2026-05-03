@@ -41,7 +41,6 @@ if TYPE_CHECKING:
 _C = Colors
 
 
-# ── Ana sayfa ───────────────────────────────────────────────────────────────
 
 def build_home_page(window: "MainWindow") -> QWidget:
     """Ana sayfa widget'ını oluşturur."""
@@ -67,7 +66,6 @@ def build_home_page(window: "MainWindow") -> QWidget:
 
     scroll.setWidget(content)
 
-    # Scroll + sol-altta "toast" gibi uyarı overlay'i
     outer = QGridLayout(page)
     outer.setContentsMargins(0, 0, 0, 0)
     outer.setHorizontalSpacing(0)
@@ -85,7 +83,6 @@ def build_home_page(window: "MainWindow") -> QWidget:
     return page
 
 
-# ── Adres giriş çubuğu ──────────────────────────────────────────────────────
 
 def _build_address_input_bar(window: "MainWindow") -> QWidget:
     bar = QFrame()
@@ -131,7 +128,6 @@ def _build_address_input_bar(window: "MainWindow") -> QWidget:
     return bar
 
 
-# ── Senin adresin hero alanı ─────────────────────────────────────────────────
 
 def _build_your_address_hero(window: "MainWindow") -> QWidget:
     from desktop_app.ui.utils import desktop_device_name
@@ -142,7 +138,6 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     outer.setContentsMargins(28, 24, 28, 20)
     outer.setSpacing(20)
 
-    # Sol: büyük adres etiketi
     left = QVBoxLayout()
     left.setSpacing(4)
 
@@ -173,7 +168,6 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     sep.setStyleSheet(f"background-color: {_BORDER_SUBTLE};")
     outer.addWidget(sep)
 
-    # Sağ: bilgisayar bilgisi
     right = QVBoxLayout()
     right.setSpacing(10)
 
@@ -195,7 +189,6 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     return hero
 
 
-# ── Uyarı banner ──────────────────────────────────────────────────────────────
 
 def _build_warning_banner(window: "MainWindow") -> QWidget:
     banner = QFrame()
@@ -246,7 +239,6 @@ def _build_warning_banner(window: "MainWindow") -> QWidget:
     return banner
 
 
-# ── Tanıtım kartları ──────────────────────────────────────────────────────────
 
 def _build_feature_cards() -> QWidget:
     wrapper = QFrame()
@@ -318,7 +310,6 @@ def _build_feature_cards() -> QWidget:
     return wrapper
 
 
-# ── Sekme şeridi ─────────────────────────────────────────────────────────────
 
 def _build_tab_strip(window: "MainWindow") -> QWidget:
     strip = QFrame()
@@ -347,7 +338,6 @@ def _build_tab_strip(window: "MainWindow") -> QWidget:
     return strip
 
 
-# ── Son oturumlar ızgarası ───────────────────────────────────────────────────
 
 def _build_recent_sessions(window: "MainWindow") -> QWidget:
     section = QWidget()

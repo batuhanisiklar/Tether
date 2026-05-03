@@ -42,14 +42,12 @@ class DeviceCard(QFrame):
         self.setFixedSize(self.CARD_W, self.CARD_H)
         self._build()
 
-    # ── builder ─────────────────────────────────────────────────────────────
 
     def _build(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(4)
 
-        # Üst satır: durum noktası + unut butonu
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
 
@@ -77,7 +75,6 @@ class DeviceCard(QFrame):
         top_row.addWidget(self._btn_forget)
         root.addLayout(top_row)
 
-        # Sahip adı
         owner = (self.owner_name or "").strip()
         self._owner = None
         if owner:
@@ -88,7 +85,6 @@ class DeviceCard(QFrame):
             )
             root.addWidget(self._owner)
         
-        # Cihaz adı / adres
         formatted = display_device_name(self.device_name, self.address, self.device_id)
         self._title = QLabel(compact_label(formatted, 28))
         self._title.setStyleSheet(
@@ -114,7 +110,6 @@ class DeviceCard(QFrame):
         root.addStretch()
         self._apply_card_style()
 
-    # ── public helpers ───────────────────────────────────────────────────────
 
     def display_name(self) -> str:
         return display_device_name(self.device_name, self.address, self.device_id)
@@ -132,7 +127,6 @@ class DeviceCard(QFrame):
     def set_forget_callback(self, cb):
         self._forget_cb = cb
 
-    # ── durum güncelleme ──────────────────────────────────────────────────────
 
     def set_online(self, online: bool):
         self._online = online
@@ -161,14 +155,12 @@ class DeviceCard(QFrame):
     def set_connecting(self):
         self._lbl_status.setText("Bağlanıyor…")
 
-    # ── qt events ─────────────────────────────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._online and self._connect_cb:
             self._connect_cb(self.card_key())
         super().mousePressEvent(event)
 
-    # ── private ──────────────────────────────────────────────────────────────
 
     def _apply_card_style(self):
         self.setStyleSheet(device_card_style(self._online))

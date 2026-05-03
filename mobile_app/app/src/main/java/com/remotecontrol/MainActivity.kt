@@ -191,7 +191,6 @@ class MainActivity : AppCompatActivity() {
             val result = backendApi.deletePairing(token, deviceId, partnerDeviceId, partnerAddress)
             if (result.error.isNullOrBlank()) {
                 val normalizedPartnerAddress = partnerAddress?.filter(Char::isDigit)?.take(12)
-                // UI'yi anında güncelle (ağ çağrısını bekleme)
                 currentPairings = currentPairings.filterNot { d ->
                     d.deviceId == partnerDeviceId ||
                         (!normalizedPartnerAddress.isNullOrBlank() && d.address == normalizedPartnerAddress)
@@ -218,7 +217,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun startScreenShareFromUi() {
-        // Kullanıcı tıkladığında ekstra adım olmadan sistem izin diyalogu açılsın
         if (!remoteSessionPaired) {
             Toast.makeText(this, getString(R.string.pair_start_broadcast_hint), Toast.LENGTH_SHORT).show()
             return
@@ -241,7 +239,6 @@ class MainActivity : AppCompatActivity() {
         signalingClient?.disconnect(sendServerLogout = true)
         signalingClient = null
         sessionStore.clear()
-        // device_id cihaza sabittir (MAC gibi); cikista silinmez.
         startActivity(Intent(this, LoginActivity::class.java))
         finish()
     }
@@ -366,7 +363,6 @@ class MainActivity : AppCompatActivity() {
                         currentStatus = "Erisilebilirlik kapali"
                         currentStatusDetail = "Kontrol icin erisilebilirlik servisini acin."
                         refreshFragments()
-                        // Desktop'a hata mesaji gonder ki oturum ekranindan ciksin
                         signalingClient?.sendAccessibilityError()
                         showAccessibilityRequiredDialog()
                         return@runOnUiThread
@@ -378,7 +374,6 @@ class MainActivity : AppCompatActivity() {
                     currentStatus = getString(R.string.pair_pc_connected_title)
                     currentStatusDetail = getString(R.string.pair_start_broadcast_hint)
                     refreshFragments()
-                    // Ekran paylasimi masaustunden (screen_capture_on) baslatilir.
                 }
             },
             onPairedDevicesStatus = { pairedDeviceIds, onlineDeviceIds, partnerOnline ->
@@ -664,7 +659,6 @@ class MainActivity : AppCompatActivity() {
         streamRunning = true
         updateStatus("Ekran yayini aktif")
 
-        // Uygulama arka plana alinsin; bilgisayara gerçek telefon ekranı gönderilsin
         moveTaskToBack(true)
     }
 
@@ -958,8 +952,6 @@ class MainActivity : AppCompatActivity() {
         }
         if (sessionStore.isLoggedIn() && nowA11y && !hadA11y) {
             if (pairingAwaitingAccessibility) {
-                // Mevcut oturumu KORU — signaling sifirlanmasin!
-                // Sadece durumu guncelle; oturum canli kaliyor.
                 Log.i(TAG, "Erisilebilirlik acildi — mevcut oturum korunuyor")
                 pairingAwaitingAccessibility = false
                 remoteSessionPaired = false

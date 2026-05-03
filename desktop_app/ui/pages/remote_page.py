@@ -38,20 +38,15 @@ if TYPE_CHECKING:
 _C = Colors
 
 
-# ── Ana remote sayfası ───────────────────────────────────────────────────────
-
 def build_remote_page(window: "MainWindow") -> QWidget:
-    """Remote kontrol sayfası widget'ını oluşturur."""
     page = QWidget()
     page.setStyleSheet(f"background-color: {_BG};")
     layout = QHBoxLayout(page)
     layout.setContentsMargins(10, 10, 10, 10)
     layout.setSpacing(10)
 
-    # ── Sol: görüntü alanı ──────────────────────────────────────────────
     left = QVBoxLayout()
     left.setSpacing(8)
-
     left.addWidget(_build_session_top_bar(window))
 
     screen_frame = QFrame()
@@ -69,10 +64,8 @@ def build_remote_page(window: "MainWindow") -> QWidget:
     window._remote_summary_label = QLabel("")
     layout.addLayout(left, stretch=7)
 
-    # ── Sağ: kontrol panelleri ───────────────────────────────────────────
     right = QVBoxLayout()
     right.setSpacing(10)
-    right.addWidget(_build_controls_panel(window))
     right.addWidget(_build_key_controls_panel(window))
     right.addWidget(_build_session_actions_panel(window))
     right.addWidget(_build_remote_shortcuts_panel())
@@ -81,8 +74,6 @@ def build_remote_page(window: "MainWindow") -> QWidget:
 
     return page
 
-
-# ── Oturum üst çubuğu ────────────────────────────────────────────────────────
 
 def _build_session_top_bar(window: "MainWindow") -> QFrame:
     top_bar = QFrame()
@@ -94,7 +85,6 @@ def _build_session_top_bar(window: "MainWindow") -> QFrame:
     tbl.setSpacing(14)
     tbl.addStretch(1)
 
-    # İstatistik etiketleri
     stats_row = QWidget()
     stats_row.setStyleSheet("background: transparent;")
     srl = QHBoxLayout(stats_row)
@@ -102,16 +92,14 @@ def _build_session_top_bar(window: "MainWindow") -> QFrame:
     srl.setSpacing(16)
     stat_ss = f"color: {_TEXT_SEC}; font-size: 10px; font-weight: 600; background: transparent;"
 
-    window._lbl_sess_res = QLabel("— × —")
-    window._lbl_sess_fps = QLabel("FPS —")
-    window._lbl_sess_rtt = QLabel("RTT —")
-    for lb in (window._lbl_sess_res, window._lbl_sess_fps, window._lbl_sess_rtt):
+    window._lbl_sess_res = QLabel("-- x --")
+    window._lbl_sess_fps = QLabel("FPS --")
+    for lb in (window._lbl_sess_res, window._lbl_sess_fps):
         lb.setStyleSheet(stat_ss)
         srl.addWidget(lb)
     tbl.addWidget(stats_row, stretch=0)
 
-    # Bağlantı kes butonu
-    window._btn_disconnect = QPushButton("Bağlantıyı kes")
+    window._btn_disconnect = QPushButton("Baglantiyi kes")
     window._btn_disconnect.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_disconnect.setFixedHeight(32)
     window._btn_disconnect.setEnabled(False)
@@ -120,38 +108,6 @@ def _build_session_top_bar(window: "MainWindow") -> QFrame:
 
     return top_bar
 
-
-# ── Ekran kontrol paneli ─────────────────────────────────────────────────────
-
-def _build_controls_panel(window: "MainWindow") -> QFrame:
-    panel = QFrame()
-    panel.setStyleSheet(
-        f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
-    )
-    lay = QVBoxLayout(panel)
-    lay.setContentsMargins(12, 10, 12, 10)
-    lay.setSpacing(8)
-
-    title = QLabel("Ekran Kontrolleri")
-    title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 600;")
-    lay.addWidget(title)
-
-    rot_row = QHBoxLayout()
-    rot_row.setSpacing(8)
-    window._btn_rotate_left  = QPushButton("↺ Sola dön")
-    window._btn_rotate_right = QPushButton("Sağa dön ↻")
-    for b in (window._btn_rotate_left, window._btn_rotate_right):
-        b.setFixedHeight(36)
-        b.setEnabled(False)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setStyleSheet(REMOTE_BTN_GHOST_SS)
-    rot_row.addWidget(window._btn_rotate_left,  stretch=1)
-    rot_row.addWidget(window._btn_rotate_right, stretch=1)
-    lay.addLayout(rot_row)
-    return panel
-
-
-# ── Tuş kontrol paneli ───────────────────────────────────────────────────────
 
 def _build_key_controls_panel(window: "MainWindow") -> QFrame:
     panel = QFrame()
@@ -162,7 +118,7 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
     lay.setContentsMargins(12, 10, 12, 10)
     lay.setSpacing(8)
 
-    title = QLabel("Tuş kontrolleri")
+    title = QLabel("Tus kontrolleri")
     title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 600;")
     lay.addWidget(title)
 
@@ -189,8 +145,6 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
     return panel
 
 
-# ── Ekran & pano işlemleri paneli ────────────────────────────────────────────
-
 def _build_session_actions_panel(window: "MainWindow") -> QFrame:
     panel = QFrame()
     panel.setStyleSheet(
@@ -204,21 +158,21 @@ def _build_session_actions_panel(window: "MainWindow") -> QFrame:
     title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 700;")
     lay.addWidget(title)
 
-    window._btn_sess_clip = QPushButton("Görüntüyü panoya kopyala")
+    window._btn_sess_clip = QPushButton("Goruntuyu panoya kopyala")
     window._btn_sess_clip.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_sess_clip.setStyleSheet(REMOTE_BTN_GHOST_SS)
     window._btn_sess_clip.setFixedHeight(34)
     window._btn_sess_clip.clicked.connect(window._screenshot_to_clipboard)
     lay.addWidget(window._btn_sess_clip)
 
-    window._btn_sess_save = QPushButton("PNG olarak kaydet…")
+    window._btn_sess_save = QPushButton("PNG olarak kaydet...")
     window._btn_sess_save.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_sess_save.setStyleSheet(REMOTE_BTN_GHOST_SS)
     window._btn_sess_save.setFixedHeight(34)
     window._btn_sess_save.clicked.connect(window._screenshot_save_png)
     lay.addWidget(window._btn_sess_save)
 
-    window._btn_sess_paste = QPushButton("Panodaki metni telefona gönder")
+    window._btn_sess_paste = QPushButton("Panodaki metni telefona gonder")
     window._btn_sess_paste.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_sess_paste.setStyleSheet(REMOTE_BTN_PRIMARY_SS)
     window._btn_sess_paste.setFixedHeight(36)
@@ -229,8 +183,6 @@ def _build_session_actions_panel(window: "MainWindow") -> QFrame:
     return panel
 
 
-# ── Klavye kısayolları paneli ────────────────────────────────────────────────
-
 def _build_remote_shortcuts_panel() -> QFrame:
     panel = QFrame()
     panel.setStyleSheet(
@@ -240,13 +192,13 @@ def _build_remote_shortcuts_panel() -> QFrame:
     root.setContentsMargins(14, 12, 14, 12)
     root.setSpacing(10)
 
-    title = QLabel("Klavye kısayolları")
+    title = QLabel("Klavye kisayollari")
     title.setStyleSheet(f"color: {_ACCENT}; font-size: 12px; font-weight: 700;")
     root.addWidget(title)
 
     intro = QLabel(
-        "Kısayollar yalnızca soldaki canlı görüntü odaktayken çalışır. "
-        "Kullanmadan önce görüntü alanına tıklayın."
+        "Kisayollar yalnizca soldaki canli goruntu odaktayken calisir. "
+        "Kullanmadan once goruntu alanina tiklayin."
     )
     intro.setWordWrap(True)
     intro.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px; background: transparent;")
@@ -280,28 +232,28 @@ def _build_remote_shortcuts_panel() -> QFrame:
     shortcuts_rows: list[tuple[str, str]] = [
         (
             "Esc",
-            "Geri: Aktif ekrandan bir önceki adıma döner. "
-            "Bazı uygulamalarda bu işlem çıkış veya iptal etme işlevi görebilir."
+            "Geri: Aktif ekrandan bir onceki adima doner. "
+            "Bazi uygulamalarda bu islem cikis veya iptal etme islevi gorebilir."
         ),
         (
             "Ctrl+H",
-            "Ana ekran: Telefonun ana ekranına hızlı bir şekilde dönüş yapmanızı sağlar. "
-            "Açık olan uygulama arka planda çalışmaya devam eder."
+            "Ana ekran: Telefonun ana ekranina hizli bir sekilde donus yapmanizi saglar. "
+            "Acik olan uygulama arka planda calismaya devam eder."
         ),
         (
             "Ctrl+Tab",
-            "Son uygulamalar: Arka planda çalışan uygulamaları görüntüler ve "
-            "uygulamalar arasında hızlı geçiş yapmanıza olanak tanır."
+            "Son uygulamalar: Arka planda calisan uygulamalari goruntuler ve "
+            "uygulamalar arasinda hizli gecis yapmaniza olanak tanir."
         ),
         (
             "Ctrl+M",
-            "Medya sesi: Telefonun medya sesini kapatır veya tekrar açar. "
-            "Aynı kısayol tuşu ile sessize alma ve sesi geri açma işlemi yapılır."
+            "Medya sesi: Telefonun medya sesini kapatir veya tekrar acar. "
+            "Ayni kisayol tusu ile sessize alma ve sesi geri acma islemi yapilir."
         ),
         (
-            "Ctrl+↑ / Ctrl+↓",
-            "Ses kontrolü: Medya ses seviyesini artırır veya azaltır. "
-            "Video, müzik ve diğer medya içerikleri için geçerlidir."
+            "Ctrl+Up / Ctrl+Down",
+            "Ses kontrolu: Medya ses seviyesini artirir veya azaltir. "
+            "Video, muzik ve diger medya icerikleri icin gecerlidir."
         ),
     ]
 

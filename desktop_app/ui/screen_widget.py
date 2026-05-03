@@ -71,7 +71,6 @@ class ScreenWidget(QLabel):
 
         self._show_placeholder()
 
-    # ─── PUBLIC ────────────────────────────────────────────────────────────────
 
     def set_frame(self, pixmap: QPixmap):
         """Yeni bir frame göster."""
@@ -99,7 +98,6 @@ class ScreenWidget(QLabel):
             deg = int(degrees)
         except (TypeError, ValueError):
             deg = 0
-        # Yakın 90 katına snap et; beklenmeyen değerlerde de stabil kalır.
         self._rotation_deg = (round(deg / 90.0) * 90) % 360
         self._last_render_key = None
         if self._current_pixmap:
@@ -133,7 +131,6 @@ class ScreenWidget(QLabel):
             return source_h, source_w
         return source_w, source_h
 
-    # ─── MOUSE EVENTS ──────────────────────────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -204,7 +201,6 @@ class ScreenWidget(QLabel):
             return None
         return QPixmap(p)
 
-    # ─── COORDINATE MAPPING ────────────────────────────────────────────────────
 
     def _image_rect(self) -> QRect:
         """Render edilen (ölçeklenmiş+döndürülmüş) pixmap'in gerçek dikdörtgeni."""
@@ -223,16 +219,12 @@ class ScreenWidget(QLabel):
         Döndürme açısına göre eksen eşleştirmesi yapılır.
         """
         rect = self._image_rect()
-        # Görüntü sınırlarına clamp et
         rx = max(rect.left(), min(x, rect.right()))
         ry = max(rect.top(), min(y, rect.bottom()))
-        # [0,1] aralığına normalize et (görüntü içi)
         nx = (rx - rect.left()) / max(rect.width(), 1)
         ny = (ry - rect.top()) / max(rect.height(), 1)
 
-        # Döndürme açısına göre telefon koordinatına çevir
         if self._rotation_deg == 90:
-            # Ekran 90° CW döndü; x_widget → y_telefon, y_widget → (1-x_telefon)
             nx, ny = ny, 1.0 - nx
         elif self._rotation_deg == 180:
             nx, ny = 1.0 - nx, 1.0 - ny
@@ -241,14 +233,12 @@ class ScreenWidget(QLabel):
 
         return round(nx, Ui.COORD_PRECISION), round(ny, Ui.COORD_PRECISION)
 
-    # ─── RENDERING ─────────────────────────────────────────────────────────────
 
     def _render(self):
         """Mevcut pixmap'i döndürerek ve widget boyutuna uyarlayarak göster."""
         if not self._current_pixmap:
             return
         w, h = self.width(), self.height()
-        # Layout henüz hazır değilken scaled(0,0) boş pixmap → siyah ekran; resizeEvent tekrar dener.
         if w < 4 or h < 4:
             return
 
@@ -418,7 +408,6 @@ class StreamAspectFitContainer(QWidget):
             cw, ch = w_at_full_h, ah
         else:
             cw, ch = aw, max(int(aw / r), 1)
-        # İç ScreenWidget + PhoneDeviceFrame kenarları için alt sınır
         cw = max(cw, 124)
         ch = max(ch, 224)
         self._phone.setFixedSize(cw, ch)
