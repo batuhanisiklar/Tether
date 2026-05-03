@@ -85,20 +85,6 @@ def _build_session_top_bar(window: "MainWindow") -> QFrame:
     tbl.setSpacing(14)
     tbl.addStretch(1)
 
-    stats_row = QWidget()
-    stats_row.setStyleSheet("background: transparent;")
-    srl = QHBoxLayout(stats_row)
-    srl.setContentsMargins(0, 0, 0, 0)
-    srl.setSpacing(16)
-    stat_ss = f"color: {_TEXT_SEC}; font-size: 10px; font-weight: 600; background: transparent;"
-
-    window._lbl_sess_res = QLabel("-- x --")
-    window._lbl_sess_fps = QLabel("FPS --")
-    for lb in (window._lbl_sess_res, window._lbl_sess_fps):
-        lb.setStyleSheet(stat_ss)
-        srl.addWidget(lb)
-    tbl.addWidget(stats_row, stretch=0)
-
     window._btn_disconnect = QPushButton("Baglantiyi kes")
     window._btn_disconnect.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_disconnect.setFixedHeight(32)

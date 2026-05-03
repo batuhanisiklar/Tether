@@ -1,4 +1,4 @@
-"""
+﻿"""
 MainWindow — Uzak Telefon Kontrol Masaüstü Uygulaması
 ======================================================
 Uygulama ana penceresi. Yalnızca durum yönetimi, sinyal bağlama ve
@@ -203,7 +203,6 @@ class MainWindow(QMainWindow):
         self._profile_anim: QPropertyAnimation | None = None
 
         self._screen_capture_prompt_sent = False
-        self._fps_frame_counter          = 0
         self._last_stream_size: tuple[int, int] = (0, 0)
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
@@ -219,10 +218,6 @@ class MainWindow(QMainWindow):
         self._presence_timer = QTimer(self)
         self._presence_timer.setInterval(8_000)
         self._presence_timer.timeout.connect(self._on_presence_tick)
-
-        self._fps_histogram_timer = QTimer(self)
-        self._fps_histogram_timer.setInterval(1000)
-        self._fps_histogram_timer.timeout.connect(self._tick_stream_fps_label)
 
         QTimer.singleShot(250, self._load_devices_from_db)
         
@@ -509,7 +504,7 @@ class MainWindow(QMainWindow):
         if self._logging_out:
             return
         if self._ws_mode == "session" and self._connected:
-            logger.info("Presence baglantisi atlandi: aktif uzak oturum korunuyor")
+            logger.info("Presence bağlantısı atlandı: aktif uzak oturum korunuyor")
             return
         self._ws_mode = "presence"
         self._mjpeg.stop()
@@ -576,7 +571,11 @@ class MainWindow(QMainWindow):
                 _ingest(list(bundle.get("pairings") or []))
                 return list(merged.values()) if merged else []
             if bundle_err and bundle_err != "bundle_missing":
-                logger.warning("phone-bundle alinamadi: %s", bundle_err)
+                low = (bundle_err or "").lower()
+                if ("10054" in low) or ("connection aborted" in low) or ("forcibly closed by the remote host" in low):
+                    logger.info("phone-bundle gecici ag kopmasi: %s", bundle_err)
+                else:
+                    logger.warning("phone-bundle alinamadi: %s", bundle_err)
 
             devices, err = self._backend_api.get_devices(self._auth_token)
             if devices is not None:
@@ -683,7 +682,7 @@ class MainWindow(QMainWindow):
     def _refresh_home_summary(self):
         if self._connected:
             self._addr_status_label.setText("Bağlı")
-            self._hero_status_label.setText("  Aktif baglanti var")
+            self._hero_status_label.setText("  Aktif bağlantı var")
             self._hero_status_label.setStyleSheet(f"color: {_GREEN}; font-size: 12px;")
         else:
             self._addr_status_label.setText("Hazır")
@@ -981,13 +980,13 @@ class MainWindow(QMainWindow):
         p1   = self._profile_inp_pwd1.text()
         p2   = self._profile_inp_pwd2.text()
         if not oldp:
-            self._profile_pwd_err.setText("Mevcut sifre gerekli.")
+            self._profile_pwd_err.setText("Mevcut şifre gerekli.")
             return
         if not p1 or not p2:
-            self._profile_pwd_err.setText("Yeni sifre iki kere girilmelidir.")
+            self._profile_pwd_err.setText("Yeni şifre iki kere girilmelidir.")
             return
         if p1 != p2:
-            self._profile_pwd_err.setText("Yeni sifreler eslesmiyor.")
+            self._profile_pwd_err.setText("Yeni şifreler eşleşmiyor.")
             return
         if len(p1) < 6:
             self._profile_pwd_err.setText("Şifre en az 6 karakter olmalıdır.")
@@ -1015,7 +1014,7 @@ class MainWindow(QMainWindow):
             return
         addr = card.connection_address()
         if not card.is_online():
-            self._set_status("Bu cihaz su an çevrimiçi degil.", error=True)
+            self._set_status("Bu cihaz şu an çevrimiçi değil.", error=True)
             return
         if addr:
             self._inp_code.setText(addr)
@@ -1029,7 +1028,7 @@ class MainWindow(QMainWindow):
         self._connect_session_mode(
             partner_device_id=None if addr else card.device_id,
             partner_address=addr,
-            status_message="Secilen cihaza baglaniliyor...",
+            status_message="Seçilen cihaza bağlanılıyor...",
         )
 
     def _on_card_forget(self, card_key: str):
@@ -1166,12 +1165,12 @@ class MainWindow(QMainWindow):
         copy = QVBoxLayout()
         copy.setSpacing(6)
 
-        title = QLabel("Eslesmeyi kaldir?")
+        title = QLabel("Eşleşmeyi kaldır?")
         title.setStyleSheet(f"color: {_TEXT}; font-size: 18px; font-weight: 800;")
         copy.addWidget(title)
 
         body = QLabel(
-            "Bu islem mevcut cihaz eslesmesini kaldirir. Devam etmek istiyor musun?"
+            "Bu işlem mevcut cihaz eşleşmesini kaldırır. Devam etmek istiyor musun?"
         )
         body.setWordWrap(True)
         body.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 12px;")
@@ -1221,7 +1220,7 @@ class MainWindow(QMainWindow):
 
         self._manual_disconnect = True
         self._btn_connect.setEnabled(False)
-        self._set_status("Cihaz adresine baglaniliyor...")
+        self._set_status("Cihaz adresine bağlanılıyor...")
 
         matching_card = next(
             (c for c in self._device_cards.values()
@@ -1244,7 +1243,7 @@ class MainWindow(QMainWindow):
         self._connect_session_mode(
             partner_device_id=self._paired_phone_id,
             partner_address=raw_value,
-            status_message="Cihaz adresine baglaniliyor...",
+            status_message="Cihaz adresine bağlanılıyor...",
         )
         self._refresh_home_summary()
 
@@ -1478,7 +1477,7 @@ class MainWindow(QMainWindow):
 
         if not self._connected:
             if online_count:
-                self._set_status(f"Sunucuya baglandi - {online_count} cihaz çevrimiçi")
+                self._set_status(f"Sunucuya bağlandı - {online_count} cihaz çevrimiçi")
             else:
                 self._set_status(Ui.MSG_SERVER_CONNECTED)
 
@@ -1711,31 +1710,12 @@ class MainWindow(QMainWindow):
 
     def _note_stream_frame(self, w: int, h: int) -> None:
         ew, eh = self._screen.displayed_size_for_incoming(w, h)
-        if ew > 0 and eh > 0 and hasattr(self, "_lbl_sess_res"):
-            self._lbl_sess_res.setText(f"{ew}×{eh}")
         self._sync_stream_aspect_fit(ew, eh)
-        self._fps_frame_counter += 1
 
-    @pyqtSlot()
-    def _tick_stream_fps_label(self) -> None:
-        if not hasattr(self, "_lbl_sess_fps"):
-            return
-        if not self._connected:
-            self._lbl_sess_fps.setText("FPS --")
-            self._fps_frame_counter = 0
-            return
-        fps = self._fps_frame_counter
-        self._fps_frame_counter = 0
-        self._lbl_sess_fps.setText(f"FPS {fps}")
-
-    def _reset_session_stats_labels(self) -> None:
-        if hasattr(self, "_lbl_sess_res"):
-            self._lbl_sess_res.setText("-- x --")
-            self._lbl_sess_fps.setText("FPS --")
     def _screenshot_to_clipboard(self) -> None:
         pm = self._screen.get_export_pixmap()
         if pm is None or pm.isNull():
-            self._set_status("Kopyalanacak goruntu yok.", error=True)
+            self._set_status("Kopyalanacak görüntü yok.", error=True)
             return
         QApplication.clipboard().setPixmap(pm)
         self._set_status(f"Panoya kopyalandı ({pm.width()}×{pm.height()}).")
@@ -1743,7 +1723,7 @@ class MainWindow(QMainWindow):
     def _screenshot_save_png(self) -> None:
         pm = self._screen.get_export_pixmap()
         if pm is None or pm.isNull():
-            self._set_status("Kaydedilecek goruntu yok.", error=True)
+            self._set_status("Kaydedilecek görüntü yok.", error=True)
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "PNG olarak kaydet", "remote_ekran.png", "PNG (*.png)"
@@ -1759,25 +1739,21 @@ class MainWindow(QMainWindow):
 
     def _send_clipboard_text_to_phone(self) -> None:
         if not self._connected:
-            self._set_status("Once oturum ile baglanin.", error=True)
+            self._set_status("Önce oturum ile bağlanın.", error=True)
             return
         text = QApplication.clipboard().text()
         if not (text or "").strip():
             self._set_status("Pano boş.", error=True)
             return
         self._ws_client.send_paste_text(text)
-        self._set_status(f"Pano metni gonderildi ({len(text)} karakter).")
+        self._set_status(f"Pano metni gönderildi ({len(text)} karakter).")
 
     def _set_connected(self, connected: bool):
         self._connected = connected
         if not connected:
             self._screen_capture_prompt_sent = False
-            self._fps_histogram_timer.stop()
-            self._reset_session_stats_labels()
             self._sync_stream_aspect_fit()
             self._audio_jitter.reset()
-        else:
-            self._fps_histogram_timer.start()
         self._set_remote_controls_enabled(bool(connected and self._remote_frame_visible))
         self._btn_connect.setEnabled(not connected)
         self._btn_disconnect.setEnabled(connected)
@@ -1787,6 +1763,7 @@ class MainWindow(QMainWindow):
         else:
             self._header_status_dot.setStyleSheet(f"background-color: {_TEXT_DIM}; border-radius: 4px;")
         self._refresh_home_summary()
+
     def _set_status(self, msg: str, error: bool = False):
         color = _RED if error else _TEXT_SEC
         label = getattr(self, "_footer_status_label", None)
@@ -1798,7 +1775,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._mjpeg.stop()
         self._presence_timer.stop()
-        self._fps_histogram_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect()
         super().closeEvent(event)
