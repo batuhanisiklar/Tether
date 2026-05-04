@@ -7,8 +7,30 @@ import time
 from typing import Any
 
 
+DEV_AUTH_SECRET = "remote-phone-control-local-dev-secret"
+
+
+def _is_local_env() -> bool:
+    env = (
+        os.environ.get("APP_ENV")
+        or os.environ.get("ENVIRONMENT")
+        or os.environ.get("PYTHON_ENV")
+        or ""
+    ).strip().lower()
+    return env in {"dev", "development", "local", "test"} and os.environ.get("ALLOW_DEV_AUTH_SECRET", "0") == "1"
+
+
 def _secret() -> bytes:
-    return os.environ.get("AUTH_SECRET", "remote-phone-control-dev-secret").encode("utf-8")
+    secret = os.environ.get("AUTH_SECRET", "").strip()
+    if secret:
+        return secret.encode("utf-8")
+    if _is_local_env():
+        return DEV_AUTH_SECRET.encode("utf-8")
+    raise RuntimeError("AUTH_SECRET is required outside local/development environments.")
+
+
+def ensure_auth_secret_configured() -> None:
+    _secret()
 
 
 def _ttl_seconds() -> int:

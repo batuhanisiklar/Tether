@@ -18,7 +18,6 @@ import os
 
 from PyQt6.QtCore import Qt, QPoint, QTimer, QPropertyAnimation, QEasingCurve, pyqtSlot, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPixmap
-from PyQt6.QtMultimedia import QAudio, QAudioSink, QAudioFormat, QMediaDevices
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -37,6 +36,7 @@ from PyQt6.QtWidgets import (
 
 from desktop_app.config import AppMeta, ServerDefaults, Ui, Colors
 from desktop_app.config.constants import Prefs
+from desktop_app.audio.player import DesktopAudioPlayer
 from desktop_app.config.prefs_store import (
     clear_logged_in,
     load_auth_token,
@@ -111,37 +111,6 @@ logger = logging.getLogger(__name__)
 _C = Colors
 
 
-class AudioJitterBuffer:
-    """
-    Basit ring buffer — ağ titreşimini (jitter) emerek ses çıkışını düzgünleştirir.
-    İlk `pre_buffer_ms` kadar PCM biriktirir, ardından gelen her chunk'ı derhal döndürür.
-    """
-
-    def __init__(self, pre_buffer_ms: int = 100, sample_rate: int = 16000, channels: int = 1, sample_bytes: int = 2):
-        self._pre_buffer_bytes = int(sample_rate * channels * sample_bytes * (pre_buffer_ms / 1000))
-        self._buffer = bytearray()
-        self._started = False
-
-    def push(self, pcm: bytes) -> bytes | None:
-        """PCM verisini ekle; oynatmaya hazırsa bytes döndürür, değilse None."""
-        self._buffer.extend(pcm)
-        if not self._started:
-            if len(self._buffer) >= self._pre_buffer_bytes:
-                self._started = True
-                chunk = bytes(self._buffer)
-                self._buffer.clear()
-                return chunk
-            return None
-        chunk = bytes(self._buffer)
-        self._buffer.clear()
-        return chunk
-
-    def reset(self):
-        """Bağlantı kesildiğinde veya akış durduğunda sıfırla."""
-        self._buffer.clear()
-        self._started = False
-
-
 class DeviceLoadThread(QThread):
     finished_loading = pyqtSignal(list)
 
@@ -178,9 +147,7 @@ class MainWindow(QMainWindow):
         self._manual_disconnect          = False
         self._ws_mode                    = "idle"
         
-        self._audio_sink = None
-        self._audio_device = None
-        self._audio_jitter = AudioJitterBuffer(pre_buffer_ms=60, sample_rate=16000)
+        self._audio_player: DesktopAudioPlayer | None = None
 
         self._user_id: int | None = None
         self._username            = "Kullanıcı"
@@ -221,23 +188,7 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(250, self._load_devices_from_db)
         
-        self._init_audio_player()
-
-    def _init_audio_player(self):
-        try:
-            format = QAudioFormat()
-            format.setSampleRate(16000)
-            format.setChannelCount(1)
-            format.setSampleFormat(QAudioFormat.SampleFormat.Int16)
-            
-            default_device = QMediaDevices.defaultAudioOutput()
-            if not default_device.isNull():
-                self._audio_sink = QAudioSink(default_device, format, self)
-                self._audio_device = self._audio_sink.start()
-            else:
-                logger.warning("No default audio output device found.")
-        except Exception as e:
-            logger.error("Audio player baslatilamadi: %s", e, exc_info=True)
+        self._audio_player = DesktopAudioPlayer(parent=self)
 
     def _load_user_prefs(self):
         prefs = read_prefs()
@@ -270,6 +221,7 @@ class MainWindow(QMainWindow):
             self._user_address = load_user_address() or ""
         if not self._user_email:
             self._user_email = self._username
+        self._ws_client.set_auth_token(self._auth_token)
         self._ws_client.set_device_address(self._user_address)
 
     def _build_ui(self):
@@ -947,6 +899,7 @@ class MainWindow(QMainWindow):
         token = str((data or {}).get("token") or "")
         if token:
             self._auth_token = token
+            self._ws_client.set_auth_token(token)
             update_prefs(**{Prefs.KEY_AUTH_TOKEN: token})
 
         new_email = str(user.get("email") or em).strip().lower()
@@ -1004,6 +957,7 @@ class MainWindow(QMainWindow):
         token = str((data or {}).get("token") or "")
         if token:
             self._auth_token = token
+            self._ws_client.set_auth_token(token)
             update_prefs(**{Prefs.KEY_AUTH_TOKEN: token})
         self._set_status("Şifre güncellendi.")
         self._on_profile_pwd_cancel()
@@ -1558,18 +1512,8 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bytes)
     def _on_audio_received(self, pcm_bytes: bytes):
-        if not pcm_bytes:
-            return
-        chunk = self._audio_jitter.push(pcm_bytes)
-        if chunk is None:
-            return
-        if self._audio_device is not None and self._audio_sink is not None:
-            if self._audio_sink.state() == QAudio.State.StoppedState:
-                self._audio_device = self._audio_sink.start()
-            try:
-                self._audio_device.write(chunk)
-            except Exception as e:
-                pass
+        if self._audio_player is not None:
+            self._audio_player.write_pcm(pcm_bytes)
 
     @pyqtSlot(bytes)
     def _on_frame_received(self, frame_bytes: bytes):
@@ -1658,19 +1602,13 @@ class MainWindow(QMainWindow):
             self._ws_client.send_key_event(int(key_code))
             
             from desktop_app.config.constants import AndroidKeyCodes
-            if getattr(self, "_audio_sink", None) is not None:
-                current_vol = self._audio_sink.volume()
-                if key_code == AndroidKeyCodes.VOL_UP:
-                    self._audio_sink.setVolume(min(1.0, current_vol + 0.1))
-                elif key_code == AndroidKeyCodes.VOL_DOWN:
-                    self._audio_sink.setVolume(max(0.0, current_vol - 0.1))
-                elif key_code == AndroidKeyCodes.VOL_MUTE:
-                    if current_vol > 0.0:
-                        self._last_volume = current_vol
-                        self._audio_sink.setVolume(0.0)
-                    else:
-                        prev = getattr(self, "_last_volume", 1.0)
-                        self._audio_sink.setVolume(max(0.1, prev))
+            if self._audio_player is not None:
+                self._audio_player.adjust_for_android_key(
+                    int(key_code),
+                    volume_up=AndroidKeyCodes.VOL_UP,
+                    volume_down=AndroidKeyCodes.VOL_DOWN,
+                    volume_mute=AndroidKeyCodes.VOL_MUTE,
+                )
 
     def _set_remote_controls_enabled(self, enabled: bool) -> None:
         for btn in getattr(self, "_key_buttons", []):
@@ -1753,7 +1691,8 @@ class MainWindow(QMainWindow):
         if not connected:
             self._screen_capture_prompt_sent = False
             self._sync_stream_aspect_fit()
-            self._audio_jitter.reset()
+            if self._audio_player is not None:
+                self._audio_player.reset()
         self._set_remote_controls_enabled(bool(connected and self._remote_frame_visible))
         self._btn_connect.setEnabled(not connected)
         self._btn_disconnect.setEnabled(connected)

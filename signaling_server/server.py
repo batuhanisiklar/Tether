@@ -11,7 +11,7 @@ from aiohttp import WSMsgType, web
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from signaling_server.auth import issue_token, parse_token
+from signaling_server.auth import ensure_auth_secret_configured, issue_token, parse_token
 from signaling_server.config import MessageTypes, ServerConfig
 from signaling_server.db_client import ServerDbClient
 
@@ -100,6 +100,102 @@ async def _require_user(request: web.Request) -> tuple[int, str] | None:
 
 async def _send_json(ws: web.WebSocketResponse, payload: dict[str, Any]) -> None:
     await ws.send_str(json.dumps(payload, separators=(",", ":")))
+
+
+def _token_from_message(message: dict[str, Any]) -> str:
+    return str(message.get("auth_token") or message.get("token") or "").strip()
+
+
+async def _ensure_ws_user(
+    ws: web.WebSocketResponse,
+    meta: dict[str, Any],
+    message: dict[str, Any],
+) -> tuple[int, str] | None:
+    if meta.get("user_id") is not None:
+        return int(meta["user_id"]), str(meta.get("username") or "")
+
+    token = _token_from_message(message)
+    if not token:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "auth_required", "message": "Auth token gerekli."})
+        return None
+
+    payload = parse_token(token)
+    if not payload:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "auth_invalid", "message": "Gecersiz auth token."})
+        return None
+
+    meta["user_id"] = int(payload["user_id"])
+    meta["username"] = str(payload["username"])
+    return int(payload["user_id"]), str(payload["username"])
+
+
+async def _bind_owned_ws_device(
+    app: web.Application,
+    ws: web.WebSocketResponse,
+    meta: dict[str, Any],
+    message: dict[str, Any],
+    role: str,
+) -> str | None:
+    user = await _ensure_ws_user(ws, meta, message)
+    if not user:
+        return None
+    user_id, _ = user
+
+    normalized_device_id = _normalize_device_id(str(message.get("device_id") or meta.get("device_id") or ""))
+    if not normalized_device_id:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "device_id_required", "message": "device_id gerekli."})
+        return None
+
+    binding = await asyncio.to_thread(app["db"].get_device_by_id, normalized_device_id)
+    if not binding:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "device_not_found", "message": "Cihaz bulunamadi."})
+        return None
+    if int(binding.get("user_id")) != int(user_id):
+        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "device_forbidden", "message": "Bu cihaza erisim yetkiniz yok."})
+        return None
+    if str(binding.get("device_type") or "") != role:
+        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "device_role_mismatch", "message": "Cihaz tipi bu oturumla eslesmiyor."})
+        return None
+
+    meta["user_id"] = int(user_id)
+    meta["device_id"] = normalized_device_id
+    meta["role"] = role
+    meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", meta.get("accessibility_enabled", True)))
+    app["online_devices"][normalized_device_id] = {
+        "ws": ws,
+        "user_id": int(user_id),
+        "role": role,
+        "device_id": normalized_device_id,
+    }
+    await asyncio.to_thread(app["db"].set_device_online, normalized_device_id, True)
+    return normalized_device_id
+
+
+async def _user_can_access_session_code(
+    app: web.Application,
+    user_id: int,
+    own_device_id: str,
+    code: str,
+    role: str,
+    message_type: str,
+) -> bool:
+    normalized_code = _normalize_device_id(code)
+    if len(normalized_code) != 12:
+        return False
+
+    if message_type == MessageTypes.REGISTER:
+        return role == "phone" and normalized_code == own_device_id
+
+    target = await asyncio.to_thread(app["db"].get_device_by_id, normalized_code)
+    if target and int(target.get("user_id")) == int(user_id):
+        return True
+
+    paired_as_controller = await asyncio.to_thread(app["db"].get_connected_devices_as_controller, own_device_id)
+    paired_as_target = await asyncio.to_thread(app["db"].get_connected_devices_as_target, own_device_id)
+    return normalized_code in {
+        _normalize_device_id(str(candidate))
+        for candidate in list(paired_as_controller) + list(paired_as_target)
+    }
 
 
 def _session_entry(app: web.Application, code: str) -> dict[str, web.WebSocketResponse]:
@@ -434,50 +530,14 @@ async def _handle_device_hello(
     meta: dict[str, Any],
     message: dict[str, Any],
 ) -> None:
-    raw_device_id = str(message.get("device_id") or "").strip()
     role = str(message.get("role") or "")
-    if not raw_device_id or role not in {"phone", "pc"}:
+    if role not in {"phone", "pc"}:
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id ve role gerekli"})
         return
 
-    normalized_device_id = _normalize_device_id(raw_device_id)
-    binding = await asyncio.to_thread(app["db"].get_device_by_id, normalized_device_id)
-    if not binding:
-        logger.warning(
-            "device_hello: DB kaydi yok, meta yine dolduruluyor (register/join devam edebilsin): %s role=%s",
-            normalized_device_id,
-            role,
-        )
-        meta["device_id"] = normalized_device_id
-        meta["role"] = role
-        meta["user_id"] = None
-        meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", True))
-        app["online_devices"][normalized_device_id] = {
-            "ws": ws,
-            "user_id": None,
-            "role": role,
-            "device_id": normalized_device_id,
-        }
-        await _send_device_ack(app, normalized_device_id)
-        if role == "phone":
-            await _refresh_device_ack_for_paired_pcs(app, normalized_device_id)
+    normalized_device_id = await _bind_owned_ws_device(app, ws, meta, message, role)
+    if not normalized_device_id:
         return
-    if str(binding.get("device_type") or "") != role:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz tipi bu oturumla eslesmiyor"})
-        return
-
-    user_id = int(binding["user_id"])
-    meta["user_id"] = user_id
-    meta["device_id"] = normalized_device_id
-    meta["role"] = role
-    meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", True))
-    app["online_devices"][normalized_device_id] = {
-        "ws": ws,
-        "user_id": user_id,
-        "role": role,
-        "device_id": normalized_device_id,
-    }
-    await asyncio.to_thread(app["db"].set_device_online, normalized_device_id, True)
 
     await _send_device_ack(app, normalized_device_id)
     if role == "phone":
@@ -499,47 +559,13 @@ async def _handle_register_or_join(
         await _send_json(ws, {"type": MessageTypes.ERROR, "message": "role gecersiz"})
         return
 
-    if meta.get("user_id") is None:
-        raw_device_id = str(message.get("device_id") or "").strip()
-        normalized_device_id = _normalize_device_id(raw_device_id)
-        if not normalized_device_id:
-            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id missing"})
-            return
-        binding = await asyncio.to_thread(app["db"].get_device_by_id, normalized_device_id)
-        if binding:
-            meta["user_id"] = int(binding["user_id"])
-            meta["device_id"] = normalized_device_id
-            meta["role"] = role
-            meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", True))
-            app["online_devices"][normalized_device_id] = {
-                "ws": ws,
-                "user_id": int(binding["user_id"]),
-                "role": role,
-                "device_id": normalized_device_id,
-            }
-            await asyncio.to_thread(app["db"].set_device_online, normalized_device_id, True)
-        elif meta.get("device_id") == normalized_device_id and meta.get("role") == role:
-            logger.warning(
-                "register/join: DB kaydi yok, device_hello meta ile oturum: %s role=%s",
-                normalized_device_id,
-                role,
-            )
-            meta["device_id"] = normalized_device_id
-            meta["role"] = role
-            meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", True))
-            app["online_devices"][normalized_device_id] = {
-                "ws": ws,
-                "user_id": None,
-                "role": role,
-                "device_id": normalized_device_id,
-            }
-        else:
-            await _send_json(ws, {"type": MessageTypes.ERROR, "message": "Cihaz bulunamadi"})
-            return
-
-    normalized_device_id = _normalize_device_id(str(meta.get("device_id") or message.get("device_id") or ""))
+    normalized_device_id = await _bind_owned_ws_device(app, ws, meta, message, role)
     if not normalized_device_id:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "message": "device_id missing"})
+        return
+
+    user_id = int(meta["user_id"])
+    if not await _user_can_access_session_code(app, user_id, normalized_device_id, code, role, str(message.get("type") or "")):
+        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "session_forbidden", "message": "Bu oturuma erisim yetkiniz yok."})
         return
 
     _prune_closed_peers_from_session(app, code)
@@ -637,9 +663,13 @@ async def _handle_pair_confirm(app: web.Application, meta: dict[str, Any], messa
     Baglanti kaydi _notify_paired tarafindan zaten PC→telefon yonunde yapildi;
     burada tekrar kaydetmiyoruz (cift kayit ve ters yon engellemesi).
     """
+    if meta.get("user_id") is None:
+        return
     first_device_id = _normalize_device_id(str(message.get("my_device_id") or ""))
     second_device_id = _normalize_device_id(str(message.get("paired_with") or ""))
     if not first_device_id or not second_device_id:
+        return
+    if first_device_id != _normalize_device_id(str(meta.get("device_id") or "")):
         return
     await _broadcast_presence_for_devices(app, first_device_id, second_device_id)
 
@@ -650,8 +680,13 @@ async def _handle_device_logout(
     meta: dict[str, Any],
     message: dict[str, Any],
 ) -> None:
+    if not await _ensure_ws_user(ws, meta, message):
+        return
     device_id = _normalize_device_id(str(message.get("device_id") or meta.get("device_id") or ""))
     if not device_id:
+        return
+    if device_id != _normalize_device_id(str(meta.get("device_id") or "")):
+        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "device_forbidden", "message": "Bu cihaza erisim yetkiniz yok."})
         return
     entry = app["online_devices"].get(device_id)
     if entry and entry.get("ws") is ws:
@@ -684,6 +719,8 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
     try:
         async for raw in ws:
             if raw.type == WSMsgType.BINARY:
+                if meta.get("user_id") is None:
+                    continue
                 await _relay_binary_frame(app, ws, meta, raw.data)
                 continue
 
@@ -715,6 +752,8 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
             elif message_type in {MessageTypes.REGISTER, MessageTypes.JOIN}:
                 await _handle_register_or_join(app, ws, meta, message)
             elif message_type in {MessageTypes.REQUEST_PRESENCE, MessageTypes.HEARTBEAT}:
+                if not await _ensure_ws_user(ws, meta, message):
+                    continue
                 if message_type == MessageTypes.REQUEST_PRESENCE and meta.get("role") == "phone":
                     if "accessibility_enabled" in message:
                         meta["accessibility_enabled"] = bool(message.get("accessibility_enabled"))
@@ -733,6 +772,9 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                         except Exception:
                             pass
             elif message_type in MessageTypes.RELAY_TYPES:
+                if meta.get("user_id") is None:
+                    await _send_json(ws, {"type": MessageTypes.ERROR, "code": "auth_required", "message": "Auth token gerekli."})
+                    continue
                 await _relay_message(app, ws, meta, message, raw_text=raw.data)
             else:
                 await _send_json(ws, {"type": MessageTypes.ERROR, "message": f"Unknown: {message_type}"})
@@ -804,6 +846,7 @@ async def auth_register(request: web.Request) -> web.Response:
             mac_address,
         )
         if not resolved_device_id:
+            await asyncio.to_thread(request.app["db"].delete_user, int(user_id))
             return web.json_response({"ok": False, "message": device_err or "Cihaz kaydi yapilamadi."}, status=400)
 
     username = _username_from_email(email)
@@ -1200,6 +1243,7 @@ async def health_check(_request: web.Request) -> web.Response:
 
 
 def create_app() -> web.Application:
+    ensure_auth_secret_configured()
     db = ServerDbClient()
     db.init_schema()
 

@@ -2,7 +2,7 @@ package com.remotecontrol
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
+import android.app.Activity
 
 /**
  * Uygulama acilis yonlendiricisi.
@@ -11,7 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
  * bazi cihazlarda "bos ekran" flash'i gorunebiliyor. Bu aktivite NoDisplay tema ile
  * sadece dogru hedefe yonlendirir ve kendini kapatir.
  */
-class RouterActivity : AppCompatActivity() {
+class RouterActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -21,4 +21,3 @@ class RouterActivity : AppCompatActivity() {
         finish()
     }
 }
-

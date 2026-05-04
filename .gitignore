@@ -3,6 +3,9 @@
 venv/
 env/
 ENV/
+.env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -41,4 +44,6 @@ Thumbs.db
 *.log
 mobile_app/build/
 mobile_app/app/build/
+mobile_app/.gradle/
+mobile_app/local.properties
 *.apk

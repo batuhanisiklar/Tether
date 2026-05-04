@@ -43,10 +43,6 @@ class Prefs:
     KEY_DEVICE_ID: str     = "device_id"
     KEY_PAIRED_PHONE: str  = "paired_phone_id"
     KEY_PAIRED_PHONE_ADDRESS: str = "paired_phone_address"
-    DB_URL: str            = os.environ.get(
-        "NEON_DB_URL",
-        "postgresql://neondb_owner:npg_Y3JevV2SsERI@ep-crimson-sun-anqdvhsy-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -54,7 +50,7 @@ class Prefs:
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class ServerDefaults:
-    DEFAULT_URL: str  = "wss://connect-your-phone.onrender.com"
+    DEFAULT_URL: str  = os.environ.get("RPC_SERVER_URL", "wss://connect-your-phone.onrender.com")
     CODE_LENGTH: int  = 12
 
 

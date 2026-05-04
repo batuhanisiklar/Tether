@@ -150,8 +150,10 @@ class MainActivity : AppCompatActivity() {
             syncUserProfile()
             syncDeviceState()
             refreshPairings()
+            if (!isFinishing && !isDestroyed && sessionStore.isLoggedIn()) {
+                connectSignaling()
+            }
         }
-        connectSignaling()
     }
 
     fun sessionStoreRef(): SessionStore = sessionStore
@@ -331,6 +333,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connectSignaling() {
+        val token = sessionStore.authToken()
+        val address = currentAddress.filter(Char::isDigit).take(12)
+        val ownDeviceId = deviceId.filter(Char::isDigit).take(12)
+        if (token.isBlank() || ownDeviceId.length != 12 || address.length != 12) {
+            currentStatus = "Cihaz adresi hazir degil"
+            currentStatusDetail = "Oturum ve cihaz adresi dogrulandiktan sonra baglanti acilir."
+            refreshFragments()
+            return
+        }
+        deviceId = ownDeviceId
+        currentAddress = address
         val generation = ++connectionGeneration
         lastAckPartnerOnline = null
         partnerOfflineAckStreak = 0
@@ -344,8 +357,9 @@ class MainActivity : AppCompatActivity() {
         val clientRef = arrayOfNulls<SignalingClient>(1)
         val client = SignalingClient(
             serverUrl = SIGNALING_URL,
-            deviceId = deviceId,
-            deviceAddress = currentAddress.filter(Char::isDigit).take(12),
+            authToken = token,
+            deviceId = ownDeviceId,
+            deviceAddress = address,
             isAccessibilityEnabled = { isAccessibilityServiceEnabled() },
             onPaired = { _, partnerDeviceId ->
                 runOnUiThread {

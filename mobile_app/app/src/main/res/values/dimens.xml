@@ -12,4 +12,14 @@
     <dimen name="button_primary_height">48dp</dimen>
     <dimen name="button_secondary_height">44dp</dimen>
     <dimen name="button_corner_radius">12dp</dimen>
+    <dimen name="radius_card">12dp</dimen>
+    <dimen name="radius_card_small">8dp</dimen>
+    <dimen name="stroke_1">1dp</dimen>
+    <dimen name="space_4">4dp</dimen>
+    <dimen name="space_6">6dp</dimen>
+    <dimen name="space_8">8dp</dimen>
+    <dimen name="space_10">10dp</dimen>
+    <dimen name="space_12">12dp</dimen>
+    <dimen name="space_14">14dp</dimen>
+    <dimen name="space_16">16dp</dimen>
 </resources>

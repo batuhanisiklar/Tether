@@ -5,7 +5,7 @@ Tüm palette değerleri ve inline stylesheet stringleri tek dosyada toplanır.
 Colors sınıfından referans alır; hiçbir renk burada tekrar tanımlanmaz.
 """
 
-from desktop_app.config import Colors
+from desktop_app.ui.styles.tokens import Colors, Radius
 
 _BG           = Colors.BG_APP
 _BG_RAISED    = Colors.BG_RAISED
@@ -49,7 +49,7 @@ REMOTE_BTN_PRIMARY_SS = f"""
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
             stop:0 #F07858, stop:1 {_ACCENT_HOVER});
         border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 10px;
+        border-radius: {Radius.LG}px;
         font-size: 14px;
         font-weight: 700;
         padding: 0 18px;
@@ -71,7 +71,7 @@ REMOTE_BTN_ICON_PRIMARY_SS = f"""
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
             stop:0 #F07858, stop:1 {_ACCENT_HOVER});
         border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 10px;
+        border-radius: {Radius.LG}px;
         font-size: 15px;
         font-weight: 700;
     }}
@@ -92,7 +92,7 @@ REMOTE_BTN_DANGER_SS = f"""
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
             stop:0 #4A2A2A, stop:1 #3A2222);
         border: 1px solid rgba(248, 113, 113, 0.35);
-        border-radius: 10px;
+        border-radius: {Radius.LG}px;
         font-size: 14px;
         font-weight: 700;
         padding: 0 14px;
@@ -115,7 +115,7 @@ REMOTE_BTN_GHOST_SS = f"""
         color: {_TEXT_SEC};
         background-color: {_BG_INPUT};
         border: 1px solid {_BORDER};
-        border-radius: 10px;
+        border-radius: {Radius.LG}px;
         font-size: 14px;
         font-weight: 700;
         padding: 8px 10px;
@@ -132,7 +132,7 @@ REMOTE_KEY_BTN_SS = f"""
         background-color: {_BG_INPUT};
         color: {_TEXT_SEC};
         border: 1px solid {_BORDER};
-        border-radius: 8px;
+        border-radius: {Radius.MD}px;
         font-size: 12px;
         font-weight: 700;
         padding: 8px 4px;

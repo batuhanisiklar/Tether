@@ -166,8 +166,6 @@ class SettingsFragment : Fragment(), DashboardFragment {
             val result = host.backendApiRef().updateProfile(
                 token = token,
                 email = email,
-                firstName = "",
-                lastName = "",
                 phone = phone,
                 oldPassword = "",
                 password = "",
@@ -253,8 +251,6 @@ class SettingsFragment : Fragment(), DashboardFragment {
             val result = host.backendApiRef().updateProfile(
                 token = token,
                 email = email,
-                firstName = "",
-                lastName = "",
                 phone = phone,
                 oldPassword = oldPwd,
                 password = pwd1,

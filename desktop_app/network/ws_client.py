@@ -53,6 +53,7 @@ class WsClient(QObject):
         self._last_paired_url: str = ""
         self._last_paired_time: float = 0.0
         self._PAIRED_DEBOUNCE_SEC: float = 2.0
+        self._auth_token: str = ""
 
         # ── Reconnect durumu ─────────────────────────────────────────────
         self._last_url: str = ""
@@ -97,7 +98,7 @@ class WsClient(QObject):
             # Önce karşı tarafa oturumun kapandığını bildir, ardından kısa gecikmeyle socket'i kapat.
             # Bu gecikme düşük ağ kalitesinde "logout" paketinin düşmesini azaltır.
             self._send_json(
-                {"type": "device_logout", "device_id": self.device_id},
+                self._with_auth({"type": "device_logout", "device_id": self.device_id}),
                 silent=True,
             )
             QTimer.singleShot(120, self._finalize_disconnect)
@@ -118,13 +119,21 @@ class WsClient(QObject):
         digits = "".join(ch for ch in (device_address or "") if ch.isdigit())[:12]
         self._device_address = digits or None
 
+    def set_auth_token(self, token: str | None) -> None:
+        self._auth_token = (token or "").strip()
+
+    def _with_auth(self, payload: dict) -> dict:
+        if self._auth_token:
+            return {**payload, "auth_token": self._auth_token}
+        return payload
+
     def send_pair_confirm(self, target_device_id: str) -> None:
         self._send_json(
-            {
+            self._with_auth({
                 "type": "pair_confirm",
                 "my_device_id": self.device_id,
                 "paired_with": target_device_id,
-            },
+            }),
             silent=True,
         )
         save_paired_phone_id(target_device_id)
@@ -226,13 +235,13 @@ class WsClient(QObject):
         self._reconnect_attempt = 0
         self.connected.emit()
         _s = lambda d: json.dumps(d, separators=(",", ":"))
-        ws.send(_s({"type": "device_hello", "device_id": self.device_id, "role": "pc"}))
-        ws.send(_s({
+        ws.send(_s(self._with_auth({"type": "device_hello", "device_id": self.device_id, "role": "pc"})))
+        ws.send(_s(self._with_auth({
             "type": "join",
             "code": self._session_code,
             "role": "pc",
             "device_id": self.device_id,
-        }))
+        })))
 
     def _on_open_device_hello(self, ws) -> None:
         if ws is not self._ws:
@@ -240,14 +249,14 @@ class WsClient(QObject):
         self._reconnect_attempt = 0
         self.connected.emit()
         _s = lambda d: json.dumps(d, separators=(",", ":"))
-        ws.send(_s({"type": "device_hello", "device_id": self.device_id, "role": "pc"}))
+        ws.send(_s(self._with_auth({"type": "device_hello", "device_id": self.device_id, "role": "pc"})))
         address = getattr(self, "_device_address", None) or self.device_id
-        ws.send(_s({
+        ws.send(_s(self._with_auth({
             "type": "join",
             "code": address,
             "role": "pc",
             "device_id": self.device_id,
-        }))
+        })))
 
     def _on_message(self, ws, raw) -> None:
         if ws is not self._ws:

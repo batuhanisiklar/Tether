@@ -330,8 +330,6 @@ class BackendApi(
     suspend fun updateProfile(
         token: String,
         email: String,
-        firstName: String,
-        lastName: String,
         phone: String,
         oldPassword: String,
         password: String,

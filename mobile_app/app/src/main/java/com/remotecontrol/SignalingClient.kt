@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
  */
 class SignalingClient(
     private val serverUrl: String,
+    private val authToken: String,
     private val deviceId: String,
     private val deviceAddress: String,
     private val isAccessibilityEnabled: () -> Boolean,
@@ -32,8 +33,6 @@ class SignalingClient(
         private const val TAG = "SignalingClient"
         private const val MAX_PENDING_FRAME_BYTES = 1_500_000L
         private const val PRESENCE_POLL_MS = 3_500L
-        fun generateCode(): String = (100_000..999_999).random().toString()
-
         /** Diğer servislerden frame göndermek için erişilebilir instance */
         var instance: SignalingClient? = null
 
@@ -52,7 +51,7 @@ class SignalingClient(
         }
     }
 
-    val sessionCode: String = generateCode()
+    val sessionCode: String = deviceId.filter(Char::isDigit).take(12)
 
     private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -70,6 +69,7 @@ class SignalingClient(
             socket.send(
                 JSONObject().apply {
                     put("type", "device_hello")
+                    put("auth_token", authToken)
                     put("device_id", deviceId)
                     put("role", "phone")
                     put("accessibility_enabled", isAccessibilityEnabled())
@@ -113,6 +113,7 @@ class SignalingClient(
                 // Önce device_hello gönder (persistent identity)
                 val helloMsg = JSONObject().apply {
                     put("type", "device_hello")
+                    put("auth_token", authToken)
                     put("device_id", deviceId)
                     put("role", "phone")
                     put("accessibility_enabled", isAccessibilityEnabled())
@@ -120,9 +121,15 @@ class SignalingClient(
                 webSocket.send(helloMsg.toString())
 
                 val registerCode = deviceAddress.filter(Char::isDigit).take(12).ifBlank { sessionCode }
+                if (registerCode.length != 12) {
+                    Log.e(TAG, "12 haneli device address yok; signaling register iptal edildi")
+                    webSocket.close(1008, "device address required")
+                    return
+                }
                 Log.i(TAG, "Registering with code=$registerCode (deviceAddress-based)")
                 val registerMsg = JSONObject().apply {
                     put("type", "register")
+                    put("auth_token", authToken)
                     put("code", registerCode)
                     put("role", "phone")
                     put("device_id", deviceId)
@@ -140,6 +147,7 @@ class SignalingClient(
                             sock.send(
                                 JSONObject().apply {
                                     put("type", "request_presence")
+                                    put("auth_token", authToken)
                                     put("accessibility_enabled", isAccessibilityEnabled())
                                 }.toString(),
                             )
@@ -256,6 +264,7 @@ class SignalingClient(
     fun sendPairConfirm(pcDeviceId: String) {
         val msg = JSONObject().apply {
             put("type", "pair_confirm")
+            put("auth_token", authToken)
             put("my_device_id", deviceId)
             put("paired_with", pcDeviceId)
         }
@@ -370,6 +379,7 @@ class SignalingClient(
             try {
                 val msg = JSONObject().apply {
                     put("type", "device_logout")
+                    put("auth_token", authToken)
                     put("device_id", deviceId)
                 }
                 currentWs.send(msg.toString())
