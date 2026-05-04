@@ -80,8 +80,6 @@ class MainActivity : AppCompatActivity() {
     private var pairingAwaitingAccessibility = false
     /** Erisilebilirlik ayarina gecis akisi aktifken zorla one getirmeyi engeller. */
     private var openingAccessibilitySettings = false
-    /** Activity gorunurlugu (arka planda iken bring-to-front yapmamak icin). */
-    private var isAppInForeground = false
     /** Panelden gelen son mutlak ekran rotasyonu: 0, 90, 180, 270. */
     private var remoteRotationDegrees = 0
     private var hasRemoteRotationOverride = false
@@ -429,13 +427,11 @@ class MainActivity : AppCompatActivity() {
             Log.i(TAG, "A11y ayari acik; disconnect sonrasi bring-to-front atlandi")
             return
         }
-        if (!isAppInForeground) {
-            Log.i(TAG, "App arka planda; disconnect sonrasi bring-to-front atlandi")
-            return
-        }
         try {
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
                         Intent.FLAG_ACTIVITY_SINGLE_TOP,
                 )
@@ -978,16 +974,6 @@ class MainActivity : AppCompatActivity() {
         }
         refreshFragments()
         signalingClient?.pushAccessibilityToServer()
-    }
-
-    override fun onStart() {
-        super.onStart()
-        isAppInForeground = true
-    }
-
-    override fun onStop() {
-        super.onStop()
-        isAppInForeground = false
     }
 
     override fun onDestroy() {
