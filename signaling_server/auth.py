@@ -26,7 +26,10 @@ def _secret() -> bytes:
         return secret.encode("utf-8")
     if _is_local_env():
         return DEV_AUTH_SECRET.encode("utf-8")
-    raise RuntimeError("AUTH_SECRET is required outside local/development environments.")
+    raise RuntimeError(
+        "AUTH_SECRET is required outside local/development environments. "
+        "On Render, add an AUTH_SECRET environment variable or use render.yaml with generateValue: true."
+    )
 
 
 def ensure_auth_secret_configured() -> None:

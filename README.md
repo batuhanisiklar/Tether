@@ -83,6 +83,14 @@ Health check:
 GET /health
 ```
 
+### Render deploy
+
+`render.yaml` server icin `AUTH_SECRET` degerini Render tarafinda otomatik uretecek sekilde ayarlidir. Mevcut bir Render servisini Blueprint ile yonetmiyorsaniz Dashboard > Environment bolumunden su degerleri ekleyin:
+
+- `APP_ENV=production`
+- `AUTH_SECRET`: uzun, rastgele secret
+- `DATABASE_URL`: PostgreSQL/Neon connection string
+
 ### Desktop App
 
 ```powershell
