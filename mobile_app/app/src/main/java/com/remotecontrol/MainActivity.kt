@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import com.remotecontrol.control.CommandHandler
 import com.remotecontrol.databinding.ActivityMainBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +84,49 @@ class MainActivity : AppCompatActivity() {
     /** Panelden gelen son mutlak ekran rotasyonu: 0, 90, 180, 270. */
     private var remoteRotationDegrees = 0
     private var hasRemoteRotationOverride = false
+    private val commandHandler by lazy {
+        CommandHandler(object : CommandHandler.Callbacks {
+            override fun touch(x: Float, y: Float) {
+                runOnUiThread {
+                    withControlReceiver("Dokunma komutu") { performTouch(x, y) }
+                }
+            }
+
+            override fun swipe(x1: Float, y1: Float, x2: Float, y2: Float) {
+                runOnUiThread {
+                    withControlReceiver("Kaydirma komutu") { performSwipe(x1, y1, x2, y2) }
+                }
+            }
+
+            override fun keyEvent(keyCode: Int) {
+                runOnUiThread {
+                    withControlReceiver("Tus komutu") { performKeyEvent(keyCode) }
+                }
+            }
+
+            override fun rotateScreen(degrees: Int) {
+                runOnUiThread { applyRemoteRotation(degrees) }
+            }
+
+            override fun startScreenCapture() {
+                runOnUiThread { startScreenShareFromRemote() }
+            }
+
+            override fun startCamera(useFront: Boolean) {
+                runOnUiThread { requestCameraAccess(useFront) }
+            }
+
+            override fun stopCamera() {
+                runOnUiThread { stopCameraStreamFromPc() }
+            }
+
+            override fun pasteText(text: String) {
+                runOnUiThread {
+                    withControlReceiver("Metin gonder") { performPasteText(text) }
+                }
+            }
+        })
+    }
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -401,6 +445,15 @@ class MainActivity : AppCompatActivity() {
                     handlePeerSessionEnded()
                 }
             },
+            onAuthError = { message ->
+                runOnUiThread {
+                    if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
+                    signalingClient?.disconnect(sendServerLogout = false)
+                    currentStatus = "Oturum dogrulanamadi"
+                    currentStatusDetail = message
+                    refreshFragments()
+                }
+            },
             onTransportDisconnected = {
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
@@ -511,60 +564,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleCommand(action: String, params: Map<String, Any>) {
-        when (action) {
-            "touch" -> {
-                val x = (params["x"] as? Number)?.toFloat() ?: return
-                val y = (params["y"] as? Number)?.toFloat() ?: return
-                runOnUiThread {
-                    withControlReceiver("Dokunma komutu") { performTouch(x, y) }
-                }
-            }
-            "swipe" -> {
-                val x1 = (params["x1"] as? Number)?.toFloat() ?: return
-                val y1 = (params["y1"] as? Number)?.toFloat() ?: return
-                val x2 = (params["x2"] as? Number)?.toFloat() ?: return
-                val y2 = (params["y2"] as? Number)?.toFloat() ?: return
-                runOnUiThread {
-                    withControlReceiver("Kaydirma komutu") { performSwipe(x1, y1, x2, y2) }
-                }
-            }
-            "key_event" -> {
-                val keyCode = (params["key_code"] as? Number)?.toInt() ?: return
-                runOnUiThread {
-                    withControlReceiver("Tus komutu") { performKeyEvent(keyCode) }
-                }
-            }
-            "rotate_screen" -> {
-                val degrees = normalizeRotationDegrees((params["degrees"] as? Number)?.toInt() ?: 0)
-                runOnUiThread {
-                    if (isDestroyed || isFinishing) return@runOnUiThread
-                    remoteRotationDegrees = degrees
-                    hasRemoteRotationOverride = true
-                    ScreenStreamService.instance?.setRemoteRotationDegrees(degrees)
-                    if (!streamRunning) {
-                        requestedOrientation = orientationForDegrees(degrees)
-                        Log.i(TAG, "rotate_screen applied: ${degrees}deg orientation=$requestedOrientation")
-                        refreshScreenStreamRotationSoon()
-                    } else {
-                        Log.i(TAG, "rotate_screen applied to stream metadata: ${degrees}deg")
-                    }
-                }
-            }
-            "screen_capture_on" -> runOnUiThread { startScreenShareFromRemote() }
-            "camera_on" -> runOnUiThread { requestCameraAccess(useFront = false) }
-            "camera_off" -> runOnUiThread { stopCameraStreamFromPc() }
-            "paste_text" -> {
-                val raw = params["text"]
-                val text = when (raw) {
-                    is String -> raw
-                    else -> raw?.toString() ?: ""
-                }
-                if (text.isBlank()) return
-                runOnUiThread {
-                    withControlReceiver("Metin gonder") { performPasteText(text) }
-                }
-            }
-            else -> Log.w(TAG, "Unknown command: $action")
+        commandHandler.handle(action, params)
+    }
+
+    private fun applyRemoteRotation(degrees: Int) {
+        if (isDestroyed || isFinishing) return
+        remoteRotationDegrees = degrees
+        hasRemoteRotationOverride = true
+        ScreenStreamService.instance?.setRemoteRotationDegrees(degrees)
+        if (!streamRunning) {
+            requestedOrientation = orientationForDegrees(degrees)
+            Log.i(TAG, "rotate_screen applied: ${degrees}deg orientation=$requestedOrientation")
+            refreshScreenStreamRotationSoon()
+        } else {
+            Log.i(TAG, "rotate_screen applied to stream metadata: ${degrees}deg")
         }
     }
 

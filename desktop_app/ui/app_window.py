@@ -31,12 +31,14 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QFileDialog,
 )
 
 from desktop_app.config import AppMeta, ServerDefaults, Ui, Colors
 from desktop_app.config.constants import Prefs
 from desktop_app.audio.player import DesktopAudioPlayer
+from desktop_app.controllers.clipboard_controller import ClipboardController
+from desktop_app.controllers.device_controller import DeviceController
+from desktop_app.controllers.profile_controller import ProfileController
 from desktop_app.config.prefs_store import (
     clear_logged_in,
     load_auth_token,
@@ -94,8 +96,6 @@ from desktop_app.ui.utils import (
     digits_before_cursor,
     format_address,
     is_accessibility_ws_error,
-    merge_phone_device_row,
-    phone_row_key,
     session_tab_label,
     ws_device_id_set,
 )
@@ -135,6 +135,9 @@ class MainWindow(QMainWindow):
         self._ws_client   = WsClient()
         self._mjpeg       = MjpegReceiver()
         self._backend_api = backend_api if backend_api is not None else BackendApi()
+        self._device_controller = DeviceController(self._backend_api)
+        self._profile_controller = ProfileController()
+        self._clipboard_controller = ClipboardController(self, self._set_status)
 
         self._connected                  = False
         self._rotation_step              = 0
@@ -501,59 +504,12 @@ class MainWindow(QMainWindow):
             return
 
     def _load_paired_devices(self) -> list[dict]:
-        merged: dict[str, dict] = {}
         pc_id = self._ws_client.device_id
-
-        def _ingest(rows: list[dict] | None) -> None:
-            for device in rows or []:
-                if device.get("device_type") != "phone" or device.get("device_id") == pc_id:
-                    continue
-                key = phone_row_key(device)
-                if not key:
-                    continue
-                merged[key] = merge_phone_device_row(merged.get(key, {}), dict(device))
-
-        if self._auth_token:
-            bundle, bundle_err = self._backend_api.get_phone_device_bundle(
-                self._auth_token, pc_id
-            )
-            if bundle and bundle.get("ok"):
-                _ingest(list(bundle.get("devices") or []))
-                _ingest(list(bundle.get("recent_devices") or []))
-                _ingest(list(bundle.get("pairings") or []))
-                return list(merged.values()) if merged else []
-            if bundle_err and bundle_err != "bundle_missing":
-                low = (bundle_err or "").lower()
-                if ("10054" in low) or ("connection aborted" in low) or ("forcibly closed by the remote host" in low):
-                    logger.info("phone-bundle gecici ag kopmasi: %s", bundle_err)
-                else:
-                    logger.warning("phone-bundle alinamadi: %s", bundle_err)
-
-            devices, err = self._backend_api.get_devices(self._auth_token)
-            if devices is not None:
-                _ingest(devices)
-            else:
-                logger.warning("Server devices alinamadi: %s", err)
-
-            recent, err = self._backend_api.get_recent_devices(self._auth_token, "phone")
-            if recent is not None:
-                _ingest(recent)
-            else:
-                logger.warning("Server recent devices alinamadi: %s", err)
-
-            pairings, err = self._backend_api.get_pairings(self._auth_token, pc_id)
-            if pairings is not None:
-                _ingest(pairings)
-            else:
-                if "Bu cihaza erisim yetkiniz yok" in (err or ""):
-                    logger.warning("Pairings yetkisiz (oturum sifirlanacak): %s", err)
-                    clear_logged_in()
-                    self._auth_token = ""
-                    return []
-                logger.warning("Server pairings alinamadi: %s", err)
-
-            return list(merged.values()) if merged else []
-        return []
+        devices, auth_invalid = self._device_controller.load_paired_phone_devices(self._auth_token, pc_id)
+        if auth_invalid:
+            clear_logged_in()
+            self._auth_token = ""
+        return devices
 
     @pyqtSlot()
     def _load_devices_from_db(self):
@@ -770,14 +726,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _profile_initials(first_name: str, last_name: str, email: str) -> str:
-        a = (first_name or "").strip()[:1].upper()
-        b = (last_name  or "").strip()[:1].upper()
-        if a and b:
-            return f"{a}{b}"
-        if a:
-            return a
-        em = (email or "").strip()
-        return em[:1].upper() if em else "?"
+        return ProfileController.initials(first_name, last_name, email)
 
     def _on_profile_cancel(self) -> None:
         self._profile_err.setText("")
@@ -1466,6 +1415,17 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str, str)
     def _on_error(self, msg: str, code: str = ""):
         text = (msg or "").strip()
+        if code in {"auth_required", "auth_invalid", "device_forbidden"}:
+            self._mjpeg.stop()
+            self._screen.clear_frame()
+            self._set_connected(False)
+            if code in {"auth_required", "auth_invalid"}:
+                clear_logged_in()
+                self._auth_token = ""
+                self._ws_client.set_auth_token("")
+            self._show_warning_banner("Oturum doğrulanamadı", text or "Lütfen yeniden giriş yapın.")
+            self._set_status(f"Hata: {text or msg}", error=True)
+            return
         if is_accessibility_ws_error(text, code):
             banner_title = "Erişilebilirlik kapalı"
             banner_body  = text or "Telefonda Erişilebilirlik servisi açılmadan bağlantı başlatılamaz."
@@ -1651,40 +1611,16 @@ class MainWindow(QMainWindow):
         self._sync_stream_aspect_fit(ew, eh)
 
     def _screenshot_to_clipboard(self) -> None:
-        pm = self._screen.get_export_pixmap()
-        if pm is None or pm.isNull():
-            self._set_status("Kopyalanacak görüntü yok.", error=True)
-            return
-        QApplication.clipboard().setPixmap(pm)
-        self._set_status(f"Panoya kopyalandı ({pm.width()}×{pm.height()}).")
+        self._clipboard_controller.screenshot_to_clipboard(self._screen)
 
     def _screenshot_save_png(self) -> None:
-        pm = self._screen.get_export_pixmap()
-        if pm is None or pm.isNull():
-            self._set_status("Kaydedilecek görüntü yok.", error=True)
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "PNG olarak kaydet", "remote_ekran.png", "PNG (*.png)"
-        )
-        if not path:
-            return
-        if not path.lower().endswith(".png"):
-            path += ".png"
-        if pm.save(path, "PNG"):
-            self._set_status(f"Kaydedildi: {path}")
-        else:
-            self._set_status("PNG kaydedilemedi.", error=True)
+        self._clipboard_controller.save_screenshot_png(self._screen)
 
     def _send_clipboard_text_to_phone(self) -> None:
-        if not self._connected:
-            self._set_status("Önce oturum ile bağlanın.", error=True)
-            return
-        text = QApplication.clipboard().text()
-        if not (text or "").strip():
-            self._set_status("Pano boş.", error=True)
-            return
-        self._ws_client.send_paste_text(text)
-        self._set_status(f"Pano metni gönderildi ({len(text)} karakter).")
+        self._clipboard_controller.send_clipboard_text_to_phone(
+            connected=self._connected,
+            ws_client=self._ws_client,
+        )
 
     def _set_connected(self, connected: bool):
         self._connected = connected

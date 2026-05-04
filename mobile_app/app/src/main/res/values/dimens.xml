@@ -14,6 +14,9 @@
     <dimen name="button_corner_radius">12dp</dimen>
     <dimen name="radius_card">12dp</dimen>
     <dimen name="radius_card_small">8dp</dimen>
+    <dimen name="radius_card_large">16dp</dimen>
+    <dimen name="radius_accent_card">14dp</dimen>
+    <dimen name="radius_input">6dp</dimen>
     <dimen name="stroke_1">1dp</dimen>
     <dimen name="space_4">4dp</dimen>
     <dimen name="space_6">6dp</dimen>

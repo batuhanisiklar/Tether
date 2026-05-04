@@ -150,6 +150,34 @@ class ServerDbClient:
                     )
                     cur.execute(
                         """
+                        SELECT
+                            device_id,
+                            COUNT(*) AS duplicate_count,
+                            array_agg(
+                                json_build_object(
+                                    'id', id,
+                                    'user_id', user_id,
+                                    'device_type', device_type,
+                                    'mac_address', mac_address
+                                )
+                                ORDER BY id
+                            )::text AS rows
+                        FROM devices
+                        GROUP BY device_id
+                        HAVING COUNT(*) > 1
+                        ORDER BY duplicate_count DESC, device_id
+                        LIMIT 50;
+                        """
+                    )
+                    duplicate_device_rows = cur.fetchall()
+                    if duplicate_device_rows:
+                        logger.warning(
+                            "db_migration_device_id_duplicates constraint=idx_devices_device_id_unique "
+                            "action=skip_unique_index cleanup_required=true duplicate_groups_sample=%s",
+                            duplicate_device_rows,
+                        )
+                    cur.execute(
+                        """
                         DO $$ BEGIN
                             IF NOT EXISTS (
                                 SELECT 1 FROM pg_class c
@@ -172,6 +200,17 @@ class ServerDbClient:
                         END $$;
                         """
                     )
+                    cur.execute(
+                        """
+                        SELECT EXISTS (
+                            SELECT 1 FROM pg_class c
+                            JOIN pg_namespace n ON n.oid = c.relnamespace
+                            WHERE c.relname = 'idx_devices_device_id_unique'
+                              AND n.nspname = 'public'
+                        );
+                        """
+                    )
+                    device_id_unique_exists = bool(cur.fetchone()[0])
 
                     # ── connections tablosu ─────────────────────────────────
                     # PC (controller) → telefon (target) tek yönlü bağlantı kaydı.
@@ -203,6 +242,34 @@ class ServerDbClient:
                         END $$;
                         """
                     )
+                    if not device_id_unique_exists:
+                        logger.warning(
+                            "db_migration_connections_fk_skipped reason=device_id_unique_index_missing "
+                            "cleanup_required=true assumption=device_id_global_unique"
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT
+                                c.controller_device_id,
+                                c.target_device_id,
+                                CASE WHEN controller.device_id IS NULL THEN true ELSE false END AS missing_controller,
+                                CASE WHEN target.device_id IS NULL THEN true ELSE false END AS missing_target
+                            FROM connections c
+                            LEFT JOIN devices controller ON controller.device_id = c.controller_device_id
+                            LEFT JOIN devices target ON target.device_id = c.target_device_id
+                            WHERE controller.device_id IS NULL OR target.device_id IS NULL
+                            ORDER BY c.created_at DESC
+                            LIMIT 50;
+                            """
+                        )
+                        dangling_connections = cur.fetchall()
+                        if dangling_connections:
+                            logger.warning(
+                                "db_migration_connections_dangling_rows constraint=connections_device_fks "
+                                "action=add_not_valid_fk cleanup_required=true rows_sample=%s",
+                                dangling_connections,
+                            )
                     cur.execute(
                         """
                         DO $$ BEGIN

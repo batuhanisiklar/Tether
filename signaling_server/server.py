@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import secrets
 import sys
 import time
 from typing import Any
@@ -14,67 +13,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signaling_server.auth import ensure_auth_secret_configured, issue_token, parse_token
 from signaling_server.config import MessageTypes, ServerConfig
 from signaling_server.db_client import ServerDbClient
+from signaling_server.realtime.auth import ensure_ws_user as _ensure_ws_user
+from signaling_server.realtime.auth import send_json as _send_json
+from signaling_server.realtime.sessions import SessionRegistry
+from signaling_server.routes import register_routes
+from signaling_server.services.device_service import device_payload as _device_payload
+from signaling_server.services.device_service import normalize_device_id as _normalize_device_id
+from signaling_server.services.device_service import random_device_id as _random_device_id
 
 logging.basicConfig(level=logging.INFO, format=ServerConfig.LOG_FORMAT)
 logger = logging.getLogger(__name__)
-
-
-def _normalize_device_id(raw_value: str | None) -> str:
-    if not raw_value:
-        return ""
-    return "".join(ch for ch in str(raw_value) if ch.isdigit())[:12]
-
-
-def _random_device_id() -> str:
-    return "".join(secrets.choice("0123456789") for _ in range(12))
-
-
-def _owner_fields(
-    db: ServerDbClient | None,
-    user_id: int | None,
-    cache: dict[int, dict[str, Any]],
-) -> dict[str, Any]:
-    if db is None or user_id is None:
-        return {"owner_name": "", "owner_phone": "", "owner_email": ""}
-    uid = int(user_id)
-    profile = cache.get(uid)
-    if profile is None:
-        profile = db.get_user_by_id(uid)
-        cache[uid] = profile or {}
-    fn = str((profile or {}).get("first_name") or "").strip()
-    ln = str((profile or {}).get("last_name") or "").strip()
-    full = f"{fn} {ln}".strip()
-    return {
-        "owner_name": full,
-        "owner_phone": str((profile or {}).get("phone") or "").strip(),
-        "owner_email": str((profile or {}).get("email") or "").strip(),
-    }
-
-
-def _device_payload(
-    device: dict[str, Any],
-    online_devices: dict[str, dict[str, Any]],
-    *,
-    db: ServerDbClient | None = None,
-    owner_cache: dict[int, dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    device_id = str(device.get("device_id") or "")
-    is_online_db = bool(device.get("is_online", False))
-    is_online = device_id in online_devices if device_id else is_online_db
-    user_id = int(device.get("user_id")) if device.get("user_id") is not None else None
-    cache = owner_cache if owner_cache is not None else {}
-    owner = _owner_fields(db, user_id, cache)
-    return {
-        "device_id": device_id,
-        "address": device_id,
-        "device_type": str(device.get("device_type") or ""),
-        "device_name": str(device.get("device_name") or ""),
-        "is_online": is_online,
-        "mac_address": str(device.get("mac_address") or ""),
-        "owner_user_id": user_id,
-        **owner,
-    }
-
 
 async def _json(request: web.Request) -> dict[str, Any]:
     try:
@@ -95,37 +43,6 @@ async def _require_user(request: web.Request) -> tuple[int, str] | None:
     payload = parse_token(auth_header[7:])
     if not payload:
         return None
-    return int(payload["user_id"]), str(payload["username"])
-
-
-async def _send_json(ws: web.WebSocketResponse, payload: dict[str, Any]) -> None:
-    await ws.send_str(json.dumps(payload, separators=(",", ":")))
-
-
-def _token_from_message(message: dict[str, Any]) -> str:
-    return str(message.get("auth_token") or message.get("token") or "").strip()
-
-
-async def _ensure_ws_user(
-    ws: web.WebSocketResponse,
-    meta: dict[str, Any],
-    message: dict[str, Any],
-) -> tuple[int, str] | None:
-    if meta.get("user_id") is not None:
-        return int(meta["user_id"]), str(meta.get("username") or "")
-
-    token = _token_from_message(message)
-    if not token:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "auth_required", "message": "Auth token gerekli."})
-        return None
-
-    payload = parse_token(token)
-    if not payload:
-        await _send_json(ws, {"type": MessageTypes.ERROR, "code": "auth_invalid", "message": "Gecersiz auth token."})
-        return None
-
-    meta["user_id"] = int(payload["user_id"])
-    meta["username"] = str(payload["username"])
     return int(payload["user_id"]), str(payload["username"])
 
 
@@ -1249,26 +1166,8 @@ def create_app() -> web.Application:
 
     app = web.Application()
     app["db"] = db
-    app["sessions"] = {}
-    app["session_devices"] = {}
-    app["online_devices"] = {}
-    app["ws_meta"] = {}
-    app.add_routes(
-        [
-            web.get("/health", health_check),
-            web.get("/", websocket_handler),
-            web.post("/auth/register", auth_register),
-            web.post("/auth/login", auth_login),
-            web.get("/auth/me", auth_me),
-            web.post("/auth/profile", auth_profile_update),
-            web.post("/devices/upsert", upsert_device),
-            web.get("/devices", list_devices),
-            web.get("/devices/phone-bundle", desktop_phone_bundle),
-            web.get("/recent-devices", list_recent_devices),
-            web.get("/pairings", list_pairings),
-            web.post("/pairings/delete", delete_pairing),
-        ]
-    )
+    SessionRegistry().attach(app)
+    register_routes(app)
     app.on_cleanup.append(on_cleanup)
     return app
 

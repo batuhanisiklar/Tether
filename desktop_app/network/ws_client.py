@@ -142,7 +142,7 @@ class WsClient(QObject):
         clear_paired_phone_id()
 
     def send_command(self, cmd: dict) -> None:
-        self._send_json({"type": "command", **cmd})
+        self._send_json(self._with_auth({"type": "command", **cmd}))
 
     def send_touch(self, x: float, y: float) -> None:
         self.send_command({"action": "touch", "x": x, "y": y})
@@ -180,13 +180,13 @@ class WsClient(QObject):
         self._ping_seq += 1
         pid = self._ping_seq
         self._ping_sent_at[pid] = time.perf_counter()
-        self._send_json({"type": "session_ping", "ping_id": pid}, silent=True)
+        self._send_json(self._with_auth({"type": "session_ping", "ping_id": pid}), silent=True)
 
     def send_heartbeat(self) -> None:
-        self._send_json({"type": "heartbeat"}, silent=True)
+        self._send_json(self._with_auth({"type": "heartbeat"}), silent=True)
 
     def send_request_presence(self) -> None:
-        self._send_json({"type": "request_presence"}, silent=True)
+        self._send_json(self._with_auth({"type": "request_presence"}), silent=True)
 
     def _start_ws(self, url: str, *, on_open) -> None:
         self._last_on_open = on_open

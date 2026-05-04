@@ -26,6 +26,7 @@ class SignalingClient(
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
     /** PC oturumu kapandi; WebSocket acik kalir (yeniden baglanti telefondan yapilmaz). */
     private val onPeerSessionEnded: () -> Unit,
+    private val onAuthError: (message: String) -> Unit = {},
     /** Soket hatasi / sunucu kapandi — otomatik transport yenilemesi. */
     private val onTransportDisconnected: () -> Unit,
 ) {
@@ -228,7 +229,14 @@ class SignalingClient(
                             onPeerSessionEnded()
                         }
 
-                        "error" -> Log.e(TAG, "Server error: ${json.optString("message")}")
+                        "error" -> {
+                            val code = json.optString("code")
+                            val message = json.optString("message").ifBlank { "Signaling yetkilendirme hatasi" }
+                            Log.e(TAG, "Server error: $message code=$code")
+                            if (code == "auth_required" || code == "auth_invalid" || code == "device_forbidden") {
+                                onAuthError(message)
+                            }
+                        }
 
                         "heartbeat", "joined", "waiting" -> { /* PC keep-alive / sunucu ack (yok say) */ }
                     }
