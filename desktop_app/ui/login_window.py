@@ -36,6 +36,7 @@ from desktop_app.ui.theme import (
     tab_button_style,
     text_style,
 )
+from desktop_app.ui.utils import desktop_device_name, load_logo_pixmap
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ class LoginWindow(QDialog):
                 border-radius: 22px;
             }}
         """)
-        pm = self._load_logo_pixmap(88)
+        pm = load_logo_pixmap(88)
         if pm is not None:
             logo_container.setPixmap(pm)
         else:
@@ -243,17 +244,6 @@ class LoginWindow(QDialog):
     def _project_root(self) -> str:
         return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-    def _load_logo_pixmap(self, size: int) -> QPixmap | None:
-        """
-        `logo.png`'yi güvenli şekilde yükler.
-        Null pixmap ise `None` döner (scaled uyarısını engeller).
-        """
-        logo_path = os.path.join(self._project_root(), "logo.png")
-        pm = QPixmap(logo_path)
-        if pm.isNull():
-            return None
-        return pm.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-
     def _build_title_bar(self) -> QFrame:
         c = Colors
         bar = QFrame()
@@ -275,7 +265,7 @@ class LoginWindow(QDialog):
 
         mini = QLabel()
         mini.setFixedSize(18, 18)
-        pm = self._load_logo_pixmap(18)
+        pm = load_logo_pixmap(18)
         if pm is not None:
             mini.setPixmap(pm)
         left.addWidget(mini)

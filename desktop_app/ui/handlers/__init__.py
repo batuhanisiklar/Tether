@@ -1,0 +1,1 @@
+"""MainWindow handler mixin'leri."""

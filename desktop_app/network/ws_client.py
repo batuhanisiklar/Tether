@@ -12,7 +12,7 @@ from desktop_app.config import Network
 from desktop_app.config.prefs_store import (
     clear_paired_phone_id,
     load_or_create_device_id,
-    load_paired_phone_id as _load_paired_phone_id,
+    load_paired_phone_id,
     save_paired_phone_id,
 )
 
@@ -456,6 +456,3 @@ class WsClient(QObject):
         logger.info("Yeniden bağlanma başlatılıyor: %s", self._last_url)
         self._start_ws(self._last_url, on_open=self._last_on_open)
 
-
-def load_paired_phone_id() -> str | None:
-    return _load_paired_phone_id()

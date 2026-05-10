@@ -1,0 +1,219 @@
+"""
+HTTP auth endpoint'leri — register, login, me, profile update.
+"""
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from aiohttp import web
+
+from signaling_server.auth import issue_token
+from signaling_server.helpers import normalize_device_id, parse_json_body, username_from_email
+from signaling_server.ws.auth import require_user
+from signaling_server.ws.presence import register_or_reuse_device
+
+
+async def auth_register(request: web.Request) -> web.Response:
+    data = await parse_json_body(request)
+    email = str(data.get("email") or data.get("username") or "").strip().lower()
+    password = str(data.get("password") or "")
+    first_name = str(data.get("first_name") or "").strip()
+    last_name = str(data.get("last_name") or "").strip()
+    phone = str(data.get("phone") or "").strip()
+    if not email or not password:
+        return web.json_response({"ok": False, "message": "email ve password gerekli."}, status=400)
+
+    user_id = await asyncio.to_thread(
+        request.app["db"].register_user,
+        email,
+        password,
+        first_name,
+        last_name,
+        phone or None,
+    )
+    if user_id is None:
+        return web.json_response({"ok": False, "message": "Bu e-posta zaten kayitli."}, status=400)
+
+    device_id = str(data.get("device_id") or "")
+    device_type = str(data.get("device_type") or "")
+    device_name = str(data.get("device_name") or "")
+    mac_address = str(data.get("mac_address") or data.get("macAddress") or "")
+    resolved_device_id = ""
+    if device_type in {"phone", "pc"}:
+        resolved_device_id, device_err = await register_or_reuse_device(
+            request.app,
+            int(user_id),
+            device_id,
+            device_type,
+            device_name,
+            mac_address,
+        )
+        if not resolved_device_id:
+            await asyncio.to_thread(request.app["db"].delete_user, int(user_id))
+            return web.json_response({"ok": False, "message": device_err or "Cihaz kaydi yapilamadi."}, status=400)
+
+    username = username_from_email(email)
+    token = issue_token(int(user_id), username)
+    return web.json_response(
+        {
+            "ok": True,
+            "token": token,
+            "user": {
+                "id": int(user_id),
+                "username": username,
+                "email": email,
+                "first_name": first_name,
+                "last_name": last_name,
+                "phone": phone or "",
+                "device_id": resolved_device_id,
+                "address": resolved_device_id,
+            },
+        }
+    )
+
+
+async def auth_login(request: web.Request) -> web.Response:
+    data = await parse_json_body(request)
+    email = str(data.get("email") or data.get("username") or "").strip().lower()
+    password = str(data.get("password") or "")
+    user_id = await asyncio.to_thread(request.app["db"].authenticate_user, email, password)
+    if user_id is None:
+        return web.json_response({"ok": False, "message": "Kullanici adi veya sifre hatali."}, status=401)
+
+    device_id = str(data.get("device_id") or "")
+    device_type = str(data.get("device_type") or "")
+    device_name = str(data.get("device_name") or "")
+    mac_address = str(data.get("mac_address") or data.get("macAddress") or "")
+    resolved_device_id = ""
+    if device_type in {"phone", "pc"}:
+        resolved_device_id, device_err = await register_or_reuse_device(
+            request.app,
+            int(user_id),
+            device_id,
+            device_type,
+            device_name,
+            mac_address,
+        )
+        if not resolved_device_id:
+            return web.json_response({"ok": False, "message": device_err or "Cihaz kaydi yapilamadi."}, status=400)
+
+    username = username_from_email(email)
+    token = issue_token(int(user_id), username)
+    profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
+    return web.json_response(
+        {
+            "ok": True,
+            "token": token,
+            "user": {
+                "id": int(user_id),
+                "username": username,
+                "email": email,
+                "first_name": str((profile or {}).get("first_name") or ""),
+                "last_name": str((profile or {}).get("last_name") or ""),
+                "phone": str((profile or {}).get("phone") or ""),
+                "device_id": resolved_device_id,
+                "address": resolved_device_id,
+            },
+        }
+    )
+
+
+async def auth_me(request: web.Request) -> web.Response:
+    user = await require_user(request)
+    if not user:
+        return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
+    user_id, username = user
+    profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
+    if not profile:
+        return web.json_response({"ok": False, "message": "Kullanici bulunamadi."}, status=404)
+
+    device_id = normalize_device_id(str(request.query.get("device_id") or ""))
+    if device_id:
+        device = await asyncio.to_thread(request.app["db"].get_device_by_id, device_id)
+        address = device_id if device and int(device.get("user_id")) == int(user_id) else ""
+    else:
+        address = ""
+    return web.json_response(
+        {
+            "ok": True,
+            "user": {
+                "id": int(profile["user_id"]),
+                "username": username,
+                "email": str(profile.get("email") or ""),
+                "first_name": str(profile.get("first_name") or ""),
+                "last_name": str(profile.get("last_name") or ""),
+                "phone": str(profile.get("phone") or ""),
+                "address": address,
+            },
+        }
+    )
+
+
+async def auth_profile_update(request: web.Request) -> web.Response:
+    user = await require_user(request)
+    if not user:
+        return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
+    user_id, _old_username = user
+
+    data = await parse_json_body(request)
+    email = data.get("email")
+    phone = data.get("phone")
+    old_pwd = data.get("old_password")
+    pwd1 = data.get("password")
+    pwd2 = data.get("password2")
+
+    # email varsa basit doğrulama
+    if email is not None:
+        em = str(email).strip().lower()
+        if not em or "@" not in em or len(em) < 5:
+            return web.json_response({"ok": False, "message": "Gecerli bir e-posta girin."}, status=400)
+        email = em
+
+    new_password: str | None = None
+    if pwd1 is not None or pwd2 is not None:
+        p1 = str(pwd1 or "")
+        p2 = str(pwd2 or "")
+        op = str(old_pwd or "")
+        if not op:
+            return web.json_response({"ok": False, "message": "Mevcut sifre gerekli."}, status=400)
+        if not p1 or not p2:
+            return web.json_response({"ok": False, "message": "Sifre iki kere girilmelidir."}, status=400)
+        if p1 != p2:
+            return web.json_response({"ok": False, "message": "Sifreler eslesmiyor."}, status=400)
+        if len(p1) < 6:
+            return web.json_response({"ok": False, "message": "Sifre en az 6 karakter olmali."}, status=400)
+        new_password = p1
+
+    ok, err = await asyncio.to_thread(
+        request.app["db"].update_user_profile,
+        int(user_id),
+        email=email if email is not None else None,
+        phone=str(phone).strip() if phone is not None else None,
+        new_password=new_password,
+        old_password=str(old_pwd or "").strip() if (pwd1 is not None or pwd2 is not None) else None,
+    )
+    if not ok:
+        return web.json_response({"ok": False, "message": err or "Profil guncellenemedi."}, status=400)
+
+    profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
+    if not profile:
+        return web.json_response({"ok": False, "message": "Kullanici bulunamadi."}, status=404)
+
+    new_email = str(profile.get("email") or "").strip().lower()
+    new_username = username_from_email(new_email)
+    token = issue_token(int(user_id), new_username)
+    return web.json_response(
+        {
+            "ok": True,
+            "token": token,
+            "user": {
+                "id": int(profile["user_id"]),
+                "username": new_username,
+                "email": new_email,
+                "first_name": str(profile.get("first_name") or ""),
+                "last_name": str(profile.get("last_name") or ""),
+                "phone": str(profile.get("phone") or ""),
+            },
+        }
+    )

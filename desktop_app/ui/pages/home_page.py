@@ -33,7 +33,7 @@ from desktop_app.ui.styles.app_styles import (
     _TEXT_DIM,
     _TEXT_SEC,
 )
-from desktop_app.ui.utils import format_address, format_address_spaced
+from desktop_app.ui.utils import format_address
 
 if TYPE_CHECKING:
     from desktop_app.ui.app_window import MainWindow
@@ -145,7 +145,7 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     lbl_title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 14px;")
     left.addWidget(lbl_title)
 
-    formatted = format_address_spaced(window._user_address) if window._user_address else "—"
+    formatted = format_address(window._user_address) if window._user_address else "—"
     window._hero_address = QLabel(formatted)
     hero_font = QFont("Segoe UI", 36, QFont.Weight.Bold)
     hero_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 3.0)

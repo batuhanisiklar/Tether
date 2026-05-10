@@ -1,11 +1,13 @@
 """
 UI Yardımcı Fonksiyonlar
 =========================
-Saf (pure) fonksiyonlar; PyQt6 bağımlılığı yoktur.
 Adres biçimlendirmeden oturum etiketlerine kadar ortak yardımcılar.
 """
 
 import os
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
 
 
 
@@ -26,9 +28,23 @@ def format_address(addr: str) -> str:
     return "-".join(digits[i:i + 4] for i in range(0, len(digits), 4))
 
 
-def format_address_spaced(addr: str) -> str:
-    """format_address ile aynı; semantik ayrım için alias."""
-    return format_address(addr)
+def load_logo_pixmap(size: int) -> QPixmap | None:
+    """
+    Proje kök dizinindeki `logo.png`'yi güvenli şekilde yükler.
+    Null pixmap ise `None` döner (scaled uyarısını engeller).
+    """
+    logo_path = os.path.join(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+        "logo.png",
+    )
+    pm = QPixmap(logo_path)
+    if pm.isNull():
+        return None
+    return pm.scaled(
+        size, size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
 
 
 

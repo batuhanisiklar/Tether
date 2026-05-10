@@ -24,7 +24,7 @@ from PyQt6.QtGui import (
     QPen,
 )
 
-from desktop_app.config import Ui
+from desktop_app.config import Colors, Ui
 from desktop_app.config.constants import AndroidKeyCodes
 
 
@@ -55,8 +55,8 @@ class ScreenWidget(QLabel):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet(f"""
             QLabel {{
-                background-color: {Ui.SCREEN_PLACEHOLDER_BG};
-                border: 1px solid {Ui.SCREEN_BORDER};
+                background-color: {Colors.BG_APP};
+                border: 1px solid {Colors.BORDER};
                 border-radius: 4px;
             }}
         """)
@@ -278,9 +278,9 @@ class ScreenWidget(QLabel):
     def _show_placeholder(self):
         """Bağlantı bekleme ekranı."""
         ph = QPixmap(480, 960)
-        ph.fill(QColor(Ui.SCREEN_PLACEHOLDER_BG))
+        ph.fill(QColor(Colors.BG_APP))
         painter = QPainter(ph)
-        painter.setPen(QColor(Ui.SCREEN_PLACEHOLDER_FG))
+        painter.setPen(QColor("#97A2B8"))
         painter.setFont(QFont("Segoe UI", 11))
         painter.drawText(
             ph.rect(),
