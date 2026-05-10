@@ -102,6 +102,8 @@ def _build_address_input_bar(window: "MainWindow") -> QWidget:
     window._inp_code.setFixedHeight(34)
     window._inp_code.setMaxLength(14)
     window._inp_code.setFont(QFont("Segoe UI", 14))
+    window._inp_code.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+    window._inp_code.customContextMenuRequested.connect(window._show_code_input_menu)
     window._inp_code.setStyleSheet(f"""
         QLineEdit {{
             background-color: {_BG_INPUT}; border: 1px solid {_BORDER};

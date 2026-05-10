@@ -23,7 +23,8 @@ UI bileşenleri:
 import logging
 import os
 
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtSlot, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtSlot, QThread, pyqtSignal, QPoint
+from PyQt6.QtGui import QKeySequence, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -35,6 +36,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from desktop_app.config import AppMeta, ServerDefaults, Ui, Colors
@@ -523,35 +525,193 @@ class MainWindow(
         if banner is not None:
             banner.hide()
 
+    # ── Shared Menu Stylesheet ─────────────────────────────────────────────
+
+    _MENU_SS = f"""
+        QMenu {{
+            background-color: #1E1E1E;
+            color: {_TEXT};
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 6px 4px;
+            min-width: 200px;
+            font-size: 12px;
+        }}
+        QMenu::item {{
+            padding: 8px 14px 8px 14px;
+            margin: 1px 4px;
+            border-radius: 8px;
+            background: transparent;
+        }}
+        QMenu::item:selected {{
+            background-color: rgba(255,255,255,0.07);
+            color: {_TEXT};
+        }}
+        QMenu::item:disabled {{
+            color: {_TEXT_DIM};
+            background: transparent;
+        }}
+        QMenu::separator {{
+            height: 1px;
+            background: rgba(255,255,255,0.06);
+            margin: 5px 12px;
+        }}
+        QMenu::icon {{
+            padding-left: 8px;
+        }}
+    """
+
     # ── Account Menu ──────────────────────────────────────────────────────
 
     def _show_account_menu(self):
         if self._account_button is None:
             return
         menu = QMenu(self)
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {_BG_CARD}; color: {_TEXT};
-                border: 1px solid {_BORDER}; padding: 4px;
-            }}
-            QMenu::item {{ padding: 8px 20px; }}
-            QMenu::item:selected {{ background-color: #333; }}
-            QMenu::separator {{
-                height: 1px; background: {_BORDER_SUBTLE}; margin: 4px 8px;
-            }}
-        """)
-        profile_action = menu.addAction("Profil")
-        menu.addSeparator()
-        logout_action = menu.addAction("Çıkış yap")
-        selected = menu.exec(
-            self._account_button.mapToGlobal(
-                self._account_button.rect().bottomLeft()
-            )
+        menu.setObjectName("accountMenu")
+        menu.setStyleSheet(self._MENU_SS)
+
+        # ── Kullanıcı header label ─────────────
+        user_display = self._user_email or self._username or "Kullanıcı"
+        fn = (self._user_first_name or "").strip()
+        ln = (self._user_last_name or "").strip()
+        full_name = f"{fn} {ln}".strip()
+        if full_name:
+            header_label = QLabel(f"  {full_name}")
+        else:
+            header_label = QLabel(f"  {user_display}")
+        header_label.setStyleSheet(
+            f"color: {_TEXT_DIM}; font-size: 11px; padding: 4px 12px 2px 12px;"
         )
+        header_action = QWidgetAction(menu)
+        header_action.setDefaultWidget(header_label)
+        header_action.setEnabled(False)
+        menu.addAction(header_action)
+        menu.addSeparator()
+
+        profile_action = menu.addAction("👤  Profil bilgileri")
+        edit_action = menu.addAction("✏️  Bilgileri düzenle")
+        pwd_action = menu.addAction("🔑  Şifre değiştir")
+        menu.addSeparator()
+        about_action = menu.addAction("ℹ️  Hakkında")
+        menu.addSeparator()
+        logout_action = menu.addAction("🚪  Çıkış yap")
+        logout_action.setData("danger")
+
+        popup_pos = self._account_button.mapToGlobal(self._account_button.rect().bottomRight())
+        popup_pos.setX(popup_pos.x() + 4)
+        popup_pos.setY(popup_pos.y() + 6)
+        selected = menu.exec(self._fit_menu_pos_in_window(menu, popup_pos))
         if selected == profile_action:
             self._open_profile_drawer()
+        elif selected == edit_action:
+            self._open_profile_drawer()
+            self._set_profile_panel("edit")
+        elif selected == pwd_action:
+            self._open_profile_drawer()
+            self._set_profile_panel("password")
+        elif selected == about_action:
+            self._show_about_info()
         elif selected == logout_action:
             self._on_logout()
+
+    def _show_about_info(self):
+        from PyQt6.QtWidgets import QMessageBox
+        box = QMessageBox(self)
+        box.setWindowTitle("Hakkında")
+        box.setText(
+            f"<b>{AppMeta.WINDOW_TITLE}</b><br><br>"
+            f"Sürüm: 1.0<br>"
+            f"Uzak telefon kontrol masaüstü istemcisi.<br><br>"
+            f"<span style='color:{_TEXT_DIM};'>© 2024 Remote Phone Control</span>"
+        )
+        box.setStyleSheet(f"""
+            QMessageBox {{
+                background-color: #1E1E1E;
+                color: {_TEXT};
+            }}
+            QMessageBox QLabel {{
+                color: {_TEXT};
+                font-size: 13px;
+            }}
+            QPushButton {{
+                background-color: {_BG_CARD};
+                color: {_TEXT};
+                border: 1px solid {_BORDER};
+                border-radius: 6px;
+                padding: 6px 20px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: #383838;
+                border-color: #555;
+            }}
+        """)
+        box.exec()
+
+    def _show_code_input_menu(self, pos):
+        inp = getattr(self, "_inp_code", None)
+        if inp is None:
+            return
+        menu = QMenu(self)
+        menu.setObjectName("codeInputMenu")
+        menu.setStyleSheet(self._MENU_SS)
+
+        cut_action = menu.addAction("✂️  Kes")
+        copy_action = menu.addAction("📋  Kopyala")
+        paste_action = menu.addAction("📥  Yapıştır")
+        menu.addSeparator()
+        select_all_action = menu.addAction("🔤  Tümünü seç")
+        clear_action = menu.addAction("🗑️  Temizle")
+
+        cut_action.setShortcut(QKeySequence.StandardKey.Cut)
+        copy_action.setShortcut(QKeySequence.StandardKey.Copy)
+        paste_action.setShortcut(QKeySequence.StandardKey.Paste)
+        select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
+        cut_action.setShortcutVisibleInContextMenu(True)
+        copy_action.setShortcutVisibleInContextMenu(True)
+        paste_action.setShortcutVisibleInContextMenu(True)
+        select_all_action.setShortcutVisibleInContextMenu(True)
+
+        has_selection = inp.hasSelectedText()
+        has_text = bool(inp.text())
+        cut_action.setEnabled(has_selection and not inp.isReadOnly())
+        copy_action.setEnabled(has_selection)
+        paste_action.setEnabled(not inp.isReadOnly())
+        select_all_action.setEnabled(has_text)
+        clear_action.setEnabled(has_text and not inp.isReadOnly())
+
+        global_pos = inp.mapToGlobal(pos)
+        selected = menu.exec(self._fit_menu_pos_in_window(menu, global_pos))
+        if selected == cut_action:
+            inp.cut()
+        elif selected == copy_action:
+            inp.copy()
+        elif selected == paste_action:
+            inp.paste()
+        elif selected == select_all_action:
+            inp.selectAll()
+        elif selected == clear_action:
+            inp.clear()
+
+    def _fit_menu_pos_in_window(self, menu: QMenu, anchor_pos: QPoint) -> QPoint:
+        """Menu konumunu uygulama penceresi sınırları içine sıkıştır."""
+        menu.ensurePolished()
+        menu_size = menu.sizeHint()
+        win_top_left = self.mapToGlobal(self.rect().topLeft())
+        win_bottom_right = self.mapToGlobal(self.rect().bottomRight())
+
+        margin = 8
+        min_x = win_top_left.x() + margin
+        min_y = win_top_left.y() + margin
+        max_x = max(min_x, win_bottom_right.x() - menu_size.width() - margin)
+        max_y = max(min_y, win_bottom_right.y() - menu_size.height() - margin)
+
+        # Menüyü anchor'ın soluna konumla (sağdan taşmasın)
+        x = anchor_pos.x() - menu_size.width()
+        y = anchor_pos.y()
+        x = max(min_x, min(x, max_x))
+        y = max(min_y, min(y, max_y))
+        return QPoint(x, y)
 
     # ── Input Events ──────────────────────────────────────────────────────
 

@@ -76,6 +76,11 @@ class WsHandlersMixin:
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
+        # Disconnect/presence moduna gecildiyse kuyrukta kalmis paired/stream_info olaylarini yok say.
+        if self._ws_mode != "session":
+            logger.debug("paired/stream_info yoksayildi: ws_mode=%s", self._ws_mode)
+            return
+
         already_streaming = self._connected and self._remote_frame_visible
 
         su       = (stream_url or "").strip()

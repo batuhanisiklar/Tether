@@ -182,11 +182,15 @@ WIN_CLOSE_BTN_SS = f"""
 
 ACCOUNT_BTN_SS = f"""
     QPushButton {{
-        background: transparent; color: {_TEXT_SEC};
-        border: 1px solid {_BORDER};
-        border-radius: 4px; font-size: 11px; padding: 0 10px;
+        background: rgba(255,255,255,0.04); color: {_TEXT_SEC};
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 13px; font-size: 11px; font-weight: 600;
+        padding: 0 12px;
     }}
-    QPushButton:hover {{ color: {_TEXT}; border-color: #555; }}
+    QPushButton:hover {{
+        color: {_TEXT}; background: rgba(255,255,255,0.07);
+        border-color: rgba(255,255,255,0.12);
+    }}
 """
 
 GLOBAL_STYLESHEET = f"""

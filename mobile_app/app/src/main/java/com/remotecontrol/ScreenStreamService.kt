@@ -23,6 +23,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
+import android.media.AudioManager
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -88,6 +89,7 @@ class ScreenStreamService : Service() {
     private var audioRecord: AudioRecord? = null
     private var audioThread: Thread? = null
     @Volatile private var isAudioRecording = false
+    @Volatile private var lastMutedAudioLogMs = 0L
 
     // ── MediaProjection parametreleri (yeniden oluşturma için) ────────────
     private var savedResultCode: Int = Activity.RESULT_CANCELED
@@ -437,6 +439,14 @@ class ScreenStreamService : Service() {
                 while (isAudioRecording) {
                     val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                     if (read > 0) {
+                        if (!isMediaAudioEnabledForCapture()) {
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastMutedAudioLogMs >= 5000L) {
+                                lastMutedAudioLogMs = now
+                                Log.i(TAG, "Media volume muted/zero; audio packet skipped")
+                            }
+                            continue
+                        }
                         val client = SignalingClient.instance
                         if (client != null) {
                             val data = if (read == buffer.size) buffer else buffer.copyOf(read)
@@ -449,6 +459,21 @@ class ScreenStreamService : Service() {
             Log.i(TAG, "🎧 Audio capture started")
         } catch (e: Exception) {
             Log.e(TAG, "AudioCapture error", e)
+        }
+    }
+
+    private fun isMediaAudioEnabledForCapture(): Boolean {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return true
+        return try {
+            val volume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val muted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
+            } else {
+                volume <= 0
+            }
+            volume > 0 && !muted
+        } catch (_: Exception) {
+            true
         }
     }
 

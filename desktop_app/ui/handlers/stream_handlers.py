@@ -24,6 +24,8 @@ class StreamHandlersMixin:
 
     @pyqtSlot(bytes)
     def _on_frame_received(self, frame_bytes: bytes):
+        if self._ws_mode != "session":
+            return
         if not frame_bytes:
             return
         pixmap = QPixmap()
@@ -46,6 +48,8 @@ class StreamHandlersMixin:
 
     @pyqtSlot(QPixmap)
     def _on_mjpeg_frame(self, pm: QPixmap):
+        if self._ws_mode != "session":
+            return
         if pm.isNull():
             return
         self._remote_frame_visible = True
@@ -56,12 +60,16 @@ class StreamHandlersMixin:
 
     @pyqtSlot(str)
     def _on_mjpeg_error(self, _: str):
+        if self._ws_mode != "session":
+            return
         self._remote_frame_visible = False
         if self._connected:
             self._refresh_paired_stream_status()
 
     @pyqtSlot()
     def _on_stream_stopped(self):
+        if self._ws_mode != "session":
+            return
         if self._connected:
             self._remote_frame_visible = False
             self._refresh_paired_stream_status()
@@ -86,11 +94,9 @@ class StreamHandlersMixin:
 
     @pyqtSlot(int)
     def _on_rotation_received(self, degrees: int):
-        """Telefon rotasyonu değiştiğinde otomatik döndür (metadata ile gelir)."""
-        step = self._normalize_rotation_step(degrees)
-        if step != self._rotation_step:
-            self._rotation_step = step
-            self._apply_rotation_step()
+        """Telefon rotasyonu metadata'sı geçici olarak yok sayılır (UI talebi)."""
+        _ = degrees
+        return
 
     # ── Stream status / aspect ────────────────────────────────────────────
 
