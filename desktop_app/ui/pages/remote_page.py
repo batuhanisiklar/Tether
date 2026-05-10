@@ -85,7 +85,7 @@ def _build_session_top_bar(window: "MainWindow") -> QFrame:
     tbl.setSpacing(14)
     tbl.addStretch(1)
 
-    window._btn_disconnect = QPushButton("Baglantiyi kes")
+    window._btn_disconnect = QPushButton("Bağlantıyı kes")
     window._btn_disconnect.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_disconnect.setFixedHeight(32)
     window._btn_disconnect.setEnabled(False)
@@ -104,7 +104,7 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
     lay.setContentsMargins(12, 10, 12, 10)
     lay.setSpacing(8)
 
-    title = QLabel("Tus kontrolleri")
+    title = QLabel("Tuş kontrolleri")
     title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 600;")
     lay.addWidget(title)
 
@@ -144,7 +144,7 @@ def _build_session_actions_panel(window: "MainWindow") -> QFrame:
     title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 700;")
     lay.addWidget(title)
 
-    window._btn_sess_clip = QPushButton("Goruntuyu panoya kopyala")
+    window._btn_sess_clip = QPushButton("Görüntüyü panoya kopyala")
     window._btn_sess_clip.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_sess_clip.setStyleSheet(REMOTE_BTN_GHOST_SS)
     window._btn_sess_clip.setFixedHeight(34)
@@ -158,7 +158,7 @@ def _build_session_actions_panel(window: "MainWindow") -> QFrame:
     window._btn_sess_save.clicked.connect(window._screenshot_save_png)
     lay.addWidget(window._btn_sess_save)
 
-    window._btn_sess_paste = QPushButton("Panodaki metni telefona gonder")
+    window._btn_sess_paste = QPushButton("Panodaki metni telefona gönder")
     window._btn_sess_paste.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_sess_paste.setStyleSheet(REMOTE_BTN_PRIMARY_SS)
     window._btn_sess_paste.setFixedHeight(36)
@@ -178,13 +178,13 @@ def _build_remote_shortcuts_panel() -> QFrame:
     root.setContentsMargins(14, 12, 14, 12)
     root.setSpacing(10)
 
-    title = QLabel("Klavye kisayollari")
+    title = QLabel("Klavye kısayolları")
     title.setStyleSheet(f"color: {_ACCENT}; font-size: 12px; font-weight: 700;")
     root.addWidget(title)
 
     intro = QLabel(
-        "Kisayollar yalnizca soldaki canli goruntu odaktayken calisir. "
-        "Kullanmadan once goruntu alanina tiklayin."
+        "Kısayollar yalnızca soldaki canlı görüntü odaktayken çalışır. "
+        "Kullanmadan önce görüntü alanına tıklayın."
     )
     intro.setWordWrap(True)
     intro.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px; background: transparent;")
@@ -218,28 +218,28 @@ def _build_remote_shortcuts_panel() -> QFrame:
     shortcuts_rows: list[tuple[str, str]] = [
         (
             "Esc",
-            "Geri: Aktif ekrandan bir onceki adima doner. "
-            "Bazi uygulamalarda bu islem cikis veya iptal etme islevi gorebilir."
+            "Geri: Aktif ekrandan bir önceki adıma döner. "
+            "Bazı uygulamalarda bu işlem çıkış veya iptal etme işlevi görebilir."
         ),
         (
             "Ctrl+H",
-            "Ana ekran: Telefonun ana ekranina hizli bir sekilde donus yapmanizi saglar. "
-            "Acik olan uygulama arka planda calismaya devam eder."
+            "Ana ekran: Telefonun ana ekranına hızlı bir şekilde dönüş yapmanızı sağlar. "
+            "Açık olan uygulama arka planda çalışmaya devam eder."
         ),
         (
             "Ctrl+Tab",
-            "Son uygulamalar: Arka planda calisan uygulamalari goruntuler ve "
-            "uygulamalar arasinda hizli gecis yapmaniza olanak tanir."
+            "Son uygulamalar: Arka planda çalışan uygulamaları görüntüler ve "
+            "uygulamalar arasında hızlı geçiş yapmanıza olanak tanır."
         ),
         (
             "Ctrl+M",
-            "Medya sesi: Telefonun medya sesini kapatir veya tekrar acar. "
-            "Ayni kisayol tusu ile sessize alma ve sesi geri acma islemi yapilir."
+            "Medya sesi: Telefonun medya sesini kapatır veya tekrar açar. "
+            "Aynı kısayol tuşu ile sessize alma ve sesi geri açma işlemi yapılır."
         ),
         (
             "Ctrl+Up / Ctrl+Down",
-            "Ses kontrolu: Medya ses seviyesini artirir veya azaltir. "
-            "Video, muzik ve diger medya icerikleri icin gecerlidir."
+            "Ses kontrolü: Medya ses seviyesini artırır veya azaltır. "
+            "Video, müzik ve diğer medya içerikleri için geçerlidir."
         ),
     ]
 

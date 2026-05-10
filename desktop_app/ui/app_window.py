@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QPushButton,
@@ -171,6 +172,7 @@ class MainWindow(
         self._load_user_prefs()
         self.setStyleSheet(GLOBAL_STYLESHEET)
         self._build_ui()
+        self._install_shared_context_menu_for_line_edits()
         self._connect_signals()
 
         self._presence_timer = QTimer(self)
@@ -588,13 +590,11 @@ class MainWindow(
         menu.addAction(header_action)
         menu.addSeparator()
 
-        profile_action = menu.addAction("👤  Profil bilgileri")
-        edit_action = menu.addAction("✏️  Bilgileri düzenle")
-        pwd_action = menu.addAction("🔑  Şifre değiştir")
+        profile_action = menu.addAction("Profil bilgileri")
+        edit_action = menu.addAction("Bilgileri düzenle")
+        pwd_action = menu.addAction("Şifre değiştir")
         menu.addSeparator()
-        about_action = menu.addAction("ℹ️  Hakkında")
-        menu.addSeparator()
-        logout_action = menu.addAction("🚪  Çıkış yap")
+        logout_action = menu.addAction("Çıkış yap")
         logout_action.setData("danger")
 
         popup_pos = self._account_button.mapToGlobal(self._account_button.rect().bottomRight())
@@ -609,59 +609,35 @@ class MainWindow(
         elif selected == pwd_action:
             self._open_profile_drawer()
             self._set_profile_panel("password")
-        elif selected == about_action:
-            self._show_about_info()
         elif selected == logout_action:
             self._on_logout()
-
-    def _show_about_info(self):
-        from PyQt6.QtWidgets import QMessageBox
-        box = QMessageBox(self)
-        box.setWindowTitle("Hakkında")
-        box.setText(
-            f"<b>{AppMeta.WINDOW_TITLE}</b><br><br>"
-            f"Sürüm: 1.0<br>"
-            f"Uzak telefon kontrol masaüstü istemcisi.<br><br>"
-            f"<span style='color:{_TEXT_DIM};'>© 2024 Remote Phone Control</span>"
-        )
-        box.setStyleSheet(f"""
-            QMessageBox {{
-                background-color: #1E1E1E;
-                color: {_TEXT};
-            }}
-            QMessageBox QLabel {{
-                color: {_TEXT};
-                font-size: 13px;
-            }}
-            QPushButton {{
-                background-color: {_BG_CARD};
-                color: {_TEXT};
-                border: 1px solid {_BORDER};
-                border-radius: 6px;
-                padding: 6px 20px;
-                font-size: 12px;
-            }}
-            QPushButton:hover {{
-                background-color: #383838;
-                border-color: #555;
-            }}
-        """)
-        box.exec()
 
     def _show_code_input_menu(self, pos):
         inp = getattr(self, "_inp_code", None)
         if inp is None:
             return
+        self._show_line_edit_context_menu(inp, pos)
+
+    def _install_shared_context_menu_for_line_edits(self) -> None:
+        for inp in self.findChildren(QLineEdit):
+            inp.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            inp.customContextMenuRequested.connect(
+                lambda pos, le=inp: self._show_line_edit_context_menu(le, pos)
+            )
+
+    def _show_line_edit_context_menu(self, inp: QLineEdit, pos):
+        if inp.echoMode() == QLineEdit.EchoMode.Password:
+            return
         menu = QMenu(self)
         menu.setObjectName("codeInputMenu")
         menu.setStyleSheet(self._MENU_SS)
 
-        cut_action = menu.addAction("✂️  Kes")
-        copy_action = menu.addAction("📋  Kopyala")
-        paste_action = menu.addAction("📥  Yapıştır")
+        cut_action = menu.addAction("Kes")
+        copy_action = menu.addAction("Kopyala")
+        paste_action = menu.addAction("Yapıştır")
         menu.addSeparator()
-        select_all_action = menu.addAction("🔤  Tümünü seç")
-        clear_action = menu.addAction("🗑️  Temizle")
+        select_all_action = menu.addAction("Tümünü seç")
+        clear_action = menu.addAction("Temizle")
 
         cut_action.setShortcut(QKeySequence.StandardKey.Cut)
         copy_action.setShortcut(QKeySequence.StandardKey.Copy)

@@ -158,12 +158,12 @@ def confirm_forget_pairing(parent: QWidget, device_label: str) -> bool:
     actions.setSpacing(10)
     actions.addStretch(1)
 
-    cancel_btn = QPushButton("Iptal")
+    cancel_btn = QPushButton("İptal")
     cancel_btn.setObjectName("cancelButton")
     cancel_btn.clicked.connect(dialog.reject)
     actions.addWidget(cancel_btn)
 
-    confirm_btn = QPushButton("Eslesmeyi Kaldir")
+    confirm_btn = QPushButton("Eşleşmeyi Kaldır")
     confirm_btn.setObjectName("confirmButton")
     confirm_btn.clicked.connect(dialog.accept)
     confirm_btn.setDefault(True)

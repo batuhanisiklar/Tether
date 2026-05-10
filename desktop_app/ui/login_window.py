@@ -11,10 +11,10 @@ import sys
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QFrame, QWidget, QStackedWidget, QCheckBox, QToolButton,
+    QLineEdit, QPushButton, QFrame, QWidget, QStackedWidget, QCheckBox, QToolButton, QMenu,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
-from PyQt6.QtGui import QIcon, QPainter, QPen, QColor, QPixmap
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QPoint
+from PyQt6.QtGui import QIcon, QPainter, QPen, QColor, QPixmap, QKeySequence
 
 from desktop_app.config import Colors, AppMeta
 from desktop_app.config.prefs_store import (
@@ -39,6 +39,31 @@ from desktop_app.ui.theme import (
 from desktop_app.ui.utils import desktop_device_name, load_logo_pixmap
 
 logger = logging.getLogger(__name__)
+
+_CTX_MENU_SS = """
+    QMenu#codeInputMenu {
+        background-color: #1B1B1B;
+        color: #F3F3F3;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px;
+        padding: 4px;
+        min-width: 118px;
+    }
+    QMenu#codeInputMenu::item {
+        padding: 5px 8px;
+        margin: 1px 2px;
+        border-radius: 6px;
+        background: transparent;
+    }
+    QMenu#codeInputMenu::item:selected {
+        background-color: #E45D3A;
+        color: #151515;
+    }
+    QMenu#codeInputMenu::item:disabled {
+        color: #7E7E7E;
+        background: transparent;
+    }
+"""
 
 
 class _AuthThread(QThread):
@@ -207,36 +232,46 @@ class LoginWindow(QDialog):
             ("🔒", "Güvenli bağlantı", "Uçtan uca şifreli iletişim"),
             ("📱", "Erişilebilirlik", "Telefon kontrolü için yardımcı servis"),
         ]
-        for i, (emoji, title, desc) in enumerate(features):
-            feat_row = QHBoxLayout()
-            feat_row.setContentsMargins(4, 0, 4, 0)
-            feat_row.setSpacing(16)
+        for emoji, title, desc in features:
+            feat_card = QFrame()
+            feat_card.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(255,255,255,0.035);
+                    border: 1px solid rgba(255,255,255,0.065);
+                    border-radius: 10px;
+                }
+            """)
+            feat_row = QHBoxLayout(feat_card)
+            feat_row.setContentsMargins(12, 10, 12, 10)
+            feat_row.setSpacing(12)
 
             ico = QLabel(emoji)
-            ico.setFixedSize(44, 44)
+            ico.setFixedSize(38, 38)
             ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            ico.setStyleSheet(f"""
-                font-size: 22px;
-                background: rgba(224, 96, 64, 15);
-                border: 1px solid rgba(224, 96, 64, 20);
-                border-radius: 12px;
+            ico.setStyleSheet("""
+                QLabel {
+                    font-size: 20px;
+                    background-color: rgba(224, 96, 64, 0.14);
+                    border: 1px solid rgba(224, 96, 64, 0.28);
+                    border-radius: 9px;
+                }
             """)
             feat_row.addWidget(ico, 0, Qt.AlignmentFlag.AlignVCenter)
 
             txt_col = QVBoxLayout()
             txt_col.setContentsMargins(0, 0, 0, 0)
-            txt_col.setSpacing(2)
+            txt_col.setSpacing(3)
             t = QLabel(title)
-            t.setStyleSheet(text_style(c.TEXT, size=14, weight=700) + " background: transparent; border: none;")
+            t.setStyleSheet(text_style(c.TEXT, size=13, weight=800) + " background: transparent; border: none;")
             txt_col.addWidget(t)
             d = QLabel(desc)
-            d.setStyleSheet(text_style(c.TEXT_SUBTLE, size=11) + " background: transparent; border: none;")
+            d.setWordWrap(True)
+            d.setStyleSheet(text_style(c.TEXT_SUBTLE, size=10) + " background: transparent; border: none;")
             txt_col.addWidget(d)
             feat_row.addLayout(txt_col, 1)
 
-            lay.addLayout(feat_row)
-            if i < len(features) - 1:
-                lay.addSpacing(18)
+            lay.addWidget(feat_card)
+            lay.addSpacing(8)
 
         lay.addStretch(1)
         return panel
@@ -458,7 +493,7 @@ class LoginWindow(QDialog):
         lay.addWidget(sep)
         lay.addSpacing(14)
 
-        sec_note = QLabel("🔒  Verileriniz güvenli bağlantı ile korunmaktadır")
+        sec_note = QLabel("Verileriniz güvenli bağlantı ile korunmaktadır")
         sec_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sec_note.setStyleSheet(text_style(c.TEXT_SUBTLE, size=10))
         lay.addWidget(sec_note)
@@ -474,7 +509,7 @@ class LoginWindow(QDialog):
     def _check_indicator_images(self) -> str:
         """
         Checkbox tik işareti için geçici bir PNG oluşturur; CSS image: url(...) ile kullanılır.
-        Boş bir ✓ ikonu çizer, kaydeder ve yolunu döner.
+        Boş bir tik işareti çizer, kaydeder ve yolunu döner.
         """
         import tempfile
         img_path = os.path.join(tempfile.gettempdir(), "_rpc_check_tick.png")
@@ -680,8 +715,75 @@ class LoginWindow(QDialog):
             inp.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             inp.setDragEnabled(False)
             inp.installEventFilter(self)
+        else:
+            inp.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            inp.customContextMenuRequested.connect(
+                lambda pos, le=inp: self._show_line_edit_context_menu(le, pos)
+            )
         inp.setStyleSheet(line_edit_style(font_size=14))
         return inp
+
+    def _show_line_edit_context_menu(self, inp: QLineEdit, pos):
+        if inp.echoMode() == QLineEdit.EchoMode.Password:
+            return
+        menu = QMenu(self)
+        menu.setObjectName("codeInputMenu")
+        menu.setStyleSheet(_CTX_MENU_SS)
+
+        cut_action = menu.addAction("Kes")
+        copy_action = menu.addAction("Kopyala")
+        paste_action = menu.addAction("Yapıştır")
+        menu.addSeparator()
+        select_all_action = menu.addAction("Tümünü seç")
+        clear_action = menu.addAction("Temizle")
+
+        cut_action.setShortcut(QKeySequence.StandardKey.Cut)
+        copy_action.setShortcut(QKeySequence.StandardKey.Copy)
+        paste_action.setShortcut(QKeySequence.StandardKey.Paste)
+        select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
+        cut_action.setShortcutVisibleInContextMenu(True)
+        copy_action.setShortcutVisibleInContextMenu(True)
+        paste_action.setShortcutVisibleInContextMenu(True)
+        select_all_action.setShortcutVisibleInContextMenu(True)
+
+        has_selection = inp.hasSelectedText()
+        has_text = bool(inp.text())
+        cut_action.setEnabled(has_selection and not inp.isReadOnly())
+        copy_action.setEnabled(has_selection)
+        paste_action.setEnabled(not inp.isReadOnly())
+        select_all_action.setEnabled(has_text)
+        clear_action.setEnabled(has_text and not inp.isReadOnly())
+
+        global_pos = inp.mapToGlobal(pos)
+        selected = menu.exec(self._fit_menu_pos_in_window(menu, global_pos))
+        if selected == cut_action:
+            inp.cut()
+        elif selected == copy_action:
+            inp.copy()
+        elif selected == paste_action:
+            inp.paste()
+        elif selected == select_all_action:
+            inp.selectAll()
+        elif selected == clear_action:
+            inp.clear()
+
+    def _fit_menu_pos_in_window(self, menu: QMenu, anchor_pos: QPoint) -> QPoint:
+        menu.ensurePolished()
+        menu_size = menu.sizeHint()
+        win_top_left = self.mapToGlobal(self.rect().topLeft())
+        win_bottom_right = self.mapToGlobal(self.rect().bottomRight())
+
+        margin = 8
+        min_x = win_top_left.x() + margin
+        min_y = win_top_left.y() + margin
+        max_x = max(min_x, win_bottom_right.x() - menu_size.width() - margin)
+        max_y = max(min_y, win_bottom_right.y() - menu_size.height() - margin)
+
+        x = anchor_pos.x() - menu_size.width()
+        y = anchor_pos.y()
+        x = max(min_x, min(x, max_x))
+        y = max(min_y, min(y, max_y))
+        return QPoint(x, y)
 
     def _make_eye_button(self) -> QToolButton:
         """Şifre göster/gizle butonu oluşturur (ortak yardımcı)."""

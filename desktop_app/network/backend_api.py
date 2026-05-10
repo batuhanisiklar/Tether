@@ -171,7 +171,7 @@ class BackendApi:
     def get_phone_device_bundle(
         self, token: str, pc_device_id: str
     ) -> tuple[dict[str, Any] | None, str]:
-        """Tek HTTP: devices + recent telefonlar + pairings (masaustu)."""
+        """Tek HTTP: devices + recent telefonlar + pairings (masaüstü)."""
         url = f"{self._base}/devices/phone-bundle"
         for attempt in range(2):
             try:
@@ -193,7 +193,7 @@ class BackendApi:
                     and isinstance(e, RequestException)
                     and self._is_transient_connection_reset(e)
                 ):
-                    logger.info("get_phone_device_bundle: gecici baglanti kopmasi, tekrar deneniyor")
+                    logger.info("get_phone_device_bundle: geçici bağlantı kopması, tekrar deneniyor")
                     time.sleep(0.6)
                     continue
                 logger.warning("get_phone_device_bundle: %s", e)

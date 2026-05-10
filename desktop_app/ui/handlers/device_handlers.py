@@ -47,7 +47,7 @@ class DeviceHandlersMixin:
             if bundle_err and bundle_err != "bundle_missing":
                 low = (bundle_err or "").lower()
                 if ("10054" in low) or ("connection aborted" in low) or ("forcibly closed by the remote host" in low):
-                    logger.info("phone-bundle gecici ag kopmasi: %s", bundle_err)
+                    logger.info("phone-bundle geçici ağ kopması: %s", bundle_err)
                 else:
                     logger.warning("phone-bundle alinamadi: %s", bundle_err)
 
@@ -69,7 +69,7 @@ class DeviceHandlersMixin:
                 _ingest(pairings)
             else:
                 if "Bu cihaza erisim yetkiniz yok" in (err or ""):
-                    logger.warning("Pairings yetkisiz (oturum sifirlanacak): %s", err)
+                    logger.warning("Pairings yetkisiz (oturum sıfırlanacak): %s", err)
                     clear_logged_in()
                     self._auth_token = ""
                     return []
@@ -166,14 +166,14 @@ class DeviceHandlersMixin:
         if not confirm_forget_pairing(self, card.display_name()):
             return
         if not self._auth_token:
-            self._set_status("Eslesmeyi sunucudan silmek icin tekrar giris yapin.", error=True)
+            self._set_status("Eşleşmeyi sunucudan silmek için tekrar giriş yapın.", error=True)
             return
 
         success, error_msg = self._backend_api.delete_pairing(
             self._auth_token, self._ws_client.device_id, card.device_id, card.address,
         )
         if not success:
-            self._set_status(error_msg or "Eslesme silinemedi.", error=True)
+            self._set_status(error_msg or "Eşleşme silinemedi.", error=True)
             return
 
         self._load_devices_from_db()
@@ -190,4 +190,4 @@ class DeviceHandlersMixin:
 
         self._ws_client.send_request_presence()
         self._refresh_home_summary()
-        self._set_status("Eslesme kaldirildi.")
+        self._set_status("Eşleşme kaldırıldı.")

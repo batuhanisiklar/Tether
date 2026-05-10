@@ -218,13 +218,13 @@ class WsClient(QObject):
             ws.send(json.dumps(payload, separators=(",", ":")))
             return True
         except websocket.WebSocketConnectionClosedException:
-            logger.warning("Kapali WebSocket'a mesaj gonderildi: %s", payload.get("type"))
+            logger.warning("Kapalı WebSocket'a mesaj gönderildi: %s", payload.get("type"))
             if not self._disconnect_emitted:
                 self._disconnect_emitted = True
                 self.disconnected.emit("socket is already closed")
             return False
         except Exception as exc:
-            logger.error("WebSocket gonderim hatasi: %s", exc)
+            logger.error("WebSocket gönderim hatası: %s", exc)
             if not silent:
                 self.error_occurred.emit(str(exc), "")
             return False
@@ -360,14 +360,14 @@ class WsClient(QObject):
         elif msg_type == "error":
             code = str(msg.get("code") or "").strip()
             text = msg.get("message", "Bilinmeyen hata")
-            logger.warning("Sunucu WS hata mesaji: %s (code=%s)", text, code or "-")
+            logger.warning("Sunucu WS hata mesajı: %s (code=%s)", text, code or "-")
             self.error_occurred.emit(text, code)
 
     def _on_error(self, ws, error) -> None:
         if ws is not self._ws:
             return
         if isinstance(error, websocket.WebSocketConnectionClosedException):
-            logger.info("WebSocket kapali hata callback'i alindi")
+            logger.info("WebSocket kapalı hata callback'i alındı")
             if not self._disconnect_emitted:
                 self._disconnect_emitted = True
                 self.disconnected.emit("socket is already closed")

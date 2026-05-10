@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 
 from desktop_app.config import Colors
 from desktop_app.ui.styles.app_styles import (
@@ -80,7 +80,7 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     header.addWidget(title)
     header.addStretch()
 
-    btn_close = QPushButton("✕  Kapat")
+    btn_close = QPushButton("Kapat")
     btn_close.setFixedHeight(32)
     btn_close.setMinimumWidth(86)
     btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -151,6 +151,48 @@ def _card_frame() -> QFrame:
     return card
 
 
+def _contact_icon_label(kind: str) -> QLabel:
+    label = QLabel()
+    label.setFixedSize(28, 28)
+
+    pm = QPixmap(28, 28)
+    pm.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+    bg = QColor(_ACCENT)
+    bg.setAlpha(34)
+    border = QColor(_ACCENT)
+    border.setAlpha(78)
+    painter.setPen(QPen(border, 1))
+    painter.setBrush(bg)
+    painter.drawRoundedRect(QRectF(0.5, 0.5, 27, 27), 8, 8)
+
+    icon = QColor(_ACCENT)
+    painter.setPen(QPen(icon, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    if kind == "email":
+        rect = QRectF(7.0, 9.0, 14.0, 10.0)
+        painter.drawRoundedRect(rect, 2, 2)
+        painter.drawLine(QPointF(7.4, 10.0), QPointF(14.0, 15.2))
+        painter.drawLine(QPointF(20.6, 10.0), QPointF(14.0, 15.2))
+    else:
+        path = QPainterPath()
+        path.moveTo(10.0, 7.5)
+        path.cubicTo(8.6, 8.5, 8.6, 11.4, 10.1, 14.3)
+        path.cubicTo(11.6, 17.1, 14.7, 19.5, 18.0, 20.2)
+        path.cubicTo(19.6, 20.5, 20.8, 19.3, 20.5, 17.9)
+        painter.drawPath(path)
+        painter.drawLine(QPointF(10.0, 7.5), QPointF(12.1, 9.8))
+        painter.drawLine(QPointF(18.0, 20.2), QPointF(19.8, 17.8))
+
+    painter.end()
+    label.setPixmap(pm)
+    return label
+
+
 def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     account_card = _card_frame()
     summary_lay = QVBoxLayout(account_card)
@@ -192,9 +234,7 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     # E-posta satırı
     email_row = QHBoxLayout()
     email_row.setSpacing(10)
-    email_icon = QLabel("📧")
-    email_icon.setFixedWidth(20)
-    email_icon.setStyleSheet("font-size: 14px;")
+    email_icon = _contact_icon_label("email")
     email_row.addWidget(email_icon)
     email_col = QVBoxLayout()
     email_col.setSpacing(0)
@@ -211,9 +251,7 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     # Telefon satırı
     phone_row = QHBoxLayout()
     phone_row.setSpacing(10)
-    phone_icon = QLabel("📱")
-    phone_icon.setFixedWidth(20)
-    phone_icon.setStyleSheet("font-size: 14px;")
+    phone_icon = _contact_icon_label("phone")
     phone_row.addWidget(phone_icon)
     phone_col = QVBoxLayout()
     phone_col.setSpacing(0)
@@ -239,7 +277,7 @@ def _build_action_buttons(window: "MainWindow", parent_lay: QVBoxLayout) -> None
     ops_col = QVBoxLayout()
     ops_col.setSpacing(8)
 
-    window._profile_action_edit = QPushButton("✏️  Bilgileri düzenle")
+    window._profile_action_edit = QPushButton("Bilgileri düzenle")
     window._profile_action_edit.setMinimumHeight(40)
     window._profile_action_edit.setSizePolicy(
         QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -251,7 +289,7 @@ def _build_action_buttons(window: "MainWindow", parent_lay: QVBoxLayout) -> None
     )
     ops_col.addWidget(window._profile_action_edit)
 
-    window._profile_action_pwd = QPushButton("🔑  Şifre değiştir")
+    window._profile_action_pwd = QPushButton("Şifre değiştir")
     window._profile_action_pwd.setMinimumHeight(40)
     window._profile_action_pwd.setSizePolicy(
         QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -315,7 +353,7 @@ def _build_edit_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     window._profile_btn_cancel.clicked.connect(window._on_profile_cancel)
     btn_row.addWidget(window._profile_btn_cancel)
 
-    window._profile_btn_save = QPushButton("💾  Kaydet")
+    window._profile_btn_save = QPushButton("Kaydet")
     window._profile_btn_save.setFixedHeight(38)
     window._profile_btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
     window._profile_btn_save.setStyleSheet(filled_button_style())
@@ -362,7 +400,7 @@ def _build_password_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None
     window._profile_pwd_cancel.clicked.connect(window._on_profile_pwd_cancel)
     pw_btn.addWidget(window._profile_pwd_cancel)
 
-    window._profile_pwd_save = QPushButton("💾  Kaydet")
+    window._profile_pwd_save = QPushButton("Kaydet")
     window._profile_pwd_save.setFixedHeight(38)
     window._profile_pwd_save.setCursor(Qt.CursorShape.PointingHandCursor)
     window._profile_pwd_save.setStyleSheet(filled_button_style())

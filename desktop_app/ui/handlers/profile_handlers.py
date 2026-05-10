@@ -172,11 +172,11 @@ class ProfileHandlersMixin:
 
     def _save_profile_from_drawer(self) -> None:
         if not self._auth_token:
-            self._profile_err.setText("Oturum bulunamadi. Tekrar giris yapin.")
+            self._profile_err.setText("Oturum bulunamadı. Tekrar giriş yapın.")
             return
         em = self._profile_inp_email.text().strip().lower()
         if not em or "@" not in em or len(em) < 5:
-            self._profile_err.setText("Gecerli bir e-posta girin.")
+            self._profile_err.setText("Geçerli bir e-posta girin.")
             return
         phone = self._profile_inp_phone.text().strip()
 
@@ -220,7 +220,7 @@ class ProfileHandlersMixin:
 
     def _save_password_from_drawer(self) -> None:
         if not self._auth_token:
-            self._profile_pwd_err.setText("Oturum bulunamadi. Tekrar giris yapin.")
+            self._profile_pwd_err.setText("Oturum bulunamadı. Tekrar giriş yapın.")
             return
         oldp = self._profile_inp_old.text()
         p1   = self._profile_inp_pwd1.text()

@@ -55,7 +55,7 @@ class DesktopAudioPlayer:
             else:
                 logger.warning("No default audio output device found.")
         except Exception as exc:
-            logger.error("Audio player baslatilamadi: %s", exc, exc_info=True)
+            logger.error("Audio player başlatılamadı: %s", exc, exc_info=True)
 
     def write_pcm(self, pcm_bytes: bytes) -> None:
         if not pcm_bytes:
