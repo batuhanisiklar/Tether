@@ -697,11 +697,11 @@ async def _handle_device_logout(
 
 
 async def websocket_handler(request: web.Request) -> web.StreamResponse:
-    ws_probe = web.WebSocketResponse(max_msg_size=5 * 1024 * 1024, heartbeat=20)
+    ws_probe = web.WebSocketResponse(max_msg_size=5 * 1024 * 1024, heartbeat=60)
     if not ws_probe.can_prepare(request).ok:
         return web.Response(text="OK\n")
 
-    ws = web.WebSocketResponse(max_msg_size=5 * 1024 * 1024, heartbeat=20)
+    ws = web.WebSocketResponse(max_msg_size=5 * 1024 * 1024, heartbeat=60)
     await ws.prepare(request)
 
     app = request.app
