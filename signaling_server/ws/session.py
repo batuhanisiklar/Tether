@@ -37,6 +37,16 @@ async def user_can_access_session_code(
     if target and int(target.get("user_id")) == int(user_id):
         return True
 
+    if message_type == MessageTypes.JOIN and role == "pc" and target:
+        online_entry = app["online_devices"].get(normalized_code)
+        target_is_online_phone = (
+            str(target.get("device_type") or "") == "phone"
+            and online_entry is not None
+            and str(online_entry.get("role") or "") == "phone"
+        )
+        if target_is_online_phone:
+            return True
+
     paired_as_controller = await asyncio.to_thread(app["db"].get_connected_devices_as_controller, own_device_id)
     paired_as_target = await asyncio.to_thread(app["db"].get_connected_devices_as_target, own_device_id)
     return normalized_code in {
