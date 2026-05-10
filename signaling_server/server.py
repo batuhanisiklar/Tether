@@ -12,9 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from signaling_server.auth import ensure_auth_secret_configured
 from signaling_server.config import ServerConfig
 from signaling_server.db_client import ServerDbClient
-from signaling_server.http.auth import auth_login, auth_me, auth_profile_update, auth_register
-from signaling_server.http.devices import desktop_phone_bundle, list_devices, list_recent_devices, upsert_device
-from signaling_server.http.pairings import delete_pairing, list_pairings
+from signaling_server.api.auth import auth_login, auth_me, auth_profile_update, auth_register
+from signaling_server.api.devices import desktop_phone_bundle, list_devices, list_recent_devices, upsert_device
+from signaling_server.api.pairings import delete_pairing, list_pairings
 from signaling_server.ws.handler import websocket_handler
 
 logging.basicConfig(level=logging.INFO, format=ServerConfig.LOG_FORMAT)
