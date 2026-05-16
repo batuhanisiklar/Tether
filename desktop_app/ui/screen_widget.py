@@ -24,7 +24,7 @@ from PyQt6.QtGui import (
     QPen,
 )
 
-from desktop_app.config import Ui
+from desktop_app.config import Colors, Ui
 from desktop_app.config.constants import AndroidKeyCodes
 
 
@@ -55,8 +55,8 @@ class ScreenWidget(QLabel):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet(f"""
             QLabel {{
-                background-color: {Ui.SCREEN_PLACEHOLDER_BG};
-                border: 1px solid {Ui.SCREEN_BORDER};
+                background-color: {Colors.BG_APP};
+                border: 1px solid {Colors.BORDER};
                 border-radius: 4px;
             }}
         """)
@@ -71,7 +71,6 @@ class ScreenWidget(QLabel):
 
         self._show_placeholder()
 
-    # ─── PUBLIC ────────────────────────────────────────────────────────────────
 
     def set_frame(self, pixmap: QPixmap):
         """Yeni bir frame göster."""
@@ -80,7 +79,6 @@ class ScreenWidget(QLabel):
         self._current_pixmap = pixmap
         self._last_source_key = pixmap.cacheKey()
         self._render()
-        self.update()
 
     def clear_frame(self):
         """Stream durduğunda placeholder göster."""
@@ -96,7 +94,11 @@ class ScreenWidget(QLabel):
         Görüntüyü belirtilen açıda döndür (0, 90, 180, 270).
         Koordinat normalizasyonu otomatik güncellenir.
         """
-        self._rotation_deg = degrees % 360
+        try:
+            deg = int(degrees)
+        except (TypeError, ValueError):
+            deg = 0
+        self._rotation_deg = (round(deg / 90.0) * 90) % 360
         self._last_render_key = None
         if self._current_pixmap:
             self._render()
@@ -129,7 +131,6 @@ class ScreenWidget(QLabel):
             return source_h, source_w
         return source_w, source_h
 
-    # ─── MOUSE EVENTS ──────────────────────────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -200,7 +201,6 @@ class ScreenWidget(QLabel):
             return None
         return QPixmap(p)
 
-    # ─── COORDINATE MAPPING ────────────────────────────────────────────────────
 
     def _image_rect(self) -> QRect:
         """Render edilen (ölçeklenmiş+döndürülmüş) pixmap'in gerçek dikdörtgeni."""
@@ -219,16 +219,12 @@ class ScreenWidget(QLabel):
         Döndürme açısına göre eksen eşleştirmesi yapılır.
         """
         rect = self._image_rect()
-        # Görüntü sınırlarına clamp et
         rx = max(rect.left(), min(x, rect.right()))
         ry = max(rect.top(), min(y, rect.bottom()))
-        # [0,1] aralığına normalize et (görüntü içi)
         nx = (rx - rect.left()) / max(rect.width(), 1)
         ny = (ry - rect.top()) / max(rect.height(), 1)
 
-        # Döndürme açısına göre telefon koordinatına çevir
         if self._rotation_deg == 90:
-            # Ekran 90° CW döndü; x_widget → y_telefon, y_widget → (1-x_telefon)
             nx, ny = ny, 1.0 - nx
         elif self._rotation_deg == 180:
             nx, ny = 1.0 - nx, 1.0 - ny
@@ -237,14 +233,12 @@ class ScreenWidget(QLabel):
 
         return round(nx, Ui.COORD_PRECISION), round(ny, Ui.COORD_PRECISION)
 
-    # ─── RENDERING ─────────────────────────────────────────────────────────────
 
     def _render(self):
         """Mevcut pixmap'i döndürerek ve widget boyutuna uyarlayarak göster."""
         if not self._current_pixmap:
             return
         w, h = self.width(), self.height()
-        # Layout henüz hazır değilken scaled(0,0) boş pixmap → siyah ekran; resizeEvent tekrar dener.
         if w < 4 or h < 4:
             return
 
@@ -284,9 +278,9 @@ class ScreenWidget(QLabel):
     def _show_placeholder(self):
         """Bağlantı bekleme ekranı."""
         ph = QPixmap(480, 960)
-        ph.fill(QColor(Ui.SCREEN_PLACEHOLDER_BG))
+        ph.fill(QColor(Colors.BG_APP))
         painter = QPainter(ph)
-        painter.setPen(QColor(Ui.SCREEN_PLACEHOLDER_FG))
+        painter.setPen(QColor("#97A2B8"))
         painter.setFont(QFont("Segoe UI", 11))
         painter.drawText(
             ph.rect(),
@@ -414,7 +408,6 @@ class StreamAspectFitContainer(QWidget):
             cw, ch = w_at_full_h, ah
         else:
             cw, ch = aw, max(int(aw / r), 1)
-        # İç ScreenWidget + PhoneDeviceFrame kenarları için alt sınır
         cw = max(cw, 124)
         ch = max(ch, 224)
         self._phone.setFixedSize(cw, ch)

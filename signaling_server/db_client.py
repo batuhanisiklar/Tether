@@ -148,6 +148,30 @@ class ServerDbClient:
                         ALTER TABLE devices ALTER COLUMN device_id SET NOT NULL;
                         """
                     )
+                    cur.execute(
+                        """
+                        DO $$ BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_class c
+                                JOIN pg_namespace n ON n.oid = c.relnamespace
+                                WHERE c.relname = 'idx_devices_device_id_unique'
+                                  AND n.nspname = 'public'
+                            ) THEN
+                                IF NOT EXISTS (
+                                    SELECT 1
+                                    FROM devices
+                                    GROUP BY device_id
+                                    HAVING COUNT(*) > 1
+                                ) THEN
+                                    CREATE UNIQUE INDEX idx_devices_device_id_unique
+                                    ON devices(device_id);
+                                ELSE
+                                    RAISE WARNING 'devices.device_id duplicates found; unique index not created';
+                                END IF;
+                            END IF;
+                        END $$;
+                        """
+                    )
 
                     # ── connections tablosu ─────────────────────────────────
                     # PC (controller) → telefon (target) tek yönlü bağlantı kaydı.
@@ -175,6 +199,40 @@ class ServerDbClient:
                                 ALTER TABLE connections
                                     ADD CONSTRAINT connections_controller_target_unique
                                     UNIQUE (controller_device_id, target_device_id);
+                            END IF;
+                        END $$;
+                        """
+                    )
+                    cur.execute(
+                        """
+                        DO $$ BEGIN
+                            IF EXISTS (
+                                SELECT 1 FROM pg_class WHERE relname = 'idx_devices_device_id_unique'
+                            ) THEN
+                                IF NOT EXISTS (
+                                    SELECT 1 FROM pg_constraint
+                                    WHERE conname = 'connections_controller_device_id_fk'
+                                      AND conrelid = 'connections'::regclass
+                                ) THEN
+                                    ALTER TABLE connections
+                                        ADD CONSTRAINT connections_controller_device_id_fk
+                                        FOREIGN KEY (controller_device_id)
+                                        REFERENCES devices(device_id)
+                                        ON DELETE CASCADE
+                                        NOT VALID;
+                                END IF;
+                                IF NOT EXISTS (
+                                    SELECT 1 FROM pg_constraint
+                                    WHERE conname = 'connections_target_device_id_fk'
+                                      AND conrelid = 'connections'::regclass
+                                ) THEN
+                                    ALTER TABLE connections
+                                        ADD CONSTRAINT connections_target_device_id_fk
+                                        FOREIGN KEY (target_device_id)
+                                        REFERENCES devices(device_id)
+                                        ON DELETE CASCADE
+                                        NOT VALID;
+                                END IF;
                             END IF;
                         END $$;
                         """
@@ -234,6 +292,17 @@ class ServerDbClient:
         except Exception as e:
             logger.exception("authenticate_user: %s", e)
             return None
+
+    def delete_user(self, user_id: int) -> bool:
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM users WHERE user_id = %s", (int(user_id),))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.exception("delete_user: %s", e)
+            return False
 
     def get_user_by_id(self, user_id: int) -> Optional[dict]:
         try:

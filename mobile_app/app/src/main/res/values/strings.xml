@@ -74,7 +74,7 @@
     <string name="open_accessibility_settings">Erisilebilirlik ayarlarini ac</string>
     <string name="help_title">Kurulum ve Yardim</string>
     <string name="help_step_1">1. Telefonda giris yaptiktan sonra erisilebilirlik servisini aktif edin.</string>
-    <string name="help_step_2">2. Ana Sayfa ekranindaki kodu bilgisayardaki uygulamaya girerek ilk eslesmeyi tamamlayin.</string>
+    <string name="help_step_2">2. Ana Sayfa ekranindaki 12 haneli sabit adresi bilgisayardaki uygulamaya girerek ilk eslesmeyi tamamlayin.</string>
     <string name="help_step_3">3. Sonraki baglantilarda bilgisayar uygulamasinda telefon sabit adresiyle tekrar oturum acin; telefondan baglanma yoktur.</string>
     <string name="help_step_4">4. Sorun yasarsaniz Ayarlar ekranindaki cihaz kimligi ve tercih edilen bilgisayar bilgisini kontrol edin.</string>
     <string name="warning_accessibility">Dokunma kontrolü için buraya tıklayın</string>

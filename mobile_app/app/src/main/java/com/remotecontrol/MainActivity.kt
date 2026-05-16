@@ -8,8 +8,6 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
@@ -76,8 +74,15 @@ class MainActivity : AppCompatActivity() {
     private var connectionGeneration = 0
     /** Son device_ack partner_online (PC presence). */
     private var lastAckPartnerOnline: Boolean? = null
+    /** Gecici partner_online=false dalgalanmalari icin tolerans sayaci. */
+    private var partnerOfflineAckStreak = 0
     /** paired geldi ama erisilebilirlik kapaliydi; kullanici ayarlardan acinca yayin dugmesi icin hazirlik. */
     private var pairingAwaitingAccessibility = false
+    /** Erisilebilirlik ayarina gecis akisi aktifken zorla one getirmeyi engeller. */
+    private var openingAccessibilitySettings = false
+    /** Panelden gelen son mutlak ekran rotasyonu: 0, 90, 180, 270. */
+    private var remoteRotationDegrees = 0
+    private var hasRemoteRotationOverride = false
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -100,12 +105,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var isAudioEnabledForStream = false
+
+    private val audioPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        isAudioEnabledForStream = granted
+        launchMediaProjectionDialog()
+    }
+
     private val notifPermLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         sessionStore = SessionStore(this)
         deviceIdentityStore = DeviceIdentityStore(this)
@@ -135,8 +150,10 @@ class MainActivity : AppCompatActivity() {
             syncUserProfile()
             syncDeviceState()
             refreshPairings()
+            if (!isFinishing && !isDestroyed && sessionStore.isLoggedIn()) {
+                connectSignaling()
+            }
         }
-        connectSignaling()
     }
 
     fun sessionStoreRef(): SessionStore = sessionStore
@@ -174,7 +191,6 @@ class MainActivity : AppCompatActivity() {
             val result = backendApi.deletePairing(token, deviceId, partnerDeviceId, partnerAddress)
             if (result.error.isNullOrBlank()) {
                 val normalizedPartnerAddress = partnerAddress?.filter(Char::isDigit)?.take(12)
-                // UI'yi anında güncelle (ağ çağrısını bekleme)
                 currentPairings = currentPairings.filterNot { d ->
                     d.deviceId == partnerDeviceId ||
                         (!normalizedPartnerAddress.isNullOrBlank() && d.address == normalizedPartnerAddress)
@@ -195,12 +211,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun openAccessibilitySettingsScreen() {
+        openingAccessibilitySettings = true
         Toast.makeText(this, "Dokunma kontrolu icin erisilebilirlik servisini acin.", Toast.LENGTH_LONG).show()
         startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     fun startScreenShareFromUi() {
-        // Kullanıcı tıkladığında ekstra adım olmadan sistem izin diyalogu açılsın
         if (!remoteSessionPaired) {
             Toast.makeText(this, getString(R.string.pair_start_broadcast_hint), Toast.LENGTH_SHORT).show()
             return
@@ -223,7 +239,6 @@ class MainActivity : AppCompatActivity() {
         signalingClient?.disconnect(sendServerLogout = true)
         signalingClient = null
         sessionStore.clear()
-        // device_id cihaza sabittir (MAC gibi); cikista silinmez.
         startActivity(Intent(this, LoginActivity::class.java))
         finish()
     }
@@ -266,6 +281,8 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "PC oturumu sona erdi — yayin durduruldu, WS acik")
         stopAllStreams()
         remoteSessionPaired = false
+        hasRemoteRotationOverride = false
+        remoteRotationDegrees = 0
         pairingAwaitingAccessibility = false
         currentStatus = "Bilgisayar baglantisi kesildi"
         currentStatusDetail = "Oturumu masaustu uygulamasindan yeniden baslatin; telefon sabit adreste bekliyor."
@@ -316,8 +333,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun connectSignaling() {
+        val token = sessionStore.authToken()
+        val address = currentAddress.filter(Char::isDigit).take(12)
+        val ownDeviceId = deviceId.filter(Char::isDigit).take(12)
+        if (token.isBlank() || ownDeviceId.length != 12 || address.length != 12) {
+            currentStatus = "Cihaz adresi hazir degil"
+            currentStatusDetail = "Oturum ve cihaz adresi dogrulandiktan sonra baglanti acilir."
+            refreshFragments()
+            return
+        }
+        deviceId = ownDeviceId
+        currentAddress = address
         val generation = ++connectionGeneration
         lastAckPartnerOnline = null
+        partnerOfflineAckStreak = 0
         remoteSessionPaired = false
         pairingAwaitingAccessibility = false
         currentStatus = "Signaling sunucusuna baglaniyor"
@@ -328,8 +357,9 @@ class MainActivity : AppCompatActivity() {
         val clientRef = arrayOfNulls<SignalingClient>(1)
         val client = SignalingClient(
             serverUrl = SIGNALING_URL,
-            deviceId = deviceId,
-            deviceAddress = currentAddress.filter(Char::isDigit).take(12),
+            authToken = token,
+            deviceId = ownDeviceId,
+            deviceAddress = address,
             isAccessibilityEnabled = { isAccessibilityServiceEnabled() },
             onPaired = { _, partnerDeviceId ->
                 runOnUiThread {
@@ -345,7 +375,6 @@ class MainActivity : AppCompatActivity() {
                         currentStatus = "Erisilebilirlik kapali"
                         currentStatusDetail = "Kontrol icin erisilebilirlik servisini acin."
                         refreshFragments()
-                        // Desktop'a hata mesaji gonder ki oturum ekranindan ciksin
                         signalingClient?.sendAccessibilityError()
                         showAccessibilityRequiredDialog()
                         return@runOnUiThread
@@ -357,7 +386,6 @@ class MainActivity : AppCompatActivity() {
                     currentStatus = getString(R.string.pair_pc_connected_title)
                     currentStatusDetail = getString(R.string.pair_start_broadcast_hint)
                     refreshFragments()
-                    // Ekran paylasimi masaustunden (screen_capture_on) baslatilir.
                 }
             },
             onPairedDevicesStatus = { pairedDeviceIds, onlineDeviceIds, partnerOnline ->
@@ -409,9 +437,15 @@ class MainActivity : AppCompatActivity() {
      * Yayın sırasında `moveTaskToBack(true)` ile arka plana atılmış olabilir; bu yüzden activity'yi öne getiriyoruz.
      */
     private fun navigateToHomeAfterDisconnect() {
+        if (openingAccessibilitySettings) {
+            Log.i(TAG, "A11y ayari acik; disconnect sonrasi bring-to-front atlandi")
+            return
+        }
         try {
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
                         Intent.FLAG_ACTIVITY_SINGLE_TOP,
                 )
@@ -441,9 +475,16 @@ class MainActivity : AppCompatActivity() {
         val pcNorm = pairedPcId?.filter { it.isDigit() }?.take(12).orEmpty()
         val prevPartnerOnline = lastAckPartnerOnline
         lastAckPartnerOnline = partnerOnlineFromAck
+        if (partnerOnlineFromAck) {
+            partnerOfflineAckStreak = 0
+        } else if (prevPartnerOnline == true) {
+            partnerOfflineAckStreak = 1
+        } else if (!partnerOnlineFromAck && partnerOfflineAckStreak > 0) {
+            partnerOfflineAckStreak += 1
+        }
         if (prevPartnerOnline == true && !partnerOnlineFromAck && pcNorm.isNotEmpty()) {
             val pcStillListed = pairedDeviceIds.any { it.filter { ch -> ch.isDigit() }.take(12) == pcNorm }
-            if (pcStillListed && (remoteSessionPaired || streamRunning)) {
+            if (pcStillListed && (remoteSessionPaired || streamRunning) && partnerOfflineAckStreak >= 2) {
                 handlePeerSessionEnded()
                 return
             }
@@ -494,46 +535,19 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             "rotate_screen" -> {
+                val degrees = normalizeRotationDegrees((params["degrees"] as? Number)?.toInt() ?: 0)
                 runOnUiThread {
-                    // Arka planda veya ana ekrandayken yön degisimi bazen uygulanmaz;
-                    // görevi öne alıp kısa gecikmeyle requestedOrientation veriyoruz.
-                    try {
-                        val intent = Intent(this, MainActivity::class.java).apply {
-                            addFlags(
-                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                            )
-                        }
-                        startActivity(intent)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "rotate_screen bring to front", e)
+                    if (isDestroyed || isFinishing) return@runOnUiThread
+                    remoteRotationDegrees = degrees
+                    hasRemoteRotationOverride = true
+                    ScreenStreamService.instance?.setRemoteRotationDegrees(degrees)
+                    if (!streamRunning) {
+                        requestedOrientation = orientationForDegrees(degrees)
+                        Log.i(TAG, "rotate_screen applied: ${degrees}deg orientation=$requestedOrientation")
+                        refreshScreenStreamRotationSoon()
+                    } else {
+                        Log.i(TAG, "rotate_screen applied to stream metadata: ${degrees}deg")
                     }
-                    val applyOrientation = Runnable {
-                        if (isDestroyed || isFinishing) return@Runnable
-                        val degRaw = params["degrees"] as? Number
-                        val orientation = when {
-                            degRaw != null -> {
-                                val deg = ((degRaw.toInt() % 360) + 360) % 360
-                                Log.i(TAG, "rotate_screen degrees=$deg")
-                                when (deg) {
-                                    0 -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                    90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                    180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-                                    270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
-                                    else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                                }
-                            }
-                            else -> {
-                                val landscape = params["landscape"] as? Boolean ?: false
-                                Log.i(TAG, "rotate_screen legacy landscape=$landscape")
-                                if (landscape) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            }
-                        }
-                        requestedOrientation = orientation
-                        Log.i(TAG, "rotate_screen applied requestedOrientation=$requestedOrientation")
-                    }
-                    Handler(Looper.getMainLooper()).postDelayed(applyOrientation, 120L)
                 }
             }
             "screen_capture_on" -> runOnUiThread { startScreenShareFromRemote() }
@@ -554,11 +568,49 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun normalizeRotationDegrees(degrees: Int): Int {
+        val normalized = ((degrees % 360) + 360) % 360
+        return ((normalized + 45) / 90 * 90) % 360
+    }
+
+    private fun orientationForDegrees(degrees: Int): Int {
+        return when (normalizeRotationDegrees(degrees)) {
+            90 -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            180 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+            270 -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
+    private fun refreshScreenStreamRotationSoon() {
+        scope.launch {
+            delay(350)
+            ScreenStreamService.instance?.refreshRotationFromRemote()
+            delay(700)
+            ScreenStreamService.instance?.refreshRotationFromRemote()
+        }
+    }
+
     private fun requestScreenCapture() {
         if (awaitingMediaProjectionConsent) {
             Log.i(TAG, "MediaProjection izni zaten bekleniyor — diyalog tekrar acilmiyor")
             return
         }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                isAudioEnabledForStream = true
+                launchMediaProjectionDialog()
+            } else {
+                audioPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        } else {
+            isAudioEnabledForStream = false
+            launchMediaProjectionDialog()
+        }
+    }
+
+    private fun launchMediaProjectionDialog() {
         awaitingMediaProjectionConsent = true
         val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -599,6 +651,9 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, ScreenStreamService::class.java).apply {
             putExtra(ScreenStreamService.EXTRA_RESULT_CODE, resultCode)
             putExtra(ScreenStreamService.EXTRA_RESULT_DATA, data)
+            putExtra("EXTRA_AUDIO_ENABLED", isAudioEnabledForStream)
+            putExtra(ScreenStreamService.EXTRA_REMOTE_ROTATION_ENABLED, hasRemoteRotationOverride)
+            putExtra(ScreenStreamService.EXTRA_REMOTE_ROTATION_DEGREES, remoteRotationDegrees)
         }
         startForegroundService(intent)
 
@@ -614,7 +669,6 @@ class MainActivity : AppCompatActivity() {
         streamRunning = true
         updateStatus("Ekran yayini aktif")
 
-        // Uygulama arka plana alinsin; bilgisayara gerçek telefon ekranı gönderilsin
         moveTaskToBack(true)
     }
 
@@ -903,21 +957,23 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         val nowA11y = isAccessibilityServiceEnabled()
         val hadA11y = accessibilityEnabled
+        if (openingAccessibilitySettings) {
+            openingAccessibilitySettings = false
+        }
         if (sessionStore.isLoggedIn() && nowA11y && !hadA11y) {
             if (pairingAwaitingAccessibility) {
-                // Mevcut oturumu KORU — signaling sifirlanmasin!
-                // Sadece durumu guncelle; oturum canli kaliyor.
                 Log.i(TAG, "Erisilebilirlik acildi — mevcut oturum korunuyor")
                 pairingAwaitingAccessibility = false
-                remoteSessionPaired = true
+                remoteSessionPaired = false
                 accessibilityEnabled = true
-                currentStatus = getString(R.string.pair_pc_connected_title)
-                currentStatusDetail = getString(R.string.pair_start_broadcast_hint)
+                currentStatus = "Erisilebilirlik aktif"
+                currentStatusDetail = "Bilgisayardan tekrar baglanin."
                 refreshFragments()
                 signalingClient?.pushAccessibilityToServer()
-                Toast.makeText(this, "Erisilebilirlik aktif — bilgisayardan tekrar baglanin.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Erisilebilirlik aktif.", Toast.LENGTH_SHORT).show()
             } else {
-                restartSignalingAfterAccessibilityOpened()
+                accessibilityEnabled = true
+                signalingClient?.pushAccessibilityToServer()
             }
         }
         updateAccessibilityHint()

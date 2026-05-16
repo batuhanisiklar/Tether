@@ -1,14 +1,24 @@
+<<<<<<< HEAD
+=======
+"""
+UI Yardımcı Fonksiyonlar
+=========================
+Adres biçimlendirmeden oturum etiketlerine kadar ortak yardımcılar.
+"""
+
+>>>>>>> server-fix
 import os
 
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
 
-# ── Cihaz / sistem ───────────────────────────────────────────────────────────
+
 
 def desktop_device_name() -> str:
     """Mevcut bilgisayarın adını döner."""
     return os.environ.get("COMPUTERNAME") or os.environ.get("HOSTNAME") or "Bu Bilgisayar"
 
 
-# ── Adres formatlamak ────────────────────────────────────────────────────────
 
 def address_digits(value: str | None) -> str:
     """Verilen değerden en fazla 12 rakam çeker."""
@@ -21,12 +31,25 @@ def format_address(addr: str) -> str:
     return "-".join(digits[i:i + 4] for i in range(0, len(digits), 4))
 
 
-def format_address_spaced(addr: str) -> str:
-    """format_address ile aynı; semantik ayrım için alias."""
-    return format_address(addr)
+def load_logo_pixmap(size: int) -> QPixmap | None:
+    """
+    Proje kök dizinindeki `logo.png`'yi güvenli şekilde yükler.
+    Null pixmap ise `None` döner (scaled uyarısını engeller).
+    """
+    logo_path = os.path.join(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+        "logo.png",
+    )
+    pm = QPixmap(logo_path)
+    if pm.isNull():
+        return None
+    return pm.scaled(
+        size, size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
 
 
-# ── Cihaz görüntü adı ────────────────────────────────────────────────────────
 
 def display_device_name(device_name: str | None, address: str | None, device_id: str) -> str:
     """Öncelik sırasıyla device_name → address → device_id döner."""
@@ -51,7 +74,6 @@ def display_username(username: str | None) -> str:
     return value[:1].upper() + value[1:]
 
 
-# ── Sekme etiketleri ─────────────────────────────────────────────────────────
 
 def session_tab_label(
     owner_name: str | None,
@@ -67,7 +89,6 @@ def session_tab_label(
     return " - ".join(parts) if parts else "Oturum"
 
 
-# ── WebSocket yardımcıları ───────────────────────────────────────────────────
 
 def ws_device_id_set(items: list | None) -> set[str]:
     """WS device_ack listesinden temiz device_id seti oluşturur."""
@@ -89,7 +110,6 @@ def is_accessibility_ws_error(message: str, code: str) -> bool:
     return "erisilebilirlik" in folded or "accessibility" in folded
 
 
-# ── Cihaz satırı birleştirme ─────────────────────────────────────────────────
 
 def merge_phone_device_row(existing: dict, row: dict) -> dict:
     """
@@ -118,7 +138,14 @@ def merge_phone_device_row(existing: dict, row: dict) -> dict:
         if not str(out.get(key) or "").strip() and str(existing.get(key) or "").strip():
             out[key] = existing[key]
 
+<<<<<<< HEAD
     # owner veya user nesnesinden ad/soyad çek
+=======
+    for key in ("owner_name", "owner_phone", "owner_email", "owner_user_id"):
+        if key in row and row.get(key) is not None:
+            out[key] = row.get(key)
+
+>>>>>>> server-fix
     if not (str(out.get("owner_name") or "").strip()):
         owner_obj = row.get("owner") or existing.get("owner") or row.get("user") or existing.get("user")
         if isinstance(owner_obj, dict):
@@ -159,7 +186,6 @@ def merge_phone_device_row(existing: dict, row: dict) -> dict:
     return out
 
 
-# ── Adres input imleci yönetimi ──────────────────────────────────────────────
 
 def digits_before_cursor(text: str, cursor: int) -> int:
     """İmlecin solundaki rakam sayısını döner."""

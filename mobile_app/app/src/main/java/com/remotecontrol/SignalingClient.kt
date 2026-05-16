@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
  */
 class SignalingClient(
     private val serverUrl: String,
+    private val authToken: String,
     private val deviceId: String,
     private val deviceAddress: String,
     private val isAccessibilityEnabled: () -> Boolean,
@@ -32,8 +33,6 @@ class SignalingClient(
         private const val TAG = "SignalingClient"
         private const val MAX_PENDING_FRAME_BYTES = 1_500_000L
         private const val PRESENCE_POLL_MS = 3_500L
-        fun generateCode(): String = (100_000..999_999).random().toString()
-
         /** Diğer servislerden frame göndermek için erişilebilir instance */
         var instance: SignalingClient? = null
 
@@ -52,7 +51,7 @@ class SignalingClient(
         }
     }
 
-    val sessionCode: String = generateCode()
+    val sessionCode: String = deviceId.filter(Char::isDigit).take(12)
 
     private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -70,6 +69,7 @@ class SignalingClient(
             socket.send(
                 JSONObject().apply {
                     put("type", "device_hello")
+                    put("auth_token", authToken)
                     put("device_id", deviceId)
                     put("role", "phone")
                     put("accessibility_enabled", isAccessibilityEnabled())
@@ -113,6 +113,7 @@ class SignalingClient(
                 // Önce device_hello gönder (persistent identity)
                 val helloMsg = JSONObject().apply {
                     put("type", "device_hello")
+                    put("auth_token", authToken)
                     put("device_id", deviceId)
                     put("role", "phone")
                     put("accessibility_enabled", isAccessibilityEnabled())
@@ -120,9 +121,15 @@ class SignalingClient(
                 webSocket.send(helloMsg.toString())
 
                 val registerCode = deviceAddress.filter(Char::isDigit).take(12).ifBlank { sessionCode }
+                if (registerCode.length != 12) {
+                    Log.e(TAG, "12 haneli device address yok; signaling register iptal edildi")
+                    webSocket.close(1008, "device address required")
+                    return
+                }
                 Log.i(TAG, "Registering with code=$registerCode (deviceAddress-based)")
                 val registerMsg = JSONObject().apply {
                     put("type", "register")
+                    put("auth_token", authToken)
                     put("code", registerCode)
                     put("role", "phone")
                     put("device_id", deviceId)
@@ -140,6 +147,7 @@ class SignalingClient(
                             sock.send(
                                 JSONObject().apply {
                                     put("type", "request_presence")
+                                    put("auth_token", authToken)
                                     put("accessibility_enabled", isAccessibilityEnabled())
                                 }.toString(),
                             )
@@ -256,6 +264,7 @@ class SignalingClient(
     fun sendPairConfirm(pcDeviceId: String) {
         val msg = JSONObject().apply {
             put("type", "pair_confirm")
+            put("auth_token", authToken)
             put("my_device_id", deviceId)
             put("paired_with", pcDeviceId)
         }
@@ -266,8 +275,13 @@ class SignalingClient(
     /**
      * JPEG'i binary WebSocket cercevesi olarak gonderir (sunucu `send_bytes` ile PC'ye iletir).
      * Kucuk karelerde istege bagli JSON fallback (cok nadir proxy senaryolari).
+     *
+     * Binary frame format:
+     *   byte[0] = 0x01 (video marker)
+     *   byte[1] = rotation (0x00=0°, 0x01=90°, 0x02=180°, 0x03=270°)
+     *   byte[2..] = JPEG data
      */
-    fun sendFrame(jpeg: ByteArray) {
+    fun sendFrame(jpeg: ByteArray, rotation: Int = 0) {
         val currentWs = ws
         if (currentWs == null) {
             val now = System.currentTimeMillis()
@@ -288,12 +302,27 @@ class SignalingClient(
             }
             consecutiveDrops = 0
 
-            var sent = currentWs.send(jpeg.toByteString())
+            // Rotation → byte: Surface.ROTATION_0=0, _90=1, _180=2, _270=3
+            val rotByte: Byte = when (rotation) {
+                android.view.Surface.ROTATION_0   -> 0x00
+                android.view.Surface.ROTATION_90  -> 0x01
+                android.view.Surface.ROTATION_180 -> 0x02
+                android.view.Surface.ROTATION_270 -> 0x03
+                else -> 0x00
+            }
+
+            val payload = ByteArray(jpeg.size + 2)
+            payload[0] = 0x01          // video marker
+            payload[1] = rotByte       // rotation metadata
+            System.arraycopy(jpeg, 0, payload, 2, jpeg.size)
+
+            var sent = currentWs.send(payload.toByteString())
             if (!sent && jpeg.size <= maxJsonFrameBytes) {
                 val b64 = android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP)
                 val msg = JSONObject().apply {
                     put("type", "frame")
                     put("data", b64)
+                    put("rotation", rotation)
                 }
                 sent = currentWs.send(msg.toString())
             }
@@ -302,10 +331,30 @@ class SignalingClient(
                 return
             }
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "Frame gonderildi: ${jpeg.size} bytes (binary veya kucuk JSON)")
+                Log.d(TAG, "Frame gonderildi: ${jpeg.size} bytes rot=$rotation")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Frame gönderme hatası: $e", e)
+        }
+    }
+
+    /**
+     * Ham PCM ses verisini binary WebSocket cercevesi olarak gonderir.
+     * Baslangicina 0x02 (Ses) bayragini ekler.
+     */
+    fun sendAudio(pcm: ByteArray) {
+        val currentWs = ws ?: return
+        try {
+            val queuedBytes = currentWs.queueSize()
+            if (queuedBytes > MAX_PENDING_FRAME_BYTES) {
+                return
+            }
+            val payload = ByteArray(pcm.size + 1)
+            payload[0] = 0x02
+            System.arraycopy(pcm, 0, payload, 1, pcm.size)
+            currentWs.send(payload.toByteString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Ses gönderme hatası: $e")
         }
     }
 
@@ -330,6 +379,7 @@ class SignalingClient(
             try {
                 val msg = JSONObject().apply {
                     put("type", "device_logout")
+                    put("auth_token", authToken)
                     put("device_id", deviceId)
                 }
                 currentWs.send(msg.toString())

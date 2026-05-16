@@ -33,7 +33,7 @@ from desktop_app.ui.styles.app_styles import (
     _TEXT_DIM,
     _TEXT_SEC,
 )
-from desktop_app.ui.utils import format_address, format_address_spaced
+from desktop_app.ui.utils import format_address
 
 if TYPE_CHECKING:
     from desktop_app.ui.app_window import MainWindow
@@ -41,7 +41,6 @@ if TYPE_CHECKING:
 _C = Colors
 
 
-# ── Ana sayfa ───────────────────────────────────────────────────────────────
 
 def build_home_page(window: "MainWindow") -> QWidget:
     """Ana sayfa widget'ını oluşturur."""
@@ -67,7 +66,6 @@ def build_home_page(window: "MainWindow") -> QWidget:
 
     scroll.setWidget(content)
 
-    # Scroll + sol-altta "toast" gibi uyarı overlay'i
     outer = QGridLayout(page)
     outer.setContentsMargins(0, 0, 0, 0)
     outer.setHorizontalSpacing(0)
@@ -85,14 +83,11 @@ def build_home_page(window: "MainWindow") -> QWidget:
     return page
 
 
-# ── Adres giriş çubuğu ──────────────────────────────────────────────────────
 
 def _build_address_input_bar(window: "MainWindow") -> QWidget:
     bar = QFrame()
     bar.setFixedHeight(42)
-    bar.setStyleSheet(
-        f"background-color: {_BG_RAISED}; border-bottom: 1px solid {_BORDER_SUBTLE};"
-    )
+    bar.setStyleSheet(f"QFrame {{ background-color: {_BG_RAISED}; }}")
     lay = QHBoxLayout(bar)
     lay.setContentsMargins(14, 0, 14, 0)
     lay.setSpacing(8)
@@ -107,6 +102,8 @@ def _build_address_input_bar(window: "MainWindow") -> QWidget:
     window._inp_code.setFixedHeight(34)
     window._inp_code.setMaxLength(14)
     window._inp_code.setFont(QFont("Segoe UI", 14))
+    window._inp_code.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+    window._inp_code.customContextMenuRequested.connect(window._show_code_input_menu)
     window._inp_code.setStyleSheet(f"""
         QLineEdit {{
             background-color: {_BG_INPUT}; border: 1px solid {_BORDER};
@@ -133,7 +130,6 @@ def _build_address_input_bar(window: "MainWindow") -> QWidget:
     return bar
 
 
-# ── Senin adresin hero alanı ─────────────────────────────────────────────────
 
 def _build_your_address_hero(window: "MainWindow") -> QWidget:
     from desktop_app.ui.utils import desktop_device_name
@@ -144,7 +140,6 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     outer.setContentsMargins(28, 24, 28, 20)
     outer.setSpacing(20)
 
-    # Sol: büyük adres etiketi
     left = QVBoxLayout()
     left.setSpacing(4)
 
@@ -152,7 +147,7 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     lbl_title.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 14px;")
     left.addWidget(lbl_title)
 
-    formatted = format_address_spaced(window._user_address) if window._user_address else "—"
+    formatted = format_address(window._user_address) if window._user_address else "—"
     window._hero_address = QLabel(formatted)
     hero_font = QFont("Segoe UI", 36, QFont.Weight.Bold)
     hero_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 3.0)
@@ -175,7 +170,6 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     sep.setStyleSheet(f"background-color: {_BORDER_SUBTLE};")
     outer.addWidget(sep)
 
-    # Sağ: bilgisayar bilgisi
     right = QVBoxLayout()
     right.setSpacing(10)
 
@@ -197,7 +191,6 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     return hero
 
 
-# ── Uyarı banner ──────────────────────────────────────────────────────────────
 
 def _build_warning_banner(window: "MainWindow") -> QWidget:
     banner = QFrame()
@@ -248,7 +241,6 @@ def _build_warning_banner(window: "MainWindow") -> QWidget:
     return banner
 
 
-# ── Tanıtım kartları ──────────────────────────────────────────────────────────
 
 def _build_feature_cards() -> QWidget:
     wrapper = QFrame()
@@ -320,7 +312,6 @@ def _build_feature_cards() -> QWidget:
     return wrapper
 
 
-# ── Sekme şeridi ─────────────────────────────────────────────────────────────
 
 def _build_tab_strip(window: "MainWindow") -> QWidget:
     strip = QFrame()
@@ -349,7 +340,6 @@ def _build_tab_strip(window: "MainWindow") -> QWidget:
     return strip
 
 
-# ── Son oturumlar ızgarası ───────────────────────────────────────────────────
 
 def _build_recent_sessions(window: "MainWindow") -> QWidget:
     section = QWidget()
@@ -376,10 +366,9 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     )
     inner.addWidget(window._recent_cards_container)
 
-    # Cihaz yok bildirimi
     window._lbl_no_devices = QFrame()
     window._lbl_no_devices.setStyleSheet(
-        f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 8px;"
+        f"QFrame {{ background-color: {_BG_CARD}; border-radius: 8px; }}"
     )
     no_dev_lay = QVBoxLayout(window._lbl_no_devices)
     no_dev_lay.setContentsMargins(0, 30, 0, 30)
@@ -389,7 +378,7 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     empty_title = QLabel("Henüz eşleşmiş cihaz yok")
     empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_title.setStyleSheet(
-        f"color: {_TEXT_SEC}; font-size: 14px; font-weight: 600; background: transparent;"
+        f"color: {_TEXT_SEC}; font-size: 14px; font-weight: 600; background: transparent; border: none;"
     )
     no_dev_lay.addWidget(empty_title)
 
@@ -400,7 +389,7 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_desc.setWordWrap(True)
     empty_desc.setStyleSheet(
-        f"color: {_TEXT_DIM}; font-size: 12px; background: transparent;"
+        f"color: {_TEXT_DIM}; font-size: 12px; background: transparent; border: none;"
     )
     no_dev_lay.addWidget(empty_desc)
 

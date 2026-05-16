@@ -1,142 +1,131 @@
 # Remote Phone Control
 
-AnyDesk benzeri, bilgisayardan Android telefonu uzaktan kontrol etme projesi.
+Android telefonu masaustunden goruntulemek ve kontrol etmek icin uc parcali bir sistem:
 
----
+- **Desktop:** Python 3.11+, PyQt6, `requests`, `websocket-client`
+- **Server:** Python, `aiohttp`, WebSocket, PostgreSQL/psycopg2, `bcrypt`
+- **Mobile:** Native Android Kotlin, XML layouts, OkHttp, CameraX, MediaProjection, foreground services
 
-## 📁 Proje Yapısı
+## Proje Yapisi
 
+```text
+remote_phone_control/
+├── desktop_app/          # PyQt6 masaustu uygulamasi
+│   ├── main.py           # Desktop entry point
+│   ├── config/           # Sabitler ve prefs
+│   ├── network/          # HTTP API, WebSocket, MJPEG alici
+│   └── ui/               # Pencereler, sayfalar, komponentler, stiller
+├── signaling_server/     # aiohttp HTTP/WebSocket server
+│   ├── server.py         # Server entry point / app factory
+│   ├── auth.py           # Signed auth token islemleri
+│   ├── db_client.py      # PostgreSQL client ve schema
+│   └── config/
+├── mobile_app/           # Android Kotlin uygulamasi
+├── requirements.txt      # Ortak Python bagimliliklari
+└── .env.example          # Guvenli ortam degiskeni sablonu
 ```
-bitirme/
-├── requirements.txt       # Tüm Python bağımlılıkları (kök)
-├── .venv/                 # Sanal ortam (scripts ile oluşturulur)
-├── scripts/
-│   ├── setup_venv.bat     # Windows: .venv oluşturur
-│   └── setup_venv.sh      # Linux/macOS: .venv oluşturur
-├── signaling_server/      # Python WebSocket sunucu
-│   ├── config/            # constants.py (PORT, mesaj tipleri)
-│   └── server.py
-├── desktop_app/           # PyQt6 masaüstü uygulaması
-│   ├── config/            # constants.py (sunucu, ağ, UI, tuş kodları)
-│   ├── network/           # ws_client, mjpeg_receiver
-│   ├── ui/                # main_window, screen_widget
-│   ├── requirements.txt
-│   └── main.py
-└── mobile_app/            # Native Kotlin Android
-```
 
----
+## Baglanti Akisi
 
-## 🚀 Kurulum & Çalıştırma
+Sistem **12 haneli sabit device address** kullanir.
 
-### 0. Sanal ortam (.venv) — Önerilen
+1. Telefon giris/kayit sirasinda sunucudan 12 haneli adres alir.
+2. Telefon WebSocket uzerinden bu adreste bekler.
+3. Masaustu uygulamasi kullanici token'i ile sunucuya baglanir.
+4. Masaustu, telefonun 12 haneli adresini girerek yetkili eslesme baslatir.
+5. Telefon ekran/kamera/ses akisini WebSocket veya yerel MJPEG URL uzerinden iletir.
+6. Masaustu komutlari WebSocket uzerinden telefona aktarir.
 
-Proje kökünde tek bir sanal ortam kullanın:
+## Ortam Degiskenleri
 
-**Windows:**
+Gercek secret degerlerini repoya yazmayin. `.env.example` dosyasini sablon olarak kullanin.
+
+| Degisken | Gerekli | Aciklama |
+|---|---:|---|
+| `DATABASE_URL` veya `NEON_DB_URL` | Evet | PostgreSQL connection string |
+| `AUTH_SECRET` | Evet | Token imzalamak icin uzun rastgele secret |
+| `AUTH_TOKEN_TTL_SEC` | Hayir | Token suresi, varsayilan 86400 |
+| `APP_ENV` | Hayir | `development`, `test`, `production` gibi ortam adi |
+| `ALLOW_DEV_AUTH_SECRET` | Hayir | Sadece lokal gelistirmede `APP_ENV=local` ile `1` yapilabilir |
+| `PORT` | Hayir | Server portu, varsayilan 8765 |
+| `RPC_SERVER_URL` | Hayir | Desktop icin varsayilan signaling URL override'i |
+
+## Kurulum
+
+### Python ortami
+
 ```powershell
-scripts\setup_venv.bat
+python -m venv .venv
 .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-**Linux/macOS:**
+Linux/macOS:
+
 ```bash
-chmod +x scripts/setup_venv.sh
-./scripts/setup_venv.sh
+python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Bundan sonra `python desktop_app/main.py` ve `python signaling_server/server.py` aynı `.venv` ile çalışır.
-
-### 1. Signaling Sunucusu
+### Signaling Server
 
 ```powershell
-# .venv aktifse doğrudan:
+$env:DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=require"
+$env:AUTH_SECRET="long-random-secret"
+$env:APP_ENV="production"
 python signaling_server/server.py
-
-# veya signaling_server içinden:
-cd signaling_server
-pip install -r requirements.txt
-python server.py
 ```
 
-**Cloud Deploy (Ücretsiz):**
-- [Render.com](https://render.com) → New Web Service → `server.py`
-- Start command: `python server.py`
-- Deploy sonrası URL'yi not edin: `wss://xxx.onrender.com`
+Health check:
 
----
+```text
+GET /health
+```
 
-### 2. Desktop App (PC)
+### Render deploy
+
+`render.yaml` server icin `AUTH_SECRET` degerini Render tarafinda otomatik uretecek sekilde ayarlidir. Mevcut bir Render servisini Blueprint ile yonetmiyorsaniz Dashboard > Environment bolumunden su degerleri ekleyin:
+
+- `APP_ENV=production`
+- `AUTH_SECRET`: uzun, rastgele secret
+- `DATABASE_URL`: PostgreSQL/Neon connection string
+
+### Desktop App
 
 ```powershell
-# .venv aktifse proje kökünden:
+.venv\Scripts\activate
 python desktop_app/main.py
-
-# veya desktop_app içinden:
-cd desktop_app
-pip install -r requirements.txt
-python main.py
 ```
 
-- Açılan pencerede **Sunucu Adresi** alanına Render URL'nizi yazın
-- Telefon uygulamasının gösterdiği **6 haneli kodu** girin
-- **Bağlan** butonuna tıklayın
+Desktop uygulamasinda telefonun gosterildigi 12 haneli sabit adresi girin.
 
----
+### Android App
 
-### 3. Android App (Telefon)
+1. Android Studio ile `mobile_app/` klasorunu acin.
+2. Gradle sync tamamlaninca uygulamayi cihaza yukleyin.
+3. Login/kayit sonrasi uygulama 12 haneli cihaz adresini gosterir.
+4. Uzaktan kontrol icin Android Accessibility iznini etkinlestirin.
+5. Ekran paylasimi baslatildiginda MediaProjection iznini onaylayin.
 
-1. **Android Studio**'yu açın
-2. `mobile_app/` klasörünü açın (Open Project)
-3. Gradle sync tamamlanmasını bekleyin
-4. Telefonu USB ile bağlayın ve **Run** butonuna basın
-5. Uygulamayı açın — 6 haneli kod görünür
+## Guvenlik Notlari
 
-#### İlk Kurulumda (Bir Kez):
-- **Erişilebilirlik izni:** Ayarlar → Erişilebilirlik → Remote Control → Etkinleştir
-- Ekran kaydı: Uygulama açılınca otomatik izin ister
+- `AUTH_SECRET` ve DB connection string repoya yazilmamalidir.
+- Production'da `wss://` kullanin.
+- Android cleartext trafik yalnizca lokal/debug senaryolari icin kullanilmalidir.
+- Auth/device bilgileri Android backup kapsamindan cikarilmalidir.
 
----
+## Gelistirme Kontrolleri
 
-## 🔌 Bağlantı Akışı
+Python syntax:
 
-```
-1. Telefon → Signaling Server'a bağlanır, 6 haneli kod üretir
-2. PC → Sunucuya bağlanır, kodu girer → eşleşme sağlanır
-3. Telefon → Ekran yayınını başlatır (MJPEG / HTTP)
-4. PC → Stream URL'sini alır, ekranı gösterir
-5. PC'ye tıklanınca → Sinyal → Telefon → Dokunma olayı
+```powershell
+python -m compileall desktop_app signaling_server
 ```
 
----
+Android build:
 
-## ⚙️ Yapılandırma
-
-### Sunucu URL'sini Güncelleme
-
-**Desktop App** → `desktop_app/ui/main_window.py` → `DEFAULT_SERVER`
-
-**Android App** → `MainActivity.kt` → `SIGNALING_URL`
-
----
-
-## 📝 Özellikler
-
-| Özellik | Durum |
-|---|---|
-| Ekran Yayını (MJPEG) | ✅ |
-| Kamera Aç/Kapat | ✅ |
-| Dokunma Kontrolü | ✅ (Erişilebilirlik gerektirir) |
-| Kaydırma (Swipe) | ✅ |
-| Sistem Tuşları (Back, Home, Vol) | ✅ |
-| İnternet Üzerinden Bağlantı | ✅ |
-| 6 Haneli Eşleştirme Kodu | ✅ |
-
----
-
-## 🛠 Teknolojiler
-
-- **Desktop:** Python 3.11+, PyQt6, websocket-client, requests
-- **Mobile:** Kotlin, CameraX, MediaProjection, OkHttp, NanoHTTPD
-- **Signaling:** Python asyncio + websockets
+```powershell
+cd mobile_app
+.\gradlew.bat :app:assembleDebug
+```

@@ -38,20 +38,15 @@ if TYPE_CHECKING:
 _C = Colors
 
 
-# ── Ana remote sayfası ───────────────────────────────────────────────────────
-
 def build_remote_page(window: "MainWindow") -> QWidget:
-    """Remote kontrol sayfası widget'ını oluşturur."""
     page = QWidget()
     page.setStyleSheet(f"background-color: {_BG};")
     layout = QHBoxLayout(page)
     layout.setContentsMargins(10, 10, 10, 10)
     layout.setSpacing(10)
 
-    # ── Sol: görüntü alanı ──────────────────────────────────────────────
     left = QVBoxLayout()
     left.setSpacing(8)
-
     left.addWidget(_build_session_top_bar(window))
 
     screen_frame = QFrame()
@@ -69,10 +64,8 @@ def build_remote_page(window: "MainWindow") -> QWidget:
     window._remote_summary_label = QLabel("")
     layout.addLayout(left, stretch=7)
 
-    # ── Sağ: kontrol panelleri ───────────────────────────────────────────
     right = QVBoxLayout()
     right.setSpacing(10)
-    right.addWidget(_build_controls_panel(window))
     right.addWidget(_build_key_controls_panel(window))
     right.addWidget(_build_session_actions_panel(window))
     right.addWidget(_build_remote_shortcuts_panel())
@@ -81,8 +74,6 @@ def build_remote_page(window: "MainWindow") -> QWidget:
 
     return page
 
-
-# ── Oturum üst çubuğu ────────────────────────────────────────────────────────
 
 def _build_session_top_bar(window: "MainWindow") -> QFrame:
     top_bar = QFrame()
@@ -94,23 +85,6 @@ def _build_session_top_bar(window: "MainWindow") -> QFrame:
     tbl.setSpacing(14)
     tbl.addStretch(1)
 
-    # İstatistik etiketleri
-    stats_row = QWidget()
-    stats_row.setStyleSheet("background: transparent;")
-    srl = QHBoxLayout(stats_row)
-    srl.setContentsMargins(0, 0, 0, 0)
-    srl.setSpacing(16)
-    stat_ss = f"color: {_TEXT_SEC}; font-size: 10px; font-weight: 600; background: transparent;"
-
-    window._lbl_sess_res = QLabel("— × —")
-    window._lbl_sess_fps = QLabel("FPS —")
-    window._lbl_sess_rtt = QLabel("RTT —")
-    for lb in (window._lbl_sess_res, window._lbl_sess_fps, window._lbl_sess_rtt):
-        lb.setStyleSheet(stat_ss)
-        srl.addWidget(lb)
-    tbl.addWidget(stats_row, stretch=0)
-
-    # Bağlantı kes butonu
     window._btn_disconnect = QPushButton("Bağlantıyı kes")
     window._btn_disconnect.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_disconnect.setFixedHeight(32)
@@ -120,38 +94,6 @@ def _build_session_top_bar(window: "MainWindow") -> QFrame:
 
     return top_bar
 
-
-# ── Ekran kontrol paneli ─────────────────────────────────────────────────────
-
-def _build_controls_panel(window: "MainWindow") -> QFrame:
-    panel = QFrame()
-    panel.setStyleSheet(
-        f"background-color: {_BG_CARD}; border: 1px solid {_BORDER_SUBTLE}; border-radius: 6px;"
-    )
-    lay = QVBoxLayout(panel)
-    lay.setContentsMargins(12, 10, 12, 10)
-    lay.setSpacing(8)
-
-    title = QLabel("Ekran Kontrolleri")
-    title.setStyleSheet(f"color: {_ACCENT}; font-size: 11px; font-weight: 600;")
-    lay.addWidget(title)
-
-    rot_row = QHBoxLayout()
-    rot_row.setSpacing(8)
-    window._btn_rotate_left  = QPushButton("↺ Sola dön")
-    window._btn_rotate_right = QPushButton("Sağa dön ↻")
-    for b in (window._btn_rotate_left, window._btn_rotate_right):
-        b.setFixedHeight(36)
-        b.setEnabled(False)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setStyleSheet(REMOTE_BTN_GHOST_SS)
-    rot_row.addWidget(window._btn_rotate_left,  stretch=1)
-    rot_row.addWidget(window._btn_rotate_right, stretch=1)
-    lay.addLayout(rot_row)
-    return panel
-
-
-# ── Tuş kontrol paneli ───────────────────────────────────────────────────────
 
 def _build_key_controls_panel(window: "MainWindow") -> QFrame:
     panel = QFrame()
@@ -177,7 +119,7 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(REMOTE_KEY_BTN_SS)
         btn.clicked.connect(
-            lambda _, code=key_codes[key_id]: window._ws_client.send_key_event(code)
+            lambda _, code=key_codes[key_id]: window._on_screen_remote_key(code)
         )
         if colspan > 1:
             grid.addWidget(btn, row, col, 1, colspan)
@@ -188,8 +130,6 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
     lay.addLayout(grid)
     return panel
 
-
-# ── Ekran & pano işlemleri paneli ────────────────────────────────────────────
 
 def _build_session_actions_panel(window: "MainWindow") -> QFrame:
     panel = QFrame()
@@ -211,7 +151,7 @@ def _build_session_actions_panel(window: "MainWindow") -> QFrame:
     window._btn_sess_clip.clicked.connect(window._screenshot_to_clipboard)
     lay.addWidget(window._btn_sess_clip)
 
-    window._btn_sess_save = QPushButton("PNG olarak kaydet…")
+    window._btn_sess_save = QPushButton("PNG olarak kaydet...")
     window._btn_sess_save.setCursor(Qt.CursorShape.PointingHandCursor)
     window._btn_sess_save.setStyleSheet(REMOTE_BTN_GHOST_SS)
     window._btn_sess_save.setFixedHeight(34)
@@ -228,8 +168,6 @@ def _build_session_actions_panel(window: "MainWindow") -> QFrame:
 
     return panel
 
-
-# ── Klavye kısayolları paneli ────────────────────────────────────────────────
 
 def _build_remote_shortcuts_panel() -> QFrame:
     panel = QFrame()
@@ -299,7 +237,7 @@ def _build_remote_shortcuts_panel() -> QFrame:
             "Aynı kısayol tuşu ile sessize alma ve sesi geri açma işlemi yapılır."
         ),
         (
-            "Ctrl+↑ / Ctrl+↓",
+            "Ctrl+Up / Ctrl+Down",
             "Ses kontrolü: Medya ses seviyesini artırır veya azaltır. "
             "Video, müzik ve diğer medya içerikleri için geçerlidir."
         ),

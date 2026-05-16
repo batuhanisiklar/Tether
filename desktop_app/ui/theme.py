@@ -1,7 +1,7 @@
-from desktop_app.config import Colors
+from desktop_app.ui.styles.tokens import Colors, Typography
 
-FONT_STACK = "'Segoe UI', Arial, sans-serif"
-MONO_FONT_STACK = "'Consolas', monospace"
+FONT_STACK = Typography.FONT_STACK
+MONO_FONT_STACK = Typography.MONO_FONT_STACK
 
 
 def text_style(

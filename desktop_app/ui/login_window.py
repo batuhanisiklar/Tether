@@ -11,10 +11,10 @@ import sys
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QFrame, QWidget, QStackedWidget, QCheckBox, QToolButton,
+    QLineEdit, QPushButton, QFrame, QWidget, QStackedWidget, QCheckBox, QToolButton, QMenu,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
-from PyQt6.QtGui import QIcon, QPainter, QPen, QColor, QPixmap
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QPoint
+from PyQt6.QtGui import QIcon, QPainter, QPen, QColor, QPixmap, QKeySequence
 
 from desktop_app.config import Colors, AppMeta
 from desktop_app.config.prefs_store import (
@@ -36,8 +36,34 @@ from desktop_app.ui.theme import (
     tab_button_style,
     text_style,
 )
+from desktop_app.ui.utils import desktop_device_name, load_logo_pixmap
 
 logger = logging.getLogger(__name__)
+
+_CTX_MENU_SS = """
+    QMenu#codeInputMenu {
+        background-color: #1B1B1B;
+        color: #F3F3F3;
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 10px;
+        padding: 4px;
+        min-width: 118px;
+    }
+    QMenu#codeInputMenu::item {
+        padding: 5px 8px;
+        margin: 1px 2px;
+        border-radius: 6px;
+        background: transparent;
+    }
+    QMenu#codeInputMenu::item:selected {
+        background-color: #E45D3A;
+        color: #151515;
+    }
+    QMenu#codeInputMenu::item:disabled {
+        color: #7E7E7E;
+        background: transparent;
+    }
+"""
 
 
 class _AuthThread(QThread):
@@ -66,11 +92,8 @@ class LoginWindow(QDialog):
         super().__init__(parent)
         self._backend_api = BackendApi()
         self.setWindowTitle(AppMeta.NAME)
-        # Windows DWM/DPI bazen sabit yüksekliği 2–8 px farkla uygular; min==max uyarı ve log üretir.
         _win_slack = 24 if sys.platform == "win32" else 0
         self.setMinimumSize(920, 560)
-        # Maksimumu kilitlemek Windows'ta (özellikle frameless + translucent) geometri uyarısı üretebiliyor.
-        # Bu yüzden yalnızca başlangıç boyutu veriyoruz.
         self.resize(920, 560 + (0 if sys.platform != "win32" else _win_slack))
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -87,7 +110,6 @@ class LoginWindow(QDialog):
         """Giriş sonrası `MainWindow` ile aynı `requests.Session` kullanılır (TCP bağlantısı yeniden kullanılır)."""
         return self._backend_api
 
-    # ──────── UI ──────────────────────────────────────────────────────────────
 
     def _build_ui(self):
         c = Colors
@@ -104,7 +126,6 @@ class LoginWindow(QDialog):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        # ── Başlık çubuğu
         lay.addWidget(self._build_title_bar())
 
         body = QWidget()
@@ -113,10 +134,8 @@ class LoginWindow(QDialog):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
 
-        # Sol taraf: bilgi paneli
         row.addWidget(self._build_promo_panel())
 
-        # Sağ taraf: form alanı
         right = QWidget()
         right.setStyleSheet("background: transparent;")
         right_lay = QVBoxLayout(right)
@@ -135,7 +154,6 @@ class LoginWindow(QDialog):
         row.addWidget(right, 1)
         lay.addWidget(body, 1)
 
-        # İlk açılışta default Enter hedefi: Giriş Yap
         self._update_default_button_for_tab(0)
 
     def _build_promo_panel(self) -> QFrame:
@@ -160,7 +178,6 @@ class LoginWindow(QDialog):
         lay.setContentsMargins(36, 36, 36, 24)
         lay.setSpacing(0)
 
-        # ── Logo büyük (merkezde, glow efektli) ───────────────────────────
         logo_container = QLabel()
         logo_container.setFixedSize(88, 88)
         logo_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -176,7 +193,7 @@ class LoginWindow(QDialog):
                 border-radius: 22px;
             }}
         """)
-        pm = self._load_logo_pixmap(88)
+        pm = load_logo_pixmap(88)
         if pm is not None:
             logo_container.setPixmap(pm)
         else:
@@ -189,7 +206,6 @@ class LoginWindow(QDialog):
         lay.addLayout(logo_wrap)
         lay.addSpacing(18)
 
-        # ── Uygulama adı ─────────────────────────────────────────────────
         app_name = QLabel("Remote Phone Control")
         app_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         app_name.setStyleSheet(text_style(c.TEXT, size=20, weight=800))
@@ -204,68 +220,64 @@ class LoginWindow(QDialog):
 
         lay.addSpacing(32)
 
-        # ── Ayırıcı çizgi ────────────────────────────────────────────────
         sep = QFrame()
         sep.setFixedHeight(1)
         sep.setStyleSheet("background: rgba(255, 255, 255, 8);")
         lay.addWidget(sep)
         lay.addSpacing(24)
 
-        # ── Özellik listesi (minimal, modern) ────────────────────────────
         features = [
             ("⚡", "Hızlı eşleştirme", "Sabit adres ile hızlı bağlantı"),
             ("📺", "Canlı görüntü", "Ekran aktarımı ve dokunmatik kontrol"),
             ("🔒", "Güvenli bağlantı", "Uçtan uca şifreli iletişim"),
             ("📱", "Erişilebilirlik", "Telefon kontrolü için yardımcı servis"),
         ]
-        for i, (emoji, title, desc) in enumerate(features):
-            feat_row = QHBoxLayout()
-            feat_row.setContentsMargins(4, 0, 4, 0)
-            feat_row.setSpacing(16)
+        for emoji, title, desc in features:
+            feat_card = QFrame()
+            feat_card.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(255,255,255,0.035);
+                    border: 1px solid rgba(255,255,255,0.065);
+                    border-radius: 10px;
+                }
+            """)
+            feat_row = QHBoxLayout(feat_card)
+            feat_row.setContentsMargins(12, 10, 12, 10)
+            feat_row.setSpacing(12)
 
             ico = QLabel(emoji)
-            ico.setFixedSize(44, 44)
+            ico.setFixedSize(38, 38)
             ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            ico.setStyleSheet(f"""
-                font-size: 22px;
-                background: rgba(224, 96, 64, 15);
-                border: 1px solid rgba(224, 96, 64, 20);
-                border-radius: 12px;
+            ico.setStyleSheet("""
+                QLabel {
+                    font-size: 20px;
+                    background-color: rgba(224, 96, 64, 0.14);
+                    border: 1px solid rgba(224, 96, 64, 0.28);
+                    border-radius: 9px;
+                }
             """)
             feat_row.addWidget(ico, 0, Qt.AlignmentFlag.AlignVCenter)
 
             txt_col = QVBoxLayout()
             txt_col.setContentsMargins(0, 0, 0, 0)
-            txt_col.setSpacing(2)
+            txt_col.setSpacing(3)
             t = QLabel(title)
-            t.setStyleSheet(text_style(c.TEXT, size=14, weight=700) + " background: transparent; border: none;")
+            t.setStyleSheet(text_style(c.TEXT, size=13, weight=800) + " background: transparent; border: none;")
             txt_col.addWidget(t)
             d = QLabel(desc)
-            d.setStyleSheet(text_style(c.TEXT_SUBTLE, size=11) + " background: transparent; border: none;")
+            d.setWordWrap(True)
+            d.setStyleSheet(text_style(c.TEXT_SUBTLE, size=10) + " background: transparent; border: none;")
             txt_col.addWidget(d)
             feat_row.addLayout(txt_col, 1)
 
-            lay.addLayout(feat_row)
-            if i < len(features) - 1:
-                lay.addSpacing(18)
+            lay.addWidget(feat_card)
+            lay.addSpacing(8)
 
         lay.addStretch(1)
         return panel
 
     def _project_root(self) -> str:
-        # desktop_app/ui/login_window.py → repo root: ../..
         return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-
-    def _load_logo_pixmap(self, size: int) -> QPixmap | None:
-        """
-        `logo.png`'yi güvenli şekilde yükler.
-        Null pixmap ise `None` döner (scaled uyarısını engeller).
-        """
-        logo_path = os.path.join(self._project_root(), "logo.png")
-        pm = QPixmap(logo_path)
-        if pm.isNull():
-            return None
-        return pm.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
     def _build_title_bar(self) -> QFrame:
         c = Colors
@@ -288,7 +300,7 @@ class LoginWindow(QDialog):
 
         mini = QLabel()
         mini.setFixedSize(18, 18)
-        pm = self._load_logo_pixmap(18)
+        pm = load_logo_pixmap(18)
         if pm is not None:
             mini.setPixmap(pm)
         left.addWidget(mini)
@@ -329,7 +341,6 @@ class LoginWindow(QDialog):
         lay.setContentsMargins(0, 0, 0, 12)
         lay.setSpacing(0)
 
-        # ── Hoş geldiniz (büyük, güçlü başlık) ──────────────────────────
         title = QLabel("Hoş geldiniz")
         title.setAlignment(Qt.AlignmentFlag.AlignLeft)
         title.setStyleSheet(text_style(c.TEXT, size=24, weight=800))
@@ -378,7 +389,6 @@ class LoginWindow(QDialog):
         self._apply_tab_style(self._tab_login, idx == 0)
         self._apply_tab_style(self._tab_reg,   idx == 1)
         self._update_default_button_for_tab(idx)
-        # Hata mesajlarını temizle
         self._lbl_login_err.setText("")
         self._lbl_reg_err.setText("")
         self._lbl_reg_ok.setText("")
@@ -394,7 +404,6 @@ class LoginWindow(QDialog):
             reg_btn.setDefault(idx == 1)
             reg_btn.setAutoDefault(idx == 1)
 
-    # ── Login sayfası ─────────────────────────────────────────────────────────
 
     def _build_login_page(self) -> QWidget:
         c = Colors
@@ -404,7 +413,6 @@ class LoginWindow(QDialog):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        # ── Form alanları ────────────────────────────────────────────────
         lay.addWidget(self._field_lbl("E-posta"))
         lay.addSpacing(8)
         self._inp_user = self._make_input("ornek@eposta.com")
@@ -429,7 +437,6 @@ class LoginWindow(QDialog):
         lay.addLayout(pass_row)
         lay.addSpacing(18)
 
-        # ── Beni hatırla (özel işaretli checkbox) ────────────────────────
         chk_img = self._check_indicator_images()
         self._chk_remember = QCheckBox("  Beni hatırla")
         self._chk_remember.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -480,14 +487,13 @@ class LoginWindow(QDialog):
 
         lay.addStretch(1)
 
-        # ── Alt bilgi ────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFixedHeight(1)
         sep.setStyleSheet("background: rgba(255, 255, 255, 6);")
         lay.addWidget(sep)
         lay.addSpacing(14)
 
-        sec_note = QLabel("🔒  Verileriniz güvenli bağlantı ile korunmaktadır")
+        sec_note = QLabel("Verileriniz güvenli bağlantı ile korunmaktadır")
         sec_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sec_note.setStyleSheet(text_style(c.TEXT_SUBTLE, size=10))
         lay.addWidget(sec_note)
@@ -503,7 +509,7 @@ class LoginWindow(QDialog):
     def _check_indicator_images(self) -> str:
         """
         Checkbox tik işareti için geçici bir PNG oluşturur; CSS image: url(...) ile kullanılır.
-        Boş bir ✓ ikonu çizer, kaydeder ve yolunu döner.
+        Boş bir tik işareti çizer, kaydeder ve yolunu döner.
         """
         import tempfile
         img_path = os.path.join(tempfile.gettempdir(), "_rpc_check_tick.png")
@@ -518,13 +524,11 @@ class LoginWindow(QDialog):
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             p.setPen(pen)
-            # Tik çizimi ✓
             from PyQt6.QtCore import QPointF
             p.drawLine(QPointF(3.0, 8.5), QPointF(6.5, 12.0))
             p.drawLine(QPointF(6.5, 12.0), QPointF(13.0, 4.0))
             p.end()
             pm.save(img_path, "PNG")
-        # QSS image: url() için ileri eğik çizgi gerekir
         return img_path.replace("\\", "/")
 
     def _eye_icon(self, *, visible: bool) -> QIcon:
@@ -536,7 +540,6 @@ class LoginWindow(QDialog):
         c = Colors
         px = 22
         pm = QIcon().pixmap(px, px)  # placeholder; overwritten below
-        # QIcon().pixmap() bazen null dönebilir; direkt QPixmap üretelim
         from PyQt6.QtGui import QPixmap  # lokal import, startup maliyeti düşük
         pm = QPixmap(px, px)
         pm.fill(Qt.GlobalColor.transparent)
@@ -547,12 +550,8 @@ class LoginWindow(QDialog):
         pen.setWidthF(1.6)
         p.setPen(pen)
 
-        # Eye outline: iki bezier yerine basit elips benzeri yol
-        # (Qt path kullanmadan, birkaç yay ile "lens" efekti)
-        # Üst/alt kavis
         p.drawArc(3, 7, px - 6, px - 12, 0 * 16, 180 * 16)
         p.drawArc(3, 7, px - 6, px - 12, 180 * 16, 180 * 16)
-        # Pupil
         p.setBrush(QColor(c.TEXT_MUTED))
         p.drawEllipse(px // 2 - 2, px // 2 - 2, 4, 4)
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -571,7 +570,6 @@ class LoginWindow(QDialog):
         inp.setEchoMode(QLineEdit.EchoMode.Normal if is_hidden else QLineEdit.EchoMode.Password)
         btn.setIcon(self._eye_icon(visible=is_hidden))
 
-    # ── Register sayfası ──────────────────────────────────────────────────────
 
     def _build_register_page(self) -> QWidget:
         c = Colors
@@ -581,7 +579,6 @@ class LoginWindow(QDialog):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        # ── Satır 1: Ad | Soyad ──────────────────────────────────────────
         row1_lbl = QHBoxLayout()
         row1_lbl.setContentsMargins(0, 0, 0, 0)
         row1_lbl.setSpacing(12)
@@ -600,7 +597,6 @@ class LoginWindow(QDialog):
         lay.addLayout(row1)
         lay.addSpacing(12)
 
-        # ── Satır 2: E-posta | Telefon ───────────────────────────────────
         row2_lbl = QHBoxLayout()
         row2_lbl.setContentsMargins(0, 0, 0, 0)
         row2_lbl.setSpacing(12)
@@ -671,7 +667,6 @@ class LoginWindow(QDialog):
         lay.addStretch()
         return w
 
-    # ──────── Yardımcılar ─────────────────────────────────────────────────────
 
     def _field_lbl(self, text: str) -> QLabel:
         lbl = QLabel(text)
@@ -717,12 +712,78 @@ class LoginWindow(QDialog):
         if password:
             inp.setEchoMode(QLineEdit.EchoMode.Password)
             inp.setProperty("is_password_field", True)
-            # Şifre alanlarında kopyala/yapıştır menüsünü kapat
             inp.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             inp.setDragEnabled(False)
             inp.installEventFilter(self)
+        else:
+            inp.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            inp.customContextMenuRequested.connect(
+                lambda pos, le=inp: self._show_line_edit_context_menu(le, pos)
+            )
         inp.setStyleSheet(line_edit_style(font_size=14))
         return inp
+
+    def _show_line_edit_context_menu(self, inp: QLineEdit, pos):
+        if inp.echoMode() == QLineEdit.EchoMode.Password:
+            return
+        menu = QMenu(self)
+        menu.setObjectName("codeInputMenu")
+        menu.setStyleSheet(_CTX_MENU_SS)
+
+        cut_action = menu.addAction("Kes")
+        copy_action = menu.addAction("Kopyala")
+        paste_action = menu.addAction("Yapıştır")
+        menu.addSeparator()
+        select_all_action = menu.addAction("Tümünü seç")
+        clear_action = menu.addAction("Temizle")
+
+        cut_action.setShortcut(QKeySequence.StandardKey.Cut)
+        copy_action.setShortcut(QKeySequence.StandardKey.Copy)
+        paste_action.setShortcut(QKeySequence.StandardKey.Paste)
+        select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
+        cut_action.setShortcutVisibleInContextMenu(True)
+        copy_action.setShortcutVisibleInContextMenu(True)
+        paste_action.setShortcutVisibleInContextMenu(True)
+        select_all_action.setShortcutVisibleInContextMenu(True)
+
+        has_selection = inp.hasSelectedText()
+        has_text = bool(inp.text())
+        cut_action.setEnabled(has_selection and not inp.isReadOnly())
+        copy_action.setEnabled(has_selection)
+        paste_action.setEnabled(not inp.isReadOnly())
+        select_all_action.setEnabled(has_text)
+        clear_action.setEnabled(has_text and not inp.isReadOnly())
+
+        global_pos = inp.mapToGlobal(pos)
+        selected = menu.exec(self._fit_menu_pos_in_window(menu, global_pos))
+        if selected == cut_action:
+            inp.cut()
+        elif selected == copy_action:
+            inp.copy()
+        elif selected == paste_action:
+            inp.paste()
+        elif selected == select_all_action:
+            inp.selectAll()
+        elif selected == clear_action:
+            inp.clear()
+
+    def _fit_menu_pos_in_window(self, menu: QMenu, anchor_pos: QPoint) -> QPoint:
+        menu.ensurePolished()
+        menu_size = menu.sizeHint()
+        win_top_left = self.mapToGlobal(self.rect().topLeft())
+        win_bottom_right = self.mapToGlobal(self.rect().bottomRight())
+
+        margin = 8
+        min_x = win_top_left.x() + margin
+        min_y = win_top_left.y() + margin
+        max_x = max(min_x, win_bottom_right.x() - menu_size.width() - margin)
+        max_y = max(min_y, win_bottom_right.y() - menu_size.height() - margin)
+
+        x = anchor_pos.x() - menu_size.width()
+        y = anchor_pos.y()
+        x = max(min_x, min(x, max_x))
+        y = max(min_y, min(y, max_y))
+        return QPoint(x, y)
 
     def _make_eye_button(self) -> QToolButton:
         """Şifre göster/gizle butonu oluşturur (ortak yardımcı)."""
@@ -749,7 +810,6 @@ class LoginWindow(QDialog):
         """Şifre alanlarında (görünürken) kopyala/kes/yapıştır engeller."""
         from PyQt6.QtCore import QEvent
         if isinstance(obj, QLineEdit) and bool(obj.property("is_password_field")):
-            # Şifre görünürken (Normal) clipboard operasyonlarını engelle
             if obj.echoMode() == QLineEdit.EchoMode.Normal and event.type() == QEvent.Type.KeyPress:
                 from PyQt6.QtGui import QKeyEvent, QKeySequence
                 key_event: QKeyEvent = event
@@ -760,14 +820,12 @@ class LoginWindow(QDialog):
                     or key_event.matches(QKeySequence.StandardKey.SelectAll)
                 ):
                     return True
-                # Ek kısayollar (özellikle Windows): Shift+Insert (paste), Ctrl+Insert (copy)
                 if (key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier) and key_event.key() == Qt.Key.Key_Insert:
                     return True
                 if (key_event.modifiers() & Qt.KeyboardModifier.ControlModifier) and key_event.key() == Qt.Key.Key_Insert:
                     return True
         return super().eventFilter(obj, event)
 
-    # ──────── Sürükleme ve Kapanış ────────────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -781,7 +839,6 @@ class LoginWindow(QDialog):
         self._drag_pos = None
 
     def keyPressEvent(self, event):
-        # Enter/Return aktif sekmede işlem başlatsın; pencereyi kapatmasın.
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if self._stack.currentIndex() == 0:
                 if getattr(self, "_btn_login", None) is not None and self._btn_login.isEnabled():
@@ -802,7 +859,6 @@ class LoginWindow(QDialog):
             return
         super().closeEvent(event)
 
-    # ──────── İşlem mantığı ───────────────────────────────────────────────────
 
     def _set_loading(self, loading: bool, btn: QPushButton):
         btn.setEnabled(not loading)
@@ -870,15 +926,12 @@ class LoginWindow(QDialog):
                 "address": "",
             }
         username = str(user.get("username") or email)
-        # Sunucu, device_id'yi MAC/çakışma durumuna göre yeniden çözebilir.
-        # Daha sonra /pairings gibi endpoint'ler, bu resolved device_id'nin kullanıcıya ait olmasını bekler.
         resolved_device_id = str(user.get("device_id") or user.get("address") or "").strip()
         address = resolved_device_id
         if resolved_device_id and resolved_device_id.isdigit() and len(resolved_device_id) == 12 and resolved_device_id != device_id:
             try:
                 update_prefs(**{"device_id": resolved_device_id})
             except Exception:
-                # Prefs yazımı başarısız olsa bile login devam edebilsin.
                 pass
         first_name = str(user.get("first_name") or "").strip()
         last_name = str(user.get("last_name") or "").strip()
@@ -1017,7 +1070,6 @@ class LoginWindow(QDialog):
         success, msg = result
         if success:
             self._lbl_reg_ok.setText(msg)
-            # Otomatik giriş sayfasına geç
             QTimer.singleShot(1200, lambda: self._switch_tab(0))
         else:
             self._lbl_reg_err.setText(msg)

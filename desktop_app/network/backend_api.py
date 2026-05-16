@@ -64,6 +64,16 @@ class BackendApi:
             "Accept": "application/json",
         }
 
+    @staticmethod
+    def _is_transient_connection_reset(exc: RequestException) -> bool:
+        msg = str(exc).lower()
+        return (
+            "connection reset" in msg
+            or "forcibly closed by the remote host" in msg
+            or "10054" in msg
+            or "connection aborted" in msg
+        )
+
     def login(
         self,
         *,
@@ -161,24 +171,35 @@ class BackendApi:
     def get_phone_device_bundle(
         self, token: str, pc_device_id: str
     ) -> tuple[dict[str, Any] | None, str]:
-        """Tek HTTP: devices + recent telefonlar + pairings (masaustu)."""
+        """Tek HTTP: devices + recent telefonlar + pairings (masaüstü)."""
         url = f"{self._base}/devices/phone-bundle"
-        try:
-            r = self._session.get(
-                url,
-                headers=self._headers(token),
-                params={"device_id": pc_device_id},
-                timeout=self._timeout_tuple(),
-            )
-            if r.status_code == 404:
-                return None, "bundle_missing"
-            data = r.json() if r.text else {}
-            if r.status_code >= 400 or not data.get("ok"):
-                return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
-            return data, ""
-        except (ReadTimeout, ConnectTimeout, RequestException) as e:
-            logger.warning("get_phone_device_bundle: %s", e)
-            return None, str(e)
+        for attempt in range(2):
+            try:
+                r = self._session.get(
+                    url,
+                    headers=self._headers(token),
+                    params={"device_id": pc_device_id},
+                    timeout=self._timeout_tuple(),
+                )
+                if r.status_code == 404:
+                    return None, "bundle_missing"
+                data = r.json() if r.text else {}
+                if r.status_code >= 400 or not data.get("ok"):
+                    return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
+                return data, ""
+            except (ReadTimeout, ConnectTimeout, RequestException) as e:
+                if (
+                    attempt == 0
+                    and isinstance(e, RequestException)
+                    and self._is_transient_connection_reset(e)
+                ):
+                    logger.info("get_phone_device_bundle: geçici bağlantı kopması, tekrar deneniyor")
+                    time.sleep(0.6)
+                    continue
+                logger.warning("get_phone_device_bundle: %s", e)
+                return None, str(e)
+
+        return None, "phone_bundle_failed"
 
     def update_profile(
         self,

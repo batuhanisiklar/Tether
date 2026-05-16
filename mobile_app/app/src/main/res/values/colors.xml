@@ -26,6 +26,9 @@
     <color name="danger_stroke">#553333</color>
     <color name="success_surface">#1A2E1F</color>
     <color name="success_stroke">#2D6A4F</color>
+    <color name="home_tile_primary_stroke">#3D2A22</color>
+    <color name="home_tile_alt_surface">#242030</color>
+    <color name="home_tile_alt_stroke">#3A3550</color>
 
     <!-- Launcher icon -->
     <color name="ic_launcher_background">@color/primary</color>

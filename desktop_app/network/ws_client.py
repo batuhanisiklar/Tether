@@ -6,13 +6,13 @@ import logging
 import threading
 import time
 import websocket
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from desktop_app.config import Network
 from desktop_app.config.prefs_store import (
     clear_paired_phone_id,
     load_or_create_device_id,
-    load_paired_phone_id as _load_paired_phone_id,
+    load_paired_phone_id,
     save_paired_phone_id,
 )
 
@@ -30,8 +30,16 @@ class WsClient(QObject):
     command_received = pyqtSignal(dict)
     error_occurred = pyqtSignal(str, str)
     frame_received = pyqtSignal(bytes)
+    audio_received = pyqtSignal(bytes)
+    rotation_received = pyqtSignal(int)        # Telefon rotasyonu (0/90/180/270 derece)
     paired_devices_status = pyqtSignal(list, list, object)
     session_rtt_ms = pyqtSignal(float)
+    reconnecting = pyqtSignal(int)             # Yeniden bağlanma denemesi numarası
+
+    # ── Reconnect sabitleri ──────────────────────────────────────────────
+    _MAX_RECONNECT_ATTEMPTS = 10
+    _RECONNECT_BASE_MS = 1500
+    _RECONNECT_MAX_MS = 15000
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,6 +50,17 @@ class WsClient(QObject):
         self.device_id: str = load_or_create_device_id()
         self._ping_sent_at: dict[int, float] = {}
         self._ping_seq: int = 0
+        self._last_paired_url: str = ""
+        self._last_paired_time: float = 0.0
+        self._PAIRED_DEBOUNCE_SEC: float = 2.0
+        self._auth_token: str = ""
+
+        # ── Reconnect durumu ─────────────────────────────────────────────
+        self._last_url: str = ""
+        self._last_on_open = None
+        self._reconnect_attempt: int = 0
+        self._reconnect_enabled: bool = False
+
         logger.info("PC device_id: %s", self.device_id)
 
     @property
@@ -52,23 +71,46 @@ class WsClient(QObject):
         self.disconnect()
         self._session_code = code
         self._disconnect_emitted = False
+        self._last_url = url
+        self._reconnect_attempt = 0
+        self._reconnect_enabled = True
+        self._last_paired_url = ""
+        self._last_paired_time = 0.0
         self._start_ws(url, on_open=self._on_open_join)
 
     def connect_with_device_id(self, url: str) -> None:
         self.disconnect()
         self._session_code = ""
         self._disconnect_emitted = False
+        self._last_url = url
+        self._reconnect_attempt = 0
+        self._reconnect_enabled = False  # Presence mode — reconnect yok, app timer yönetir
         self._start_ws(url, on_open=self._on_open_device_hello)
 
     def disconnect(self, send_logout: bool = False) -> None:
-        if self._ws and send_logout:
+        self._reconnect_enabled = False
+        self._reconnect_attempt = 0
+        ws = self._ws
+        if ws is None:
+            return
+
+        if send_logout:
+            # Önce karşı tarafa oturumun kapandığını bildir, ardından kısa gecikmeyle socket'i kapat.
+            # Bu gecikme düşük ağ kalitesinde "logout" paketinin düşmesini azaltır.
             self._send_json(
-                {"type": "device_logout", "device_id": self.device_id},
+                self._with_auth({"type": "device_logout", "device_id": self.device_id}),
                 silent=True,
             )
-        if self._ws:
+            QTimer.singleShot(120, self._finalize_disconnect)
+            return
+
+        self._finalize_disconnect()
+
+    def _finalize_disconnect(self) -> None:
+        ws = self._ws
+        if ws:
             try:
-                self._ws.close()
+                ws.close()
             except Exception:
                 pass
         self._ws = None
@@ -77,13 +119,21 @@ class WsClient(QObject):
         digits = "".join(ch for ch in (device_address or "") if ch.isdigit())[:12]
         self._device_address = digits or None
 
+    def set_auth_token(self, token: str | None) -> None:
+        self._auth_token = (token or "").strip()
+
+    def _with_auth(self, payload: dict) -> dict:
+        if self._auth_token:
+            return {**payload, "auth_token": self._auth_token}
+        return payload
+
     def send_pair_confirm(self, target_device_id: str) -> None:
         self._send_json(
-            {
+            self._with_auth({
                 "type": "pair_confirm",
                 "my_device_id": self.device_id,
                 "paired_with": target_device_id,
-            },
+            }),
             silent=True,
         )
         save_paired_phone_id(target_device_id)
@@ -139,6 +189,7 @@ class WsClient(QObject):
         self._send_json({"type": "request_presence"}, silent=True)
 
     def _start_ws(self, url: str, *, on_open) -> None:
+        self._last_on_open = on_open
         self._ws = websocket.WebSocketApp(
             url,
             on_open=on_open,
@@ -150,8 +201,8 @@ class WsClient(QObject):
             target=self._ws.run_forever,
             kwargs={
                 "skip_utf8_validation": True,
-                "ping_interval": 20,
-                "ping_timeout": 15,
+                "ping_interval": 25,
+                "ping_timeout": 20,
             },
             daemon=True,
         )
@@ -167,13 +218,13 @@ class WsClient(QObject):
             ws.send(json.dumps(payload, separators=(",", ":")))
             return True
         except websocket.WebSocketConnectionClosedException:
-            logger.warning("Kapali WebSocket'a mesaj gonderildi: %s", payload.get("type"))
+            logger.warning("Kapalı WebSocket'a mesaj gönderildi: %s", payload.get("type"))
             if not self._disconnect_emitted:
                 self._disconnect_emitted = True
                 self.disconnected.emit("socket is already closed")
             return False
         except Exception as exc:
-            logger.error("WebSocket gonderim hatasi: %s", exc)
+            logger.error("WebSocket gönderim hatası: %s", exc)
             if not silent:
                 self.error_occurred.emit(str(exc), "")
             return False
@@ -181,29 +232,31 @@ class WsClient(QObject):
     def _on_open_join(self, ws) -> None:
         if ws is not self._ws:
             return
+        self._reconnect_attempt = 0
         self.connected.emit()
         _s = lambda d: json.dumps(d, separators=(",", ":"))
-        ws.send(_s({"type": "device_hello", "device_id": self.device_id, "role": "pc"}))
-        ws.send(_s({
+        ws.send(_s(self._with_auth({"type": "device_hello", "device_id": self.device_id, "role": "pc"})))
+        ws.send(_s(self._with_auth({
             "type": "join",
             "code": self._session_code,
             "role": "pc",
             "device_id": self.device_id,
-        }))
+        })))
 
     def _on_open_device_hello(self, ws) -> None:
         if ws is not self._ws:
             return
+        self._reconnect_attempt = 0
         self.connected.emit()
         _s = lambda d: json.dumps(d, separators=(",", ":"))
-        ws.send(_s({"type": "device_hello", "device_id": self.device_id, "role": "pc"}))
+        ws.send(_s(self._with_auth({"type": "device_hello", "device_id": self.device_id, "role": "pc"})))
         address = getattr(self, "_device_address", None) or self.device_id
-        ws.send(_s({
+        ws.send(_s(self._with_auth({
             "type": "join",
             "code": address,
             "role": "pc",
             "device_id": self.device_id,
-        }))
+        })))
 
     def _on_message(self, ws, raw) -> None:
         if ws is not self._ws:
@@ -230,7 +283,15 @@ class WsClient(QObject):
             partner_id = msg.get("partner_device_id", "")
             if partner_id:
                 save_paired_phone_id(partner_id)
-            self.paired.emit(msg.get("stream_url", ""))
+            stream_url = msg.get("stream_url", "")
+            # Boş stream_url ile gelen tekrarlayıcı paired mesajlarını debounce et
+            now = time.perf_counter()
+            if not stream_url and (now - self._last_paired_time) < self._PAIRED_DEBOUNCE_SEC:
+                logger.debug("Tekrarlayan boş paired mesajı yoksayıldı (debounce)")
+            else:
+                self._last_paired_url = stream_url
+                self._last_paired_time = now
+                self.paired.emit(stream_url)
 
         elif msg_type == "device_ack":
             paired_devices = msg.get("paired_devices", []) or []
@@ -246,7 +307,17 @@ class WsClient(QObject):
             url = msg.get("url", "")
             if isinstance(url, str):
                 logger.info("stream_info url=%r", url)
-            self.paired.emit(url if isinstance(url, str) else "")
+            stream_url = url if isinstance(url, str) else ""
+            # stream_info ile gelen URL aynıysa ve kısa süre içinde tekrar geldiyse debounce et
+            now = time.perf_counter()
+            if (stream_url == self._last_paired_url
+                    and stream_url
+                    and (now - self._last_paired_time) < self._PAIRED_DEBOUNCE_SEC):
+                logger.debug("Tekrarlayan stream_info mesajı yoksayıldı (debounce, url=%r)", stream_url)
+            else:
+                self._last_paired_url = stream_url
+                self._last_paired_time = now
+                self.paired.emit(stream_url)
 
         elif msg_type == "frame":
             data_str = msg.get("data", "")
@@ -254,7 +325,12 @@ class WsClient(QObject):
                 return
             try:
                 raw_b64 = data_str if isinstance(data_str, str) else str(data_str)
-                self._handle_frame_bytes(base64.b64decode(raw_b64, validate=False))
+                frame_data = base64.b64decode(raw_b64, validate=False)
+                # JSON fallback karesinde rotation bilgisi
+                rotation = int(msg.get("rotation", 0))
+                rotation_deg = {0: 0, 1: 90, 2: 180, 3: 270}.get(rotation, 0)
+                self.rotation_received.emit(rotation_deg)
+                self.frame_received.emit(frame_data)
             except Exception as e:
                 logger.warning("Frame decode hatasi: %s", e)
 
@@ -284,22 +360,24 @@ class WsClient(QObject):
         elif msg_type == "error":
             code = str(msg.get("code") or "").strip()
             text = msg.get("message", "Bilinmeyen hata")
-            logger.warning("Sunucu WS hata mesaji: %s (code=%s)", text, code or "-")
+            logger.warning("Sunucu WS hata mesajı: %s (code=%s)", text, code or "-")
             self.error_occurred.emit(text, code)
 
     def _on_error(self, ws, error) -> None:
         if ws is not self._ws:
             return
         if isinstance(error, websocket.WebSocketConnectionClosedException):
-            logger.info("WebSocket kapali hata callback'i alindi")
+            logger.info("WebSocket kapalı hata callback'i alındı")
             if not self._disconnect_emitted:
                 self._disconnect_emitted = True
                 self.disconnected.emit("socket is already closed")
+            self._try_reconnect()
             return
         if isinstance(error, UnicodeDecodeError):
             logger.debug("UnicodeDecodeError ignored in websocket callback: %s", error)
             return
         self.error_occurred.emit(str(error), "")
+        self._try_reconnect()
 
     def _on_close(self, ws, code, msg) -> None:
         if ws is not self._ws:
@@ -307,15 +385,74 @@ class WsClient(QObject):
         if not self._disconnect_emitted:
             self._disconnect_emitted = True
             self.disconnected.emit(f"code={code}, msg={msg}")
+        self._try_reconnect()
 
     def _handle_frame_bytes(self, frame_bytes: bytes) -> None:
         if not frame_bytes:
             return
         try:
-            self.frame_received.emit(bytes(frame_bytes))
+            prefix = frame_bytes[0]
+            if prefix == 0x01:
+                # Yeni format: [0x01, rotation_byte, ...jpeg_data...]
+                # Eski format: [0x01, 0xFF, 0xD8, ...jpeg_data...] (rotation byte yok)
+                # Ayrım: rotation byte 0-3 arası → yeni format; 0xFF → eski format
+                if len(frame_bytes) >= 3 and frame_bytes[1] <= 0x03:
+                    # Yeni format: byte[1] = rotation (0-3)
+                    rotation_byte = frame_bytes[1]
+                    rotation_deg = {0: 0, 1: 90, 2: 180, 3: 270}.get(rotation_byte, 0)
+                    self.rotation_received.emit(rotation_deg)
+                    self.frame_received.emit(bytes(frame_bytes[2:]))
+                else:
+                    # Eski format: byte[1] = JPEG başlangıcı (0xFF)
+                    self.frame_received.emit(bytes(frame_bytes[1:]))
+            elif prefix == 0x02:
+                self.audio_received.emit(bytes(frame_bytes[1:]))
+            elif prefix == 0xFF:  # Ham JPEG (0xFF 0xD8 ile başlar)
+                self.frame_received.emit(bytes(frame_bytes))
         except Exception as e:
-            logger.error("Frame emit hatasi: %s", e, exc_info=True)
+            logger.error("Binary frame emit hatasi: %s", e, exc_info=True)
 
+    # ── Auto-reconnect ───────────────────────────────────────────────────
+    def _try_reconnect(self) -> None:
+        """
+        Bağlantı koptuğunda otomatik yeniden bağlanma (exponential backoff).
+        Yalnızca reconnect etkinken ve maksimum deneme aşılmamışken çalışır.
+        """
+        if not self._reconnect_enabled:
+            return
+        if self._reconnect_attempt >= self._MAX_RECONNECT_ATTEMPTS:
+            logger.warning("Maksimum yeniden bağlanma denemesi aşıldı (%d)", self._MAX_RECONNECT_ATTEMPTS)
+            self._reconnect_enabled = False
+            return
+        if not self._last_url or self._last_on_open is None:
+            return
 
-def load_paired_phone_id() -> str | None:
-    return _load_paired_phone_id()
+        self._reconnect_attempt += 1
+        delay_ms = min(
+            self._RECONNECT_BASE_MS * (2 ** (self._reconnect_attempt - 1)),
+            self._RECONNECT_MAX_MS,
+        )
+        logger.info(
+            "Yeniden bağlanma denemesi %d/%d — %d ms sonra",
+            self._reconnect_attempt,
+            self._MAX_RECONNECT_ATTEMPTS,
+            delay_ms,
+        )
+        self.reconnecting.emit(self._reconnect_attempt)
+
+        # Eski socket'ı temizle (disconnect çağrılmadan)
+        self._ws = None
+        self._disconnect_emitted = False
+
+        QTimer.singleShot(delay_ms, self._do_reconnect)
+
+    def _do_reconnect(self) -> None:
+        """Zamanlayıcı tetiklenince gerçek yeniden bağlanmayı yap."""
+        if not self._reconnect_enabled:
+            return
+        if self._ws is not None:
+            # Arada zaten bağlandıysak iptal et
+            return
+        logger.info("Yeniden bağlanma başlatılıyor: %s", self._last_url)
+        self._start_ws(self._last_url, on_open=self._last_on_open)
+

@@ -43,10 +43,6 @@ class Prefs:
     KEY_DEVICE_ID: str     = "device_id"
     KEY_PAIRED_PHONE: str  = "paired_phone_id"
     KEY_PAIRED_PHONE_ADDRESS: str = "paired_phone_address"
-    DB_URL: str            = os.environ.get(
-        "NEON_DB_URL",
-        "postgresql://neondb_owner:npg_Y3JevV2SsERI@ep-crimson-sun-anqdvhsy-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -54,17 +50,17 @@ class Prefs:
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class ServerDefaults:
-    DEFAULT_URL: str  = "wss://connect-your-phone.onrender.com"
+    DEFAULT_URL: str  = os.environ.get("RPC_SERVER_URL", "wss://connect-your-phone.onrender.com")
     CODE_LENGTH: int  = 12
 
 
 @dataclass(frozen=True)
 class Network:
-    PING_INTERVAL_SEC:         int   = 20
-    PING_TIMEOUT_SEC:          int   = 10
+    PING_INTERVAL_SEC:         int   = 25
+    PING_TIMEOUT_SEC:          int   = 20
     HEARTBEAT_INTERVAL_MS:     int   = 30_000
-    MJPEG_REQUEST_TIMEOUT_SEC: int   = 10
-    MJPEG_CHUNK_SIZE:          int   = 4096
+    MJPEG_REQUEST_TIMEOUT_SEC: int   = 15
+    MJPEG_CHUNK_SIZE:          int   = 65_536
     JPEG_MARKER_START:         bytes = b"\xff\xd8"
     JPEG_MARKER_END:           bytes = b"\xff\xd9"
     MJPEG_JOIN_TIMEOUT_SEC:    float = 2.0
@@ -167,59 +163,6 @@ class Ui:
     TOUCH_THRESHOLD_PX:  int = 8
     COORD_PRECISION:     int = 4
 
-    # Renk proxy'leri (Colors sınıfından; geriye dönük uyumluluk)
-    BG_MAIN:              str = Colors.BG_APP
-    BG_HEADER_START:      str = Colors.BG_SURFACE
-    BG_HEADER_END:        str = Colors.BG_SURFACE
-    BG_INPUT:             str = Colors.BG_INPUT
-    BG_CARD:              str = Colors.BG_CARD
-    BG_LEFT_PANEL:        str = Colors.BG_SURFACE
-    BORDER:               str = Colors.BORDER
-    BORDER_INPUT:         str = Colors.BORDER_INPUT
-    BORDER_FOCUS:         str = Colors.BORDER_FOCUS
-    TEXT_PRIMARY:         str = Colors.TEXT
-    TEXT_INPUT:           str = Colors.TEXT
-    TEXT_MUTED:           str = Colors.TEXT_MUTED
-    TEXT_LABEL:           str = Colors.TEXT_SUBTLE
-    TEXT_ERROR:           str = Colors.ERROR
-    TEXT_SUCCESS:         str = Colors.SUCCESS
-    TEXT_DISCONNECTED:    str = Colors.TEXT_OFF
-    ACCENT:               str = Colors.ACCENT
-    ACCENT_GROUP:         str = Colors.TEXT_SUBTLE
-    BTN_PRIMARY_BG:       str = Colors.ACCENT
-    BTN_PRIMARY_HOVER:    str = Colors.ACCENT_HOVER
-    BTN_PRIMARY_PRESSED:  str = Colors.ACCENT_PRESS
-    BTN_PRIMARY_DISABLED: str = Colors.ACCENT_DIM
-    BTN_DANGER_BG:        str = Colors.BTN_DANGER_BG
-    BTN_DANGER_FG:        str = Colors.BTN_DANGER_FG
-    BTN_DANGER_BORDER:    str = Colors.BTN_DANGER_BDR
-    BTN_DANGER_HOVER:     str = Colors.BTN_DANGER_HOV
-    BTN_SECONDARY_BG:     str = Colors.BTN_SEC_BG
-    BTN_SECONDARY_BORDER: str = Colors.BTN_SEC_BDR
-    BTN_SECONDARY_HOVER:  str = Colors.BTN_SEC_HOV
-    BTN_SECONDARY_FG:     str = Colors.BTN_SEC_FG
-    BTN_CONNECT_BG:       str = Colors.ACCENT
-    BTN_CONNECT_HOVER:    str = Colors.ACCENT_HOVER
-    BTN_CONNECT_PRESSED:  str = Colors.ACCENT_PRESS
-    BTN_DISCONNECT_BG:    str = Colors.BTN_DANGER_BG
-    BTN_DISCONNECT_HOVER: str = Colors.BTN_DANGER_HOV
-    BTN_CONTROL_BG:       str = Colors.BTN_SEC_BG
-    BTN_CONTROL_BORDER:   str = Colors.BTN_SEC_BDR
-    BTN_CONTROL_HOVER_BG: str = Colors.BTN_SEC_HOV
-    BTN_CONTROL_HOVER_BORDER: str = Colors.ACCENT
-    BTN_ROTATE_BG:        str = Colors.BTN_NAV_BG
-    BTN_ROTATE_BORDER:    str = Colors.BTN_NAV_BDR
-    BTN_LOGOUT_BG:        str = Colors.BTN_DANGER_BG
-    BTN_LOGOUT_FG:        str = Colors.BTN_DANGER_FG
-    STATUS_BAR_BG:        str = Colors.BG_APP
-    SPLITTER_HANDLE_BG:   str = Colors.BORDER
-    SCREEN_BORDER:        str = Colors.BORDER
-    SCREEN_PLACEHOLDER_FG: str = "#97A2B8"
-    SCREEN_PLACEHOLDER_BG: str = Colors.BG_APP
-    BTN_CAM_ON_BG:        str = Colors.BTN_VOL_BG
-    BTN_CAM_ON_BORDER:    str = Colors.BTN_VOL_BDR
-    BTN_CAM_OFF_BG:       str = Colors.BTN_DANGER_BG
-    BTN_CAM_OFF_BORDER:   str = Colors.BTN_DANGER_BDR
 
     # Mesajlar
     MSG_WAITING:                str = "Bağlantı bekleniyor"
