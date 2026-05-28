@@ -21,6 +21,7 @@ class SignalingClient(
     private val deviceId: String,
     private val deviceAddress: String,
     private val isAccessibilityEnabled: () -> Boolean,
+    private val isMediaMuted: () -> Boolean?,
     private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>, partnerOnline: Boolean) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
@@ -73,6 +74,7 @@ class SignalingClient(
                     put("device_id", deviceId)
                     put("role", "phone")
                     put("accessibility_enabled", isAccessibilityEnabled())
+                    isMediaMuted()?.let { put("media_muted", it) }
                 }.toString(),
             )
         } catch (_: Exception) {
@@ -117,6 +119,7 @@ class SignalingClient(
                     put("device_id", deviceId)
                     put("role", "phone")
                     put("accessibility_enabled", isAccessibilityEnabled())
+                    isMediaMuted()?.let { put("media_muted", it) }
                 }
                 webSocket.send(helloMsg.toString())
 
@@ -134,6 +137,7 @@ class SignalingClient(
                     put("role", "phone")
                     put("device_id", deviceId)
                     put("accessibility_enabled", isAccessibilityEnabled())
+                    isMediaMuted()?.let { put("media_muted", it) }
                 }
                 webSocket.send(registerMsg.toString())
 
@@ -149,6 +153,7 @@ class SignalingClient(
                                     put("type", "request_presence")
                                     put("auth_token", authToken)
                                     put("accessibility_enabled", isAccessibilityEnabled())
+                                    isMediaMuted()?.let { muted -> put("media_muted", muted) }
                                 }.toString(),
                             )
                         } catch (_: Exception) {

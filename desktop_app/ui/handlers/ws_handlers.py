@@ -60,6 +60,7 @@ class WsHandlersMixin:
         self._switch_page(0)
         self._screen.clear_frame()
         self._phone_accessibility_enabled = None
+        self._phone_media_muted = None
         self._remote_frame_visible = False
         self._presence_timer.stop()
         for card in self._device_cards.values():
@@ -145,8 +146,14 @@ class WsHandlersMixin:
             QTimer.singleShot(700, self._request_phone_screen_capture)
         self._refresh_paired_stream_status()
 
-    @pyqtSlot(list, list, object)
-    def _on_paired_devices_status(self, paired_devices: list, online_devices: list, phone_a11y: object):
+    @pyqtSlot(list, list, object, object)
+    def _on_paired_devices_status(
+        self,
+        paired_devices: list,
+        online_devices: list,
+        phone_a11y: object,
+        phone_media_muted: object,
+    ):
         from desktop_app.ui.utils import ws_device_id_set
 
         online_ids          = ws_device_id_set(online_devices)
@@ -178,6 +185,9 @@ class WsHandlersMixin:
 
         if phone_a11y is not WsClient.PHONE_A11Y_UNCHANGED:
             self._phone_accessibility_enabled = None if phone_a11y is None else bool(phone_a11y)
+        if phone_media_muted is not WsClient.PHONE_MEDIA_MUTED_UNCHANGED:
+            self._phone_media_muted = None if phone_media_muted is None else bool(phone_media_muted)
+        self._update_volume_mute_button_label()
 
         self._refresh_home_summary()
         if self._connected:
@@ -189,6 +199,7 @@ class WsHandlersMixin:
         self._mjpeg.stop()
         self._screen.clear_frame()
         self._phone_accessibility_enabled = None
+        self._phone_media_muted = None
         self._remote_frame_visible = False
         self._set_connected(False)
         self._switch_page(0)

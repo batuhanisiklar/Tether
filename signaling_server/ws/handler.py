@@ -91,6 +91,9 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 if message_type == MessageTypes.REQUEST_PRESENCE and meta.get("role") == "phone":
                     if "accessibility_enabled" in message:
                         meta["accessibility_enabled"] = bool(message.get("accessibility_enabled"))
+                    if "media_muted" in message:
+                        raw_muted = message.get("media_muted")
+                        meta["media_muted"] = None if raw_muted is None else bool(raw_muted)
                 device_id = normalize_device_id(str(meta.get("device_id") or ""))
                 if device_id:
                     await send_device_ack(app, device_id)

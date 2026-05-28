@@ -1,12 +1,8 @@
-<<<<<<< HEAD
-=======
 """
 UI Yardımcı Fonksiyonlar
-=========================
 Adres biçimlendirmeden oturum etiketlerine kadar ortak yardımcılar.
 """
 
->>>>>>> server-fix
 import os
 
 from PyQt6.QtCore import Qt
@@ -138,14 +134,11 @@ def merge_phone_device_row(existing: dict, row: dict) -> dict:
         if not str(out.get(key) or "").strip() and str(existing.get(key) or "").strip():
             out[key] = existing[key]
 
-<<<<<<< HEAD
     # owner veya user nesnesinden ad/soyad çek
-=======
     for key in ("owner_name", "owner_phone", "owner_email", "owner_user_id"):
         if key in row and row.get(key) is not None:
             out[key] = row.get(key)
 
->>>>>>> server-fix
     if not (str(out.get("owner_name") or "").strip()):
         owner_obj = row.get("owner") or existing.get("owner") or row.get("user") or existing.get("user")
         if isinstance(owner_obj, dict):

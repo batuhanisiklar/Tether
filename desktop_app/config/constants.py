@@ -214,7 +214,7 @@ class AndroidKeyCodes:
             ("Geri",        "nav", 0, 0, "key_back",     1),
             ("Ana Ekran",   "nav", 0, 1, "key_home",     1),
             ("Uygulamalar", "nav", 1, 0, "key_recents",  1),
-            ("Sessize al",  "vol", 1, 1, "key_vol_mute", 1),
+            ("Sesi ac/kapat", "vol", 1, 1, "key_vol_mute", 1),
             ("Ses +",       "vol", 2, 0, "key_vol_up",   1),
             ("Ses −",       "vol", 2, 1, "key_vol_down", 1),
         ]

@@ -134,6 +134,7 @@ class MainWindow(
         self._paired_phone_address: str | None = None
         self._online_paired_devices: set[str]  = set()
         self._phone_accessibility_enabled: bool | None = None
+        self._phone_media_muted: bool | None = None
         self._remote_frame_visible       = False
         self._logging_out                = False
         self._manual_disconnect          = False
@@ -704,6 +705,10 @@ class MainWindow(
     def _on_screen_remote_key(self, key_code: int) -> None:
         if self._connected:
             self._ws_client.send_key_event(int(key_code))
+            if int(key_code) == AndroidKeyCodes.VOL_MUTE:
+                if self._phone_media_muted is not None:
+                    self._phone_media_muted = not self._phone_media_muted
+                self._update_volume_mute_button_label()
             if self._audio_player is not None:
                 self._audio_player.adjust_for_android_key(
                     int(key_code),
@@ -719,6 +724,21 @@ class MainWindow(
             btn = getattr(self, attr, None)
             if btn is not None:
                 btn.setEnabled(enabled)
+        self._update_volume_mute_button_label()
+
+    def _update_volume_mute_button_label(self) -> None:
+        btn = getattr(self, "_btn_vol_mute", None)
+        if btn is None:
+            return
+        if not btn.isEnabled():
+            btn.setText("Ses (pasif)")
+            return
+        if self._phone_media_muted is True:
+            btn.setText("Sesi ac")
+        elif self._phone_media_muted is False:
+            btn.setText("Sesi kapat")
+        else:
+            btn.setText("Sesi ac/kapat")
 
     # ── Presence ──────────────────────────────────────────────────────────
 
@@ -732,6 +752,7 @@ class MainWindow(
         if not connected:
             self._screen_capture_prompt_sent = False
             self._sync_stream_aspect_fit()
+            self._phone_media_muted = None
             if self._audio_player is not None:
                 self._audio_player.reset()
         self._set_remote_controls_enabled(bool(connected and self._remote_frame_visible))

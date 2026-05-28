@@ -78,6 +78,9 @@ async def bind_owned_ws_device(
     meta["device_id"] = normalized_device_id
     meta["role"] = role
     meta["accessibility_enabled"] = bool(message.get("accessibility_enabled", meta.get("accessibility_enabled", True)))
+    if "media_muted" in message:
+        raw_muted = message.get("media_muted")
+        meta["media_muted"] = None if raw_muted is None else bool(raw_muted)
     app["online_devices"][normalized_device_id] = {
         "ws": ws,
         "user_id": int(user_id),

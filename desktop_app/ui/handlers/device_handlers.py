@@ -135,6 +135,8 @@ class DeviceHandlersMixin:
         cols = max(1, (self.width() - 60) // (DeviceCard.CARD_W + 18))
         for idx, (_, card) in enumerate(ordered):
             self._recent_devices_layout.addWidget(card, idx // cols, idx % cols)
+        for col in range(cols):
+            self._recent_devices_layout.setColumnStretch(col, 1)
 
     def _on_card_connect(self, card_key: str):
         card = self._device_cards.get(card_key)

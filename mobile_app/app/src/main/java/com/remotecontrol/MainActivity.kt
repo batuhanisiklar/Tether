@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.text.format.Formatter
@@ -147,8 +148,8 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermission()
 
         scope.launch {
-            syncUserProfile()
             syncDeviceState()
+            syncUserProfile()
             refreshPairings()
             if (!isFinishing && !isDestroyed && sessionStore.isLoggedIn()) {
                 connectSignaling()
@@ -361,6 +362,7 @@ class MainActivity : AppCompatActivity() {
             deviceId = ownDeviceId,
             deviceAddress = address,
             isAccessibilityEnabled = { isAccessibilityServiceEnabled() },
+            isMediaMuted = { currentMediaMutedState() },
             onPaired = { _, partnerDeviceId ->
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
@@ -415,6 +417,21 @@ class MainActivity : AppCompatActivity() {
         currentStatusDetail = "Sabit adres: $currentAddress"
         refreshFragments()
         Log.i(TAG, "Device address: $currentAddress")
+    }
+
+    private fun currentMediaMutedState(): Boolean? {
+        return try {
+            val am = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return null
+            val volume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val muted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.isStreamMute(AudioManager.STREAM_MUSIC)
+            } else {
+                volume <= 0
+            }
+            muted || volume <= 0
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun onFirstPairComplete(pcDeviceId: String) {
@@ -752,13 +769,13 @@ class MainActivity : AppCompatActivity() {
             refreshFragments()
         }
 
-        val profile = backendApi.getProfile(token, deviceId)
-        profile.data?.let { p ->
+        val profile = retryProfileFetch(token, deviceId)
+        profile?.let { p ->
             sessionStore.saveProfile(p.firstName, p.lastName, p.email, p.phone)
         }
 
-        val result = backendApi.getMe(token, deviceId)
-        val session = result.data ?: return
+        val result = retryMeFetch(token, deviceId) ?: return
+        val session = result
         if (session.address.isNotBlank()) {
             deviceId = session.address.filter(Char::isDigit).take(12)
             deviceIdentityStore.saveDeviceId(deviceId)
@@ -766,6 +783,24 @@ class MainActivity : AppCompatActivity() {
             currentAddress = session.address
             refreshFragments()
         }
+    }
+
+    private suspend fun retryProfileFetch(token: String, deviceId: String): UserProfile? {
+        repeat(3) { attempt ->
+            val result = backendApi.getProfile(token, deviceId)
+            result.data?.let { return it }
+            if (attempt < 2) delay(500L * (attempt + 1))
+        }
+        return null
+    }
+
+    private suspend fun retryMeFetch(token: String, deviceId: String): AuthSession? {
+        repeat(3) { attempt ->
+            val result = backendApi.getMe(token, deviceId)
+            result.data?.let { return it }
+            if (attempt < 2) delay(500L * (attempt + 1))
+        }
+        return null
     }
 
     private suspend fun refreshPairings() {

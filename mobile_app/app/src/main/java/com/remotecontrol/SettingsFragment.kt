@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class SettingsFragment : Fragment(), DashboardFragment {
@@ -99,7 +100,7 @@ class SettingsFragment : Fragment(), DashboardFragment {
         if (token.isBlank()) return
         binding.tvProfileHeaderError.visibility = View.GONE
         scope.launch {
-            val result = host.backendApiRef().getProfile(token, host.currentDeviceId())
+            val result = fetchProfileWithRetry(host, token, host.currentDeviceId())
             if (!result.error.isNullOrBlank()) {
                 binding.tvProfileHeaderError.text = result.error
                 binding.tvProfileHeaderError.visibility = View.VISIBLE
@@ -116,6 +117,21 @@ class SettingsFragment : Fragment(), DashboardFragment {
             binding.etProfilePhone.setText(p.phone)
             refreshContent()
         }
+    }
+
+    private suspend fun fetchProfileWithRetry(
+        host: MainActivity,
+        token: String,
+        deviceId: String,
+    ): ApiResult<UserProfile> {
+        var last: ApiResult<UserProfile> = ApiResult(error = "Kullanici bilgisi alinamadi.")
+        repeat(3) { attempt ->
+            val result = host.backendApiRef().getProfile(token, deviceId)
+            if (result.data != null) return result
+            last = result
+            if (attempt < 2) delay(400L * (attempt + 1))
+        }
+        return last
     }
 
     private fun openEditPanel() {

@@ -111,6 +111,7 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
     grid = QGridLayout()
     grid.setSpacing(4)
     window._key_buttons = []
+    window._key_buttons_by_id = {}
     key_codes = AndroidKeyCodes.as_mapping()
 
     for label, _group, row, col, key_id, colspan in AndroidKeyCodes.button_specs():
@@ -126,6 +127,11 @@ def _build_key_controls_panel(window: "MainWindow") -> QFrame:
         else:
             grid.addWidget(btn, row, col)
         window._key_buttons.append(btn)
+        window._key_buttons_by_id[key_id] = btn
+
+    window._btn_vol_mute = window._key_buttons_by_id.get("key_vol_mute")
+    if window._btn_vol_mute is not None:
+        window._btn_vol_mute.setText("Ses durumu aliniyor...")
 
     lay.addLayout(grid)
     return panel

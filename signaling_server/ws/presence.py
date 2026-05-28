@@ -83,8 +83,10 @@ async def send_device_ack(app: web.Application, device_id: str) -> None:
     online_paired = [candidate for candidate in paired_ids if candidate in app["online_devices"]]
 
     phone_accessibility_enabled: bool | None = None
+    phone_media_muted: bool | None = None
     if str(entry.get("role") or "") == "pc":
-        states: list[Any] = []
+        a11y_states: list[Any] = []
+        mute_states: list[Any] = []
         for pid in online_paired:
             dev = await asyncio.to_thread(db.get_device_by_id, pid)
             if not dev or str(dev.get("device_type") or "") != "phone":
@@ -93,14 +95,22 @@ async def send_device_ack(app: web.Application, device_id: str) -> None:
             if not pent or not pent.get("ws"):
                 continue
             pmeta = app["ws_meta"].get(id(pent["ws"]))
-            states.append(pmeta.get("accessibility_enabled") if pmeta else None)
-        if states:
-            if any(v is False for v in states):
+            a11y_states.append(pmeta.get("accessibility_enabled") if pmeta else None)
+            mute_states.append(pmeta.get("media_muted") if pmeta else None)
+        if a11y_states:
+            if any(v is False for v in a11y_states):
                 phone_accessibility_enabled = False
-            elif any(v is True for v in states):
+            elif any(v is True for v in a11y_states):
                 phone_accessibility_enabled = True
             else:
                 phone_accessibility_enabled = None
+        if mute_states:
+            if any(v is True for v in mute_states):
+                phone_media_muted = True
+            elif any(v is False for v in mute_states):
+                phone_media_muted = False
+            else:
+                phone_media_muted = None
 
     payload: dict[str, Any] = {
         "type": MessageTypes.DEVICE_ACK,
@@ -112,6 +122,7 @@ async def send_device_ack(app: web.Application, device_id: str) -> None:
     }
     if str(entry.get("role") or "") == "pc":
         payload["phone_accessibility_enabled"] = phone_accessibility_enabled
+        payload["phone_media_muted"] = phone_media_muted
 
     await send_json(ws, payload)
 

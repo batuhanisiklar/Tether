@@ -1,6 +1,6 @@
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout
 
 from desktop_app.config import Colors
 from desktop_app.ui.styles.app_styles import device_card_style
@@ -40,7 +40,10 @@ class DeviceCard(QFrame):
         self._connect_cb   = None
         self._forget_cb    = None
 
-        self.setFixedSize(self.CARD_W, self.CARD_H)
+        self.setMinimumWidth(self.CARD_W)
+        self.setMinimumHeight(self.CARD_H)
+        self.setMaximumHeight(self.CARD_H)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._build()
 
 
@@ -76,10 +79,7 @@ class DeviceCard(QFrame):
         top_row.addWidget(self._btn_forget)
         root.addLayout(top_row)
 
-<<<<<<< HEAD
         # Sahip adı (Kişi bilgisi)
-=======
->>>>>>> server-fix
         owner = (self.owner_name or "").strip()
         if not owner:
             owner = (self.owner_email or self.owner_phone or "").strip()

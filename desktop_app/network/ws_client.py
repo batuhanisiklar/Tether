@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 class WsClient(QObject):
     """Eski sunucu sürümlerinde `device_ack` içinde `phone_accessibility_enabled` yoksa bu sentinel kullanılır."""
     PHONE_A11Y_UNCHANGED = object()
+    PHONE_MEDIA_MUTED_UNCHANGED = object()
 
     connected = pyqtSignal()
     disconnected = pyqtSignal(str)
@@ -32,7 +33,7 @@ class WsClient(QObject):
     frame_received = pyqtSignal(bytes)
     audio_received = pyqtSignal(bytes)
     rotation_received = pyqtSignal(int)        # Telefon rotasyonu (0/90/180/270 derece)
-    paired_devices_status = pyqtSignal(list, list, object)
+    paired_devices_status = pyqtSignal(list, list, object, object)
     session_rtt_ms = pyqtSignal(float)
     reconnecting = pyqtSignal(int)             # Yeniden bağlanma denemesi numarası
 
@@ -301,7 +302,17 @@ class WsClient(QObject):
                 phone_a11y = None if raw_a11y is None else bool(raw_a11y)
             else:
                 phone_a11y = WsClient.PHONE_A11Y_UNCHANGED
-            self.paired_devices_status.emit(paired_devices, online_paired_devices, phone_a11y)
+            if "phone_media_muted" in msg:
+                raw_muted = msg.get("phone_media_muted")
+                phone_media_muted = None if raw_muted is None else bool(raw_muted)
+            else:
+                phone_media_muted = WsClient.PHONE_MEDIA_MUTED_UNCHANGED
+            self.paired_devices_status.emit(
+                paired_devices,
+                online_paired_devices,
+                phone_a11y,
+                phone_media_muted,
+            )
 
         elif msg_type == "stream_info":
             url = msg.get("url", "")
