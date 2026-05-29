@@ -45,11 +45,5 @@ Thumbs.db
 mobile_app/.gradle/
 mobile_app/build/
 mobile_app/app/build/
-<<<<<<< HEAD
 mobile_app/local.properties
 *.apk
-=======
-mobile_app/.gradle/
-mobile_app/local.properties
-*.apk
->>>>>>> server-fix

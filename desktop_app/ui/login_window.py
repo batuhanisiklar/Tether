@@ -540,7 +540,7 @@ class LoginWindow(QDialog):
         c = Colors
         px = 22
         pm = QIcon().pixmap(px, px)  # placeholder; overwritten below
-        from PyQt6.QtGui import QPixmap  # lokal import, startup maliyeti düşük
+        from PyQt6.QtGui import QPixmap  # gec import, startup maliyeti dusuk
         pm = QPixmap(px, px)
         pm.fill(Qt.GlobalColor.transparent)
 

@@ -1,4 +1,4 @@
-package com.remotecontrol.session
+package com.remotecontrol.util
 
 object AddressUtils {
     fun digits(value: String?): String = value.orEmpty().filter(Char::isDigit).take(12)

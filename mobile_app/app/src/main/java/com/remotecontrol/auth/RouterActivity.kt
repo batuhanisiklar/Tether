@@ -1,8 +1,9 @@
-package com.remotecontrol
+package com.remotecontrol.auth
 
 import android.content.Intent
 import android.os.Bundle
 import android.app.Activity
+import com.remotecontrol.ui.MainActivity
 
 /**
  * Uygulama acilis yonlendiricisi.

@@ -9,9 +9,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Wi-Fi IP adresini okuyabilmek için -->
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
@@ -22,12 +19,11 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
-        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.RemoteControl">
 
         <!-- Launcher router -->
         <activity
-            android:name=".RouterActivity"
+            android:name=".auth.RouterActivity"
             android:exported="true"
             android:theme="@style/Theme.RemoteControl.NoDisplay">
             <intent-filter>
@@ -38,14 +34,14 @@
 
         <!-- Login Aktivitesi -->
         <activity
-            android:name=".LoginActivity"
+            android:name=".auth.LoginActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize" />
 
         <!-- Ana Aktivite -->
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="false"
             android:launchMode="singleTop"
             android:screenOrientation="portrait"
@@ -53,19 +49,19 @@
 
         <!-- Ekran Yayın Servisi -->
         <service
-            android:name=".ScreenStreamService"
+            android:name=".service.ScreenStreamService"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
         <!-- Kamera Yayın Servisi -->
         <service
-            android:name=".CameraStreamService"
+            android:name=".service.CameraStreamService"
             android:foregroundServiceType="camera"
             android:exported="false" />
 
         <!-- Dokunma Kontrol Servisi (AccessibilityService) -->
         <service
-            android:name=".ControlReceiver"
+            android:name=".service.ControlReceiver"
             android:exported="true"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">

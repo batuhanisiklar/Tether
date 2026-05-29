@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.service
 
 import android.app.*
 import android.content.Context
@@ -12,20 +12,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
+import com.remotecontrol.network.SignalingClient
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Kamera Yayın Servisi
  * =====================
  * CameraX ile arka/ön kamerayı yakalar.
- * MJPEG stream için NanoHTTPD / port 8081 kullanır.
- * ScreenStreamService /stream -> 8080, CameraStreamService /stream -> 8081
+ * Frameleri WebSocket ile masaüstüne relay eder.
  *
  * Başlatmak için:
  *   startForegroundService(Intent(context, CameraStreamService::class.java))
@@ -35,7 +30,6 @@ class CameraStreamService : LifecycleService() {
     companion object {
         private const val TAG = "CameraStreamService"
         private const val CHANNEL_ID = "camera_stream_channel"
-        const val PORT = 8081
         const val EXTRA_USE_FRONT = "use_front"
     }
 

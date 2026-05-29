@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.data
 
 import android.content.Context
 

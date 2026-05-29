@@ -6,29 +6,13 @@ import os
 import time
 from typing import Any
 
-
-DEV_AUTH_SECRET = "remote-phone-control-local-dev-secret"
-
-
-def _is_local_env() -> bool:
-    env = (
-        os.environ.get("APP_ENV")
-        or os.environ.get("ENVIRONMENT")
-        or os.environ.get("PYTHON_ENV")
-        or ""
-    ).strip().lower()
-    return env in {"dev", "development", "local", "test"} and os.environ.get("ALLOW_DEV_AUTH_SECRET", "0") == "1"
-
-
 def _secret() -> bytes:
     secret = os.environ.get("AUTH_SECRET", "").strip()
     if secret:
         return secret.encode("utf-8")
-    if _is_local_env():
-        return DEV_AUTH_SECRET.encode("utf-8")
     raise RuntimeError(
-        "AUTH_SECRET is required outside local/development environments. "
-        "On Render, add an AUTH_SECRET environment variable or use render.yaml with generateValue: true."
+        "AUTH_SECRET is required. "
+        "On Render, set AUTH_SECRET in the Environment settings or via render.yaml generateValue."
     )
 
 

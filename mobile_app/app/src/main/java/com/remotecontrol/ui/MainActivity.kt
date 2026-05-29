@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.ui
 
 import android.Manifest
 import android.app.Activity
@@ -9,7 +9,6 @@ import android.media.projection.MediaProjectionManager
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
-import android.text.format.Formatter
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -17,6 +16,19 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import com.remotecontrol.R
+import com.remotecontrol.auth.LoginActivity
+import com.remotecontrol.auth.SessionStore
+import com.remotecontrol.data.AuthSession
+import com.remotecontrol.data.BackendApi
+import com.remotecontrol.data.DeviceIdentityStore
+import com.remotecontrol.data.DeviceSummary
+import com.remotecontrol.data.UserProfile
+import com.remotecontrol.device.HardwareFingerprint
+import com.remotecontrol.network.SignalingClient
+import com.remotecontrol.service.CameraStreamService
+import com.remotecontrol.service.ControlReceiver
+import com.remotecontrol.service.ScreenStreamService
 import com.remotecontrol.databinding.ActivityMainBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,13 +42,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         const val SIGNALING_URL = "wss://connect-your-phone.onrender.com"
-
-        private val IS_EMULATOR = (android.os.Build.FINGERPRINT.startsWith("generic")
-                || android.os.Build.FINGERPRINT.startsWith("unknown")
-                || android.os.Build.MODEL.contains("Emulator")
-                || android.os.Build.MODEL.contains("Android SDK built for x86")
-                || android.os.Build.MANUFACTURER.contains("Genymotion")
-                || android.os.Build.BRAND.startsWith("generic"))
 
         fun buildDeviceName(): String {
             val manufacturer = Build.MANUFACTURER.trim()
@@ -223,11 +228,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (streamRunning) return
-        if (IS_EMULATOR) {
-            requestCameraAccess(useFront = false)
-        } else {
-            requestScreenCapture()
-        }
+        requestScreenCapture()
     }
 
     fun logout() {
@@ -639,7 +640,7 @@ class MainActivity : AppCompatActivity() {
         mediaProjectionLauncher.launch(intent)
     }
 
-    /** Masaustunden gelen komut: eslestirme ve erisilebilirlik sonrasi ekran (veya emulatorda kamera) paylasimi. */
+    /** Masaustunden gelen komut: eslestirme ve erisilebilirlik sonrasi ekran paylasimi. */
     private fun startScreenShareFromRemote() {
         if (!remoteSessionPaired) {
             Log.w(TAG, "screen_capture_on yok sayildi: oturum eslesmemis")
@@ -655,13 +656,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (streamRunning) return
-        if (IS_EMULATOR) {
-            updateStatus(getString(R.string.pair_camera_starting_hint))
-            requestCameraAccess(useFront = false)
-        } else {
-            updateStatus(getString(R.string.pair_screen_permission_hint))
-            requestScreenCapture()
-        }
+        updateStatus(getString(R.string.pair_screen_permission_hint))
+        requestScreenCapture()
     }
 
     private fun startScreenStream(resultCode: Int, data: Intent) {
@@ -674,15 +670,7 @@ class MainActivity : AppCompatActivity() {
         }
         startForegroundService(intent)
 
-        val ip = getDeviceIp()
-        currentStatusDetail = if (ip != "0.0.0.0" && !ip.startsWith("10.0.2.")) {
-            val streamUrl = "http://$ip:${ScreenStreamService.PORT}/stream"
-            signalingClient?.notifyStreamReady(streamUrl)
-            "Yayin: $streamUrl"
-        } else {
-            signalingClient?.notifyStreamReady("")
-            "Ekran WebSocket uzerinden gonderiliyor"
-        }
+        currentStatusDetail = "Ekran WebSocket uzerinden gonderiliyor"
         streamRunning = true
         updateStatus("Ekran yayini aktif")
 
@@ -704,15 +692,7 @@ class MainActivity : AppCompatActivity() {
         }
         startForegroundService(intent)
 
-        val ip = getDeviceIp()
-        currentStatusDetail = if (ip != "0.0.0.0" && !ip.startsWith("10.0.2.")) {
-            val streamUrl = "http://$ip:${CameraStreamService.PORT}/stream"
-            signalingClient?.notifyStreamReady(streamUrl)
-            "Kamera: $streamUrl"
-        } else {
-            signalingClient?.notifyStreamReady("")
-            "Kamera WebSocket uzerinden gonderiliyor"
-        }
+        currentStatusDetail = "Kamera WebSocket uzerinden gonderiliyor"
         streamRunning = true
         updateStatus("Kamera yayini aktif")
     }
@@ -923,31 +903,6 @@ class MainActivity : AppCompatActivity() {
             != PackageManager.PERMISSION_GRANTED
         ) {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
-    private fun getDeviceIp(): String {
-        if (IS_EMULATOR) return "127.0.0.1"
-        return try {
-            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as android.net.wifi.WifiManager
-            @Suppress("DEPRECATION")
-            val wifiIp = Formatter.formatIpAddress(wifiManager.connectionInfo.ipAddress)
-            if (wifiIp != "0.0.0.0") {
-                wifiIp
-            } else {
-                val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
-                for (networkInterface in interfaces) {
-                    val addresses = java.util.Collections.list(networkInterface.inetAddresses)
-                    for (addr in addresses) {
-                        if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
-                            return addr.hostAddress ?: "0.0.0.0"
-                        }
-                    }
-                }
-                "0.0.0.0"
-            }
-        } catch (_: Exception) {
-            "0.0.0.0"
         }
     }
 

@@ -1,5 +1,5 @@
 """
-Frame / MJPEG / audio / rotation olay işleyici mixin'i.
+Frame / audio / rotation olay isleyici mixin'i.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class StreamHandlersMixin:
-    """Frame alma, MJPEG akış, ses ve döndürme olayları."""
+    """Frame alma, ses ve dondurme olaylari."""
 
     @pyqtSlot(bytes)
     def _on_audio_received(self, pcm_bytes: bytes):
@@ -33,7 +33,7 @@ class StreamHandlersMixin:
             if not pixmap.loadFromData(frame_bytes):
                 img = QImage()
                 if not img.loadFromData(frame_bytes):
-                    logger.warning("Görüntü çözümlenemedi. Boyut: %d bayt", len(frame_bytes))
+                    logger.warning("Goruntu cozumlenemedi. Boyut: %d bayt", len(frame_bytes))
                     return
                 pixmap = QPixmap.fromImage(img)
         if pixmap.isNull():
@@ -46,37 +46,7 @@ class StreamHandlersMixin:
         self._note_stream_frame(pixmap.width(), pixmap.height())
         self._refresh_paired_stream_status()
 
-    @pyqtSlot(QPixmap)
-    def _on_mjpeg_frame(self, pm: QPixmap):
-        if self._ws_mode != "session":
-            return
-        if pm.isNull():
-            return
-        self._remote_frame_visible = True
-        self._screen.set_frame(pm)
-        self._note_stream_frame(pm.width(), pm.height())
-        if self._connected:
-            self._refresh_paired_stream_status()
-
-    @pyqtSlot(str)
-    def _on_mjpeg_error(self, _: str):
-        if self._ws_mode != "session":
-            return
-        self._remote_frame_visible = False
-        if self._connected:
-            self._refresh_paired_stream_status()
-
-    @pyqtSlot()
-    def _on_stream_stopped(self):
-        if self._ws_mode != "session":
-            return
-        if self._connected:
-            self._remote_frame_visible = False
-            self._refresh_paired_stream_status()
-        else:
-            self._screen.clear_frame()
-
-    # ── Rotation ──────────────────────────────────────────────────────────
+    # Rotation
 
     def _apply_rotation_step(self) -> None:
         deg = self._rotation_step * 90
@@ -85,7 +55,7 @@ class StreamHandlersMixin:
 
     @staticmethod
     def _normalize_rotation_step(degrees: int | float) -> int:
-        """Her türlü derece değerini 0..3 (0/90/180/270) adımına normalize et."""
+        """Her turlu derece degerini 0..3 adimina normalize et."""
         try:
             deg = int(degrees)
         except (TypeError, ValueError):
@@ -94,11 +64,11 @@ class StreamHandlersMixin:
 
     @pyqtSlot(int)
     def _on_rotation_received(self, degrees: int):
-        """Telefon rotasyonu metadata'sı geçici olarak yok sayılır (UI talebi)."""
+        """Telefon rotasyonu metadata'si gecici olarak yok sayilir (UI talebi)."""
         _ = degrees
         return
 
-    # ── Stream status / aspect ────────────────────────────────────────────
+    # Stream status / aspect
 
     def _request_phone_screen_capture(self) -> None:
         if self._connected:
@@ -109,7 +79,7 @@ class StreamHandlersMixin:
             return
         if self._remote_frame_visible:
             if self._phone_accessibility_enabled is False:
-                logger.debug("Kare akışı aktif — erişilebilirlik bayrağı True olarak düzeltildi")
+                logger.debug("Kare akisi aktif - erisilebilirlik bayragi True olarak duzeltildi")
                 self._phone_accessibility_enabled = True
             self._set_status(Ui.MSG_PAIRED_WS)
             self._set_remote_controls_enabled(True)

@@ -36,8 +36,6 @@
     <string name="nav_home">Ana Sayfa</string>
     <string name="nav_devices">Cihazlar</string>
     <string name="nav_profile">Profil</string>
-    <string name="server_ip_label">PC (Sunucu) IP adresi</string>
-    <string name="server_ip_hint">192.168.1.103</string>
     <string name="connection_code_title">Sabit Adres</string>
     <string name="connection_code_placeholder">0000-0000-0000</string>
     <string name="connection_code_help">Bu 12 haneli adresi desktop uygulamasina girin</string>

@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -74,7 +74,6 @@ class BackendApi(
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val baseHttpUrl = signalingUrl
         .replaceFirst("wss://", "https://")
-        .replaceFirst("ws://", "http://")
         .trimEnd('/')
 
     suspend fun login(

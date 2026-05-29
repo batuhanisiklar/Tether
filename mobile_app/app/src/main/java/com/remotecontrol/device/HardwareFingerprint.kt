@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.device
 
 import android.content.Context
 import android.net.wifi.WifiManager

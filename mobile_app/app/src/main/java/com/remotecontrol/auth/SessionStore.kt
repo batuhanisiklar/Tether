@@ -1,6 +1,7 @@
-package com.remotecontrol
+package com.remotecontrol.auth
 
 import android.content.Context
+import com.remotecontrol.data.AuthSession
 
 class SessionStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

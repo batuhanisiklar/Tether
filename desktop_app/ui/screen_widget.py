@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
 )
-from PyQt6.QtCore import Qt, QRect, QRectF, pyqtSignal, QPoint, QSize
+from PyQt6.QtCore import Qt, QRect, QRectF, pyqtSignal, QPoint, QSize, QPropertyAnimation, QEasingCurve, pyqtProperty
 from PyQt6.QtGui import (
     QPixmap,
     QPainter,
@@ -64,10 +64,16 @@ class ScreenWidget(QLabel):
         self._current_pixmap: QPixmap | None = None
         self._drag_start: QPoint | None = None
         self._rotation_deg: int = 0   # 0 | 90 | 180 | 270
+        self._visual_rotation: float = 0.0  # Animated visual rotation angle
         self._last_source_key: int | None = None
         self._last_transform_key: tuple[int, int] | None = None
         self._transformed_pixmap: QPixmap | None = None
         self._last_render_key: tuple[int, int, int, int] | None = None
+
+        # Rotation animation
+        self._rotation_anim = QPropertyAnimation(self, b"visualRotation", self)
+        self._rotation_anim.setDuration(280)
+        self._rotation_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         self._show_placeholder()
 
@@ -89,6 +95,20 @@ class ScreenWidget(QLabel):
         self._last_render_key = None
         self._show_placeholder()
 
+    # ── Animated rotation property ────────────────────────────────────────
+
+    def _get_visual_rotation(self) -> float:
+        return self._visual_rotation
+
+    def _set_visual_rotation(self, value: float) -> None:
+        self._visual_rotation = value
+        self._last_render_key = None  # force re-render
+        self._last_transform_key = None
+        if self._current_pixmap:
+            self._render()
+
+    visualRotation = pyqtProperty(float, _get_visual_rotation, _set_visual_rotation)
+
     def set_rotation(self, degrees: int):
         """
         Görüntüyü belirtilen açıda döndür (0, 90, 180, 270).
@@ -98,12 +118,23 @@ class ScreenWidget(QLabel):
             deg = int(degrees)
         except (TypeError, ValueError):
             deg = 0
-        self._rotation_deg = (round(deg / 90.0) * 90) % 360
-        self._last_render_key = None
-        if self._current_pixmap:
-            self._render()
-        else:
-            self._show_placeholder()
+        target = (round(deg / 90.0) * 90) % 360
+        self._rotation_deg = target
+
+        # Animate the visual rotation
+        current = self._visual_rotation
+        # Find shortest rotation path
+        diff = target - current
+        if diff > 180:
+            diff -= 360
+        elif diff < -180:
+            diff += 360
+        animated_target = current + diff
+
+        self._rotation_anim.stop()
+        self._rotation_anim.setStartValue(current)
+        self._rotation_anim.setEndValue(animated_target)
+        self._rotation_anim.start()
 
     def toggle_rotation(self):
         """Her çağrıda 90° saat yönünde döndür (0→90→180→270→0)."""
@@ -242,16 +273,19 @@ class ScreenWidget(QLabel):
         if w < 4 or h < 4:
             return
 
+        # Use the animated visual rotation for rendering
+        visual_deg = self._visual_rotation
         source_key = self._last_source_key or self._current_pixmap.cacheKey()
-        render_key = (source_key, self._rotation_deg, w, h)
+        # Include visual_deg rounded to 1 decimal for smooth cache key
+        render_key = (source_key, round(visual_deg, 1), w, h)
         if self._last_render_key == render_key:
             return
 
-        transform_key = (source_key, self._rotation_deg)
+        transform_key = (source_key, round(visual_deg, 1))
         if self._last_transform_key != transform_key:
             source = self._current_pixmap
-            if self._rotation_deg != 0:
-                transform = QTransform().rotate(self._rotation_deg)
+            if abs(visual_deg % 360) > 0.5:
+                transform = QTransform().rotate(visual_deg)
                 source = source.transformed(transform, Qt.TransformationMode.SmoothTransformation)
             self._transformed_pixmap = source
             self._last_transform_key = transform_key
@@ -361,7 +395,10 @@ class StreamAspectFitContainer(QWidget):
     """
     Akış çözünürlüğünün en-boy oranını korur; telefon çerçevesi yatayda gereksiz
     genişlemez (içte siyah şerit oluşmaz).
+    Boyut değişiklikleri animasyonlu olarak yapılır.
     """
+
+    _ANIM_DURATION = 300  # ms
 
     def __init__(self, phone_frame: PhoneDeviceFrame, parent=None):
         super().__init__(parent)
@@ -381,6 +418,44 @@ class StreamAspectFitContainer(QWidget):
         self._last_w = 1080
         self._last_h = 2330
 
+        # Animated size properties
+        self._current_cw: float = 0
+        self._current_ch: float = 0
+        self._target_cw: int = 0
+        self._target_ch: int = 0
+
+        # Width animation
+        self._w_anim = QPropertyAnimation(self, b"phoneWidth", self)
+        self._w_anim.setDuration(self._ANIM_DURATION)
+        self._w_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        # Height animation
+        self._h_anim = QPropertyAnimation(self, b"phoneHeight", self)
+        self._h_anim.setDuration(self._ANIM_DURATION)
+        self._h_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    # ── Animated size properties ──────────────────────────────────────
+
+    def _get_phone_width(self) -> float:
+        return self._current_cw
+
+    def _set_phone_width(self, value: float) -> None:
+        self._current_cw = value
+        self._phone.setFixedWidth(max(int(value), 124))
+        self._phone.updateGeometry()
+
+    phoneWidth = pyqtProperty(float, _get_phone_width, _set_phone_width)
+
+    def _get_phone_height(self) -> float:
+        return self._current_ch
+
+    def _set_phone_height(self, value: float) -> None:
+        self._current_ch = value
+        self._phone.setFixedHeight(max(int(value), 224))
+        self._phone.updateGeometry()
+
+    phoneHeight = pyqtProperty(float, _get_phone_height, _set_phone_height)
+
     def set_stream_dimensions(self, w: int, h: int) -> None:
         if w <= 0 or h <= 0:
             return
@@ -388,17 +463,17 @@ class StreamAspectFitContainer(QWidget):
             return
         self._last_w = w
         self._last_h = h
-        self._refit()
+        self._refit(animate=True)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._refit()
+        self._refit(animate=False)
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._refit()
+        self._refit(animate=False)
 
-    def _refit(self) -> None:
+    def _refit(self, animate: bool = True) -> None:
         aw, ah = self.width(), self.height()
         if aw < 8 or ah < 8:
             return
@@ -410,6 +485,31 @@ class StreamAspectFitContainer(QWidget):
             cw, ch = aw, max(int(aw / r), 1)
         cw = max(cw, 124)
         ch = max(ch, 224)
-        self._phone.setFixedSize(cw, ch)
-        self._phone.updateGeometry()
-        self.updateGeometry()
+
+        if cw == self._target_cw and ch == self._target_ch:
+            return
+        self._target_cw = cw
+        self._target_ch = ch
+
+        if not animate or self._current_cw < 1:
+            # First time or resize — snap immediately
+            self._w_anim.stop()
+            self._h_anim.stop()
+            self._current_cw = cw
+            self._current_ch = ch
+            self._phone.setFixedSize(cw, ch)
+            self._phone.updateGeometry()
+            self.updateGeometry()
+            return
+
+        # Animate width
+        self._w_anim.stop()
+        self._w_anim.setStartValue(self._current_cw)
+        self._w_anim.setEndValue(float(cw))
+        self._w_anim.start()
+
+        # Animate height
+        self._h_anim.stop()
+        self._h_anim.setStartValue(self._current_ch)
+        self._h_anim.setEndValue(float(ch))
+        self._h_anim.start()

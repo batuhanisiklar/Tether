@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.ui
 
 import android.os.Bundle
 import android.view.LayoutInflater

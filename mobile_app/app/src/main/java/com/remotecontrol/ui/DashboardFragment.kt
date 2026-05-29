@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.ui
 
 interface DashboardFragment {
     fun refreshContent()

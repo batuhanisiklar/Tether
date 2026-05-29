@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.ui
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -6,6 +6,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import com.remotecontrol.data.ApiResult
+import com.remotecontrol.data.AuthSession
+import com.remotecontrol.data.UserProfile
 import com.remotecontrol.databinding.FragmentSettingsBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

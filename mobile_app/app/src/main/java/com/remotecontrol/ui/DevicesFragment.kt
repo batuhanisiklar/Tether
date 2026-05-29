@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.ui
 
 import android.graphics.Typeface
 import android.os.Bundle
@@ -11,6 +11,8 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import com.remotecontrol.R
+import com.remotecontrol.data.DeviceSummary
 import com.remotecontrol.databinding.FragmentDevicesBinding
 
 class DevicesFragment : Fragment(), DashboardFragment {

@@ -5,7 +5,7 @@ Uygulama ana penceresi. Yalnızca durum yönetimi, sinyal bağlama ve
 UI kurulumu içerir. Olay işleyicileri handler mixin'lerinde tanımlıdır:
 
     • ui/handlers/ws_handlers.py        — WebSocket olayları
-    • ui/handlers/stream_handlers.py    — Frame/MJPEG/audio/rotation
+    • ui/handlers/stream_handlers.py    — Frame/audio/rotation
     • ui/handlers/profile_handlers.py   — Profil drawer iş mantığı
     • ui/handlers/device_handlers.py    — Cihaz yönetimi
     • ui/handlers/session_handlers.py   — Oturum/adres yönetimi
@@ -51,7 +51,6 @@ from desktop_app.config.prefs_store import (
     update_prefs,
 )
 from desktop_app.network.backend_api import BackendApi
-from desktop_app.network.mjpeg_receiver import MjpegReceiver
 from desktop_app.network.ws_client import WsClient
 from desktop_app.ui.theme import card_style, text_style
 from desktop_app.ui.styles.app_styles import (
@@ -125,7 +124,6 @@ class MainWindow(
         super().__init__()
 
         self._ws_client   = WsClient()
-        self._mjpeg       = MjpegReceiver()
         self._backend_api = backend_api if backend_api is not None else BackendApi()
 
         self._connected                  = False
@@ -422,10 +420,6 @@ class MainWindow(
         self._ws_client.reconnecting.connect(
             self._on_reconnecting, Qt.ConnectionType.QueuedConnection
         )
-
-        self._mjpeg.frame_ready.connect(self._on_mjpeg_frame)
-        self._mjpeg.error_occurred.connect(self._on_mjpeg_error)
-        self._mjpeg.stream_stopped.connect(self._on_stream_stopped)
 
         self._screen.touch_event.connect(self._on_touch)
         self._screen.swipe_event.connect(self._on_swipe)
@@ -731,14 +725,14 @@ class MainWindow(
         if btn is None:
             return
         if not btn.isEnabled():
-            btn.setText("Ses (pasif)")
+            btn.setText("Ses Açma / Kapatma")
             return
         if self._phone_media_muted is True:
-            btn.setText("Sesi ac")
+            btn.setText("Sesi Aç")
         elif self._phone_media_muted is False:
-            btn.setText("Sesi kapat")
+            btn.setText("Sesi Kapat")
         else:
-            btn.setText("Sesi ac/kapat")
+            btn.setText("Ses Açma / Kapatma")
 
     # ── Presence ──────────────────────────────────────────────────────────
 
@@ -784,7 +778,6 @@ class MainWindow(
             self._profile_drawer.move(x, top)
 
     def closeEvent(self, event):
-        self._mjpeg.stop()
         self._presence_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect()

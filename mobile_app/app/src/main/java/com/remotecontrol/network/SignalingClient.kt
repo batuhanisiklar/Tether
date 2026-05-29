@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.network
 
 import android.util.Log
 import kotlinx.coroutines.*
@@ -361,15 +361,6 @@ class SignalingClient(
         } catch (e: Exception) {
             Log.e(TAG, "Ses gönderme hatası: $e")
         }
-    }
-
-    fun notifyStreamReady(publicUrl: String) {
-        val msg = JSONObject().apply {
-            put("type", "stream_info")
-            put("url", publicUrl)
-        }
-        ws?.send(msg.toString())
-        Log.i(TAG, "Sent stream_info: $publicUrl")
     }
 
     fun disconnect(sendServerLogout: Boolean = false) {

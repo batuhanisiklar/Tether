@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.auth
 
 import android.content.Context
 

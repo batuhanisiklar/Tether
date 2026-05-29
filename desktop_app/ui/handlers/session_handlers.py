@@ -36,7 +36,6 @@ class SessionHandlersMixin:
             logger.info("Presence bağlantısı atlandı: aktif uzak oturum korunuyor")
             return
         self._ws_mode = "presence"
-        self._mjpeg.stop()
         self._presence_timer.stop()
         if status_message:
             self._set_status(status_message)
@@ -54,7 +53,6 @@ class SessionHandlersMixin:
             return
         self._a11y_recovery_token += 1
         self._ws_mode = "session"
-        self._mjpeg.stop()
         self._rotation_step = 0
         self._apply_rotation_step()
         self._paired_phone_id      = partner_device_id
@@ -140,7 +138,6 @@ class SessionHandlersMixin:
         self._rotation_step               = 0
         self._presence_timer.stop()
         self._manual_disconnect = True
-        self._mjpeg.stop()
         self._ws_client.disconnect(send_logout=True)
         self._screen.clear_frame()
         self._phone_accessibility_enabled = None
@@ -157,7 +154,6 @@ class SessionHandlersMixin:
             return
         self._a11y_recovery_token += 1
         self._logging_out = True
-        self._mjpeg.stop()
         self._presence_timer.stop()
         self._manual_disconnect = True
         self._ws_client.disconnect(send_logout=True)

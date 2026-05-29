@@ -1,4 +1,4 @@
-package com.remotecontrol
+package com.remotecontrol.service
 
 import android.app.*
 import android.content.Context
@@ -19,6 +19,7 @@ import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import com.remotecontrol.network.SignalingClient
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
@@ -27,13 +28,12 @@ import android.media.AudioManager
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Ekran Yayın Servisi — Android 14+ uyumlu
  * ==========================================
- * MediaProjection API ile ekranı yakalar, NanoHTTPD ile
- * MJPEG olarak HTTP/8080 üzerinden yayınlar.
+ * MediaProjection API ile ekrani yakalar ve
+ * frameleri WebSocket uzerinden relay eder.
  *
  * Önemli: Android 14+ (API 34) startForeground() çağrısında
  * FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION gerektirir.
@@ -50,7 +50,6 @@ class ScreenStreamService : Service() {
     companion object {
         private const val TAG = "ScreenStreamService"
         const val CHANNEL_ID = "screen_stream_channel"
-        const val PORT = 8080
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
         const val EXTRA_REMOTE_ROTATION_ENABLED = "remote_rotation_enabled"
@@ -68,9 +67,7 @@ class ScreenStreamService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
-    private var mjpegServer: MjpegServer? = null
     private val executor = Executors.newSingleThreadExecutor()
-    private val latestFrame = AtomicReference<ByteArray?>(null)
     private var frameCount = 0L  // Frame sayacı (log için)
 
     // ── Frame rate limiter ───────────────────────────────────────────────
@@ -185,10 +182,8 @@ class ScreenStreamService : Service() {
             // Döndürme dinleyicisini başlat
             startOrientationListener()
 
-            // MJPEG sunucu başlat
-            mjpegServer = MjpegServer(PORT, latestFrame)
-            mjpegServer?.start()
-            Log.i(TAG, "Screen stream started on port $PORT")
+            // WebSocket relay aktif
+            Log.i(TAG, "Screen stream started (WebSocket relay mode)")
 
             val notifManager = getSystemService(NotificationManager::class.java)
             notifManager.notify(1, buildNotification("Ekran yayını aktif" + if (isAudioEnabled) " (Sesli)" else ""))
@@ -292,7 +287,6 @@ class ScreenStreamService : Service() {
                         scaled.recycle()
 
                         val jpegBytes = out.toByteArray()
-                        latestFrame.set(jpegBytes)
                         frameCount++
                         lastFrameSentMs = SystemClock.elapsedRealtime()
 
@@ -487,7 +481,6 @@ class ScreenStreamService : Service() {
         orientationListener?.disable()
         orientationListener = null
 
-        mjpegServer?.stop()
         virtualDisplay?.release()
         imageReader?.close()
         mediaProjection?.stop()
@@ -517,96 +510,3 @@ class ScreenStreamService : Service() {
     }
 }
 
-/**
- * Basit MJPEG HTTP sunucu — Raw ServerSocket tabanlı
- */
-class MjpegServer(
-    private val port: Int,
-    private val frameRef: AtomicReference<ByteArray?>
-) {
-    companion object {
-        private const val TAG = "MjpegServer"
-        private const val BOUNDARY = "mjpegframe"
-        private const val FPS_DELAY_MS = 50L  // ~20 FPS
-    }
-
-    private var serverSocket: java.net.ServerSocket? = null
-    private var serverThread: Thread? = null
-    @Volatile private var running = false
-
-    fun start() {
-        running = true
-        serverSocket = java.net.ServerSocket(port)
-        serverThread = Thread {
-            Log.i(TAG, "MJPEG server listening on port $port")
-            while (running) {
-                try {
-                    val client = serverSocket?.accept() ?: break
-                    Thread { handleClient(client) }.also { it.isDaemon = true }.start()
-                } catch (e: Exception) {
-                    if (running) Log.e(TAG, "Accept error: $e")
-                }
-            }
-        }.also {
-            it.isDaemon = true
-            it.start()
-        }
-    }
-
-    fun stop() {
-        running = false
-        try { serverSocket?.close() } catch (_: Exception) {}
-    }
-
-    private fun handleClient(socket: java.net.Socket) {
-        try {
-            socket.soTimeout = 0  
-            val input = socket.getInputStream().bufferedReader()
-            val output = socket.getOutputStream()
-
-            val requestLine = input.readLine() ?: return
-            while (true) {
-                val line = input.readLine() ?: break
-                if (line.isEmpty()) break
-            }
-
-            if (!requestLine.contains("/stream")) {
-                val resp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK"
-                output.write(resp.toByteArray())
-                output.flush()
-                socket.close()
-                return
-            }
-
-            val header = "HTTP/1.1 200 OK\r\n" +
-                    "Content-Type: multipart/x-mixed-replace; boundary=$BOUNDARY\r\n" +
-                    "Cache-Control: no-cache\r\n" +
-                    "Connection: keep-alive\r\n\r\n"
-            output.write(header.toByteArray())
-            output.flush()
-
-            while (running && !socket.isClosed) {
-                val jpeg = frameRef.get()
-                if (jpeg != null && jpeg.isNotEmpty()) {
-                    try {
-                        val frameHeader = "--$BOUNDARY\r\n" +
-                                "Content-Type: image/jpeg\r\n" +
-                                "Content-Length: ${jpeg.size}\r\n\r\n"
-                        output.write(frameHeader.toByteArray())
-                        output.write(jpeg)
-                        output.write("\r\n".toByteArray())
-                        output.flush()
-                    } catch (e: Exception) {
-                        Log.d(TAG, "Client disconnected: $e")
-                        break
-                    }
-                }
-                Thread.sleep(FPS_DELAY_MS)
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "Client error: $e")
-        } finally {
-            try { socket.close() } catch (_: Exception) {}
-        }
-    }
-}

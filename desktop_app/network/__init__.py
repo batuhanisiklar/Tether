@@ -1,1 +1,1 @@
-# Ağ katmanı: REST API, WebSocket, MJPEG.
+# Ag katmani: REST API, WebSocket.

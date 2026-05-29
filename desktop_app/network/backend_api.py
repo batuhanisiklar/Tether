@@ -21,8 +21,6 @@ def _http_base(ws_url: str) -> str:
     u = (ws_url or "").strip()
     if u.startswith("wss://"):
         return "https://" + u[6:].split("/")[0].rstrip("/")
-    if u.startswith("ws://"):
-        return "http://" + u[5:].split("/")[0].rstrip("/")
     return u.rstrip("/")
 
 
@@ -32,7 +30,6 @@ class BackendApi:
         self._session = requests.Session()
         adapter = HTTPAdapter(pool_connections=4, pool_maxsize=10, max_retries=0)
         self._session.mount("https://", adapter)
-        self._session.mount("http://", adapter)
 
     def close(self) -> None:
         self._session.close()

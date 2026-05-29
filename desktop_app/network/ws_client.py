@@ -315,20 +315,8 @@ class WsClient(QObject):
             )
 
         elif msg_type == "stream_info":
-            url = msg.get("url", "")
-            if isinstance(url, str):
-                logger.info("stream_info url=%r", url)
-            stream_url = url if isinstance(url, str) else ""
-            # stream_info ile gelen URL aynıysa ve kısa süre içinde tekrar geldiyse debounce et
-            now = time.perf_counter()
-            if (stream_url == self._last_paired_url
-                    and stream_url
-                    and (now - self._last_paired_time) < self._PAIRED_DEBOUNCE_SEC):
-                logger.debug("Tekrarlayan stream_info mesajı yoksayıldı (debounce, url=%r)", stream_url)
-            else:
-                self._last_paired_url = stream_url
-                self._last_paired_time = now
-                self.paired.emit(stream_url)
+            # WebSocket-only modda stream_info kullanılmaz.
+            return
 
         elif msg_type == "frame":
             data_str = msg.get("data", "")

@@ -13,7 +13,7 @@ remote_phone_control/
 ├── desktop_app/          # PyQt6 masaustu uygulamasi
 │   ├── main.py           # Desktop entry point
 │   ├── config/           # Sabitler ve prefs
-│   ├── network/          # HTTP API, WebSocket, MJPEG alici
+│   ├── network/          # HTTP API, WebSocket istemcisi
 │   └── ui/               # Pencereler, sayfalar, komponentler, stiller
 ├── signaling_server/     # aiohttp HTTP/WebSocket server
 │   ├── server.py         # Server entry point / app factory
@@ -33,7 +33,7 @@ Sistem **12 haneli sabit device address** kullanir.
 2. Telefon WebSocket uzerinden bu adreste bekler.
 3. Masaustu uygulamasi kullanici token'i ile sunucuya baglanir.
 4. Masaustu, telefonun 12 haneli adresini girerek yetkili eslesme baslatir.
-5. Telefon ekran/kamera/ses akisini WebSocket veya yerel MJPEG URL uzerinden iletir.
+5. Telefon ekran/kamera/ses akisini WebSocket uzerinden iletir.
 6. Masaustu komutlari WebSocket uzerinden telefona aktarir.
 
 ## Ortam Degiskenleri
@@ -45,8 +45,7 @@ Gercek secret degerlerini repoya yazmayin. `.env.example` dosyasini sablon olara
 | `DATABASE_URL` veya `NEON_DB_URL` | Evet | PostgreSQL connection string |
 | `AUTH_SECRET` | Evet | Token imzalamak icin uzun rastgele secret |
 | `AUTH_TOKEN_TTL_SEC` | Hayir | Token suresi, varsayilan 86400 |
-| `APP_ENV` | Hayir | `development`, `test`, `production` gibi ortam adi |
-| `ALLOW_DEV_AUTH_SECRET` | Hayir | Sadece lokal gelistirmede `APP_ENV=local` ile `1` yapilabilir |
+| `APP_ENV` | Hayir | Ortam adi (onerilen: `production`) |
 | `PORT` | Hayir | Server portu, varsayilan 8765 |
 | `RPC_SERVER_URL` | Hayir | Desktop icin varsayilan signaling URL override'i |
 
@@ -112,7 +111,6 @@ Desktop uygulamasinda telefonun gosterildigi 12 haneli sabit adresi girin.
 
 - `AUTH_SECRET` ve DB connection string repoya yazilmamalidir.
 - Production'da `wss://` kullanin.
-- Android cleartext trafik yalnizca lokal/debug senaryolari icin kullanilmalidir.
 - Auth/device bilgileri Android backup kapsamindan cikarilmalidir.
 
 ## Gelistirme Kontrolleri
@@ -129,3 +127,4 @@ Android build:
 cd mobile_app
 .\gradlew.bat :app:assembleDebug
 ```
+
