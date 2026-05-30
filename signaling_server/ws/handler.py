@@ -23,6 +23,7 @@ from signaling_server.ws.presence import (
 from signaling_server.ws.relay import relay_binary_frame, relay_message
 from signaling_server.ws.session import (
     handle_pair_confirm,
+    handle_pair_reject,
     handle_register_or_join,
     session_peer_ws_only,
 )
@@ -83,6 +84,8 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
                 await handle_device_logout(app, ws, meta, message)
             elif message_type == MessageTypes.PAIR_CONFIRM:
                 await handle_pair_confirm(app, meta, message)
+            elif message_type == MessageTypes.PAIR_REJECT:
+                await handle_pair_reject(app, meta, message)
             elif message_type in {MessageTypes.REGISTER, MessageTypes.JOIN}:
                 await handle_register_or_join(app, ws, meta, message)
             elif message_type in {MessageTypes.REQUEST_PRESENCE, MessageTypes.HEARTBEAT}:

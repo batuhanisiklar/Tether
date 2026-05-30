@@ -29,6 +29,7 @@ class MessageTypes:
     DEVICE_HELLO: str = "device_hello"
     DEVICE_ACK: str = "device_ack"
     PAIR_CONFIRM: str = "pair_confirm"
+    PAIR_REJECT: str = "pair_reject"
     PAIRED_DEVICES: str = "paired_devices"
     REQUEST_PRESENCE: str = "request_presence"
     DEVICE_LOGOUT: str = "device_logout"

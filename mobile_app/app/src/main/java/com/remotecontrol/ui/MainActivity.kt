@@ -1030,6 +1030,9 @@ class MainActivity : AppCompatActivity() {
             remoteSessionPaired = false
             pairingAwaitingAccessibility = false
             Toast.makeText(this, getString(R.string.pair_request_denied), Toast.LENGTH_SHORT).show()
+            if (pcDeviceId.isNotBlank()) {
+                signalingClient?.sendPairReject(pcDeviceId)
+            }
             signalingClient?.disconnect(sendServerLogout = true)
             signalingClient = null
             currentStatus = getString(R.string.status_online_waiting_pc_title)

@@ -360,3 +360,37 @@ async def handle_pair_confirm(app: web.Application, meta: dict[str, Any], messag
     if peer_code:
         await notify_paired(app, peer_code)
     await broadcast_presence_for_devices(app, first_device_id, second_device_id)
+
+
+async def handle_pair_reject(app: web.Application, meta: dict[str, Any], message: dict[str, Any]) -> None:
+    """
+    Telefon baglanti istegini reddettiginde oturumu tamamen temizle.
+    Aksi halde telefon yeniden register olunca bekleyen PC ayni istegi tekrar tetikler.
+    """
+    if meta.get("user_id") is None:
+        return
+    own_device_id = normalize_device_id(str(message.get("my_device_id") or meta.get("device_id") or ""))
+    if not own_device_id or own_device_id != normalize_device_id(str(meta.get("device_id") or "")):
+        return
+
+    peer_code = str(meta.get("peer_code") or "")
+    if not peer_code:
+        return
+    session = app["sessions"].pop(peer_code, {})
+    app["session_devices"].pop(peer_code, None)
+
+    for _, peer_ws in list(session.items()):
+        if peer_ws is None:
+            continue
+        try:
+            await send_json(
+                peer_ws,
+                {
+                    "type": MessageTypes.ERROR,
+                    "code": "pair_rejected",
+                    "message": "Telefon baglanti istegini reddetti.",
+                },
+            )
+            await send_json(peer_ws, {"type": MessageTypes.PEER_DISCONNECTED, "role": "phone"})
+        except Exception:
+            pass

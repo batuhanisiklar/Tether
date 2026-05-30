@@ -337,6 +337,17 @@ class SignalingClient(
         Log.i(TAG, "Sent pair_confirm: $deviceId <-> $pcDeviceId")
     }
 
+    fun sendPairReject(pcDeviceId: String) {
+        val msg = JSONObject().apply {
+            put("type", "pair_reject")
+            put("auth_token", authToken)
+            put("my_device_id", deviceId)
+            put("rejected_device_id", pcDeviceId)
+        }
+        ws?.send(msg.toString())
+        Log.i(TAG, "Sent pair_reject: $deviceId x $pcDeviceId")
+    }
+
     /** Anlik WebSocket gonderim kuyrugu (byte). */
     fun pendingQueueBytes(): Long = ws?.queueSize() ?: 0L
 
