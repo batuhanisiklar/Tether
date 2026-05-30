@@ -23,6 +23,11 @@ async def auth_register(request: web.Request) -> web.Response:
     phone = str(data.get("phone") or "").strip()
     if not email or not password:
         return web.json_response({"ok": False, "message": "email ve password gerekli."}, status=400)
+    if phone:
+        phone_digits = "".join(ch for ch in phone if ch.isdigit())
+        if len(phone_digits) != 11:
+            return web.json_response({"ok": False, "message": "Telefon numarası 11 hane olmalıdır."}, status=400)
+        phone = phone_digits
 
     user_id = await asyncio.to_thread(
         request.app["db"].register_user,
@@ -170,6 +175,12 @@ async def auth_profile_update(request: web.Request) -> web.Response:
             return web.json_response({"ok": False, "message": "Gecerli bir e-posta girin."}, status=400)
         email = em
 
+    if phone is not None:
+        phone_digits = "".join(ch for ch in str(phone).strip() if ch.isdigit())
+        if phone_digits and len(phone_digits) != 11:
+            return web.json_response({"ok": False, "message": "Telefon numarası 11 hane olmalıdır."}, status=400)
+        phone = phone_digits
+
     new_password: str | None = None
     if pwd1 is not None or pwd2 is not None:
         p1 = str(pwd1 or "")
@@ -189,7 +200,7 @@ async def auth_profile_update(request: web.Request) -> web.Response:
         request.app["db"].update_user_profile,
         int(user_id),
         email=email if email is not None else None,
-        phone=str(phone).strip() if phone is not None else None,
+        phone=phone if phone is not None else None,
         new_password=new_password,
         old_password=str(old_pwd or "").strip() if (pwd1 is not None or pwd2 is not None) else None,
     )
