@@ -166,9 +166,20 @@ class WsHandlersMixin:
                 self._set_status(Ui.MSG_SERVER_CONNECTED)
 
         if phone_a11y is not WsClient.PHONE_A11Y_UNCHANGED:
-            self._phone_accessibility_enabled = None if phone_a11y is None else bool(phone_a11y)
+            next_phone_a11y = None if phone_a11y is None else bool(phone_a11y)
+            # Canli kare akisi varken gelen False degeri kimi surumlerde stale olabiliyor.
+            if (
+                next_phone_a11y is False
+                and self._connected
+                and self._remote_frame_visible
+                and self._phone_accessibility_enabled is True
+            ):
+                logger.debug("Akis aktifken gelen phone_a11y=False stale kabul edilip yoksayildi")
+            else:
+                self._phone_accessibility_enabled = next_phone_a11y
         if phone_media_muted is not WsClient.PHONE_MEDIA_MUTED_UNCHANGED:
             self._phone_media_muted = None if phone_media_muted is None else bool(phone_media_muted)
+        self._apply_phone_media_audio_state()
         self._update_volume_mute_button_label()
 
         self._refresh_home_summary()

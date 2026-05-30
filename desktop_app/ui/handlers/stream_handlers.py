@@ -19,6 +19,8 @@ class StreamHandlersMixin:
 
     @pyqtSlot(bytes)
     def _on_audio_received(self, pcm_bytes: bytes):
+        if self._phone_media_muted is True:
+            return
         if self._audio_player is not None:
             self._audio_player.write_pcm(pcm_bytes)
 

@@ -38,6 +38,7 @@ class DesktopAudioPlayer:
         self._audio_sink: QAudioSink | None = None
         self._audio_device = None
         self._last_volume = 1.0
+        self._remote_muted = False
         self._jitter = AudioJitterBuffer(pre_buffer_ms=60, sample_rate=sample_rate)
         self._init_audio_player(parent, sample_rate)
 
@@ -59,6 +60,8 @@ class DesktopAudioPlayer:
 
     def write_pcm(self, pcm_bytes: bytes) -> None:
         if not pcm_bytes:
+            return
+        if self._remote_muted:
             return
         chunk = self._jitter.push(pcm_bytes)
         if chunk is None or self._audio_device is None or self._audio_sink is None:
@@ -84,6 +87,21 @@ class DesktopAudioPlayer:
                 self._audio_sink.setVolume(0.0)
             else:
                 self._audio_sink.setVolume(max(0.1, self._last_volume))
+
+    def set_remote_muted(self, muted: bool) -> None:
+        self._remote_muted = bool(muted)
+        if self._remote_muted:
+            self._jitter.reset()
+        if self._audio_sink is None:
+            return
+        if self._remote_muted:
+            current = self._audio_sink.volume()
+            if current > 0.0:
+                self._last_volume = current
+            self._audio_sink.setVolume(0.0)
+            return
+        target = self._last_volume if self._last_volume > 0.0 else 1.0
+        self._audio_sink.setVolume(min(1.0, max(0.05, target)))
 
     def reset(self) -> None:
         self._jitter.reset()

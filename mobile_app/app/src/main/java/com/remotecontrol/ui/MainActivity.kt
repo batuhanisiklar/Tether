@@ -13,6 +13,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
@@ -480,12 +481,9 @@ class MainActivity : AppCompatActivity() {
         return try {
             val am = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return null
             val volume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            val muted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.isStreamMute(AudioManager.STREAM_MUSIC)
-            } else {
-                volume <= 0
-            }
-            muted || volume <= 0
+            // Cihaz/ROM farkliliklarinda isStreamMute tutarsiz kalabildigi icin
+            // mute durumunu dogrudan muzik stream seviyesi uzerinden hesapla.
+            volume <= 0
         } catch (_: Exception) {
             null
         }
@@ -606,7 +604,10 @@ class MainActivity : AppCompatActivity() {
             "key_event" -> {
                 val keyCode = (params["key_code"] as? Number)?.toInt() ?: return
                 runOnUiThread {
-                    withControlReceiver(getString(R.string.command_key)) { performKeyEvent(keyCode) }
+                    val success = withControlReceiver(getString(R.string.command_key)) { performKeyEvent(keyCode) }
+                    if (success && isMediaVolumeKey(keyCode)) {
+                        pushMediaMuteStateNowAndSoon()
+                    }
                 }
             }
             "rotate_screen" -> {
@@ -646,6 +647,22 @@ class MainActivity : AppCompatActivity() {
     private fun normalizeRotationDegrees(degrees: Int): Int {
         val normalized = ((degrees % 360) + 360) % 360
         return ((normalized + 45) / 90 * 90) % 360
+    }
+
+    private fun isMediaVolumeKey(keyCode: Int): Boolean {
+        return keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+            keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
+            keyCode == KeyEvent.KEYCODE_VOLUME_MUTE
+    }
+
+    private fun pushMediaMuteStateNowAndSoon() {
+        signalingClient?.pushPresenceSnapshotToServer()
+        scope.launch {
+            delay(120)
+            signalingClient?.pushPresenceSnapshotToServer()
+            delay(500)
+            signalingClient?.pushPresenceSnapshotToServer()
+        }
     }
 
     private fun orientationForDegrees(degrees: Int): Int {
@@ -1036,14 +1053,14 @@ class MainActivity : AppCompatActivity() {
         refreshFragments()
     }
 
-    private fun withControlReceiver(actionLabel: String, block: ControlReceiver.() -> Boolean) {
+    private fun withControlReceiver(actionLabel: String, block: ControlReceiver.() -> Boolean): Boolean {
         val receiver = ControlReceiver.instance
         if (receiver == null) {
             currentStatus = getString(R.string.status_action_failed_template, actionLabel)
             currentStatusDetail = getString(R.string.status_action_failed_accessibility_detail)
             refreshFragments()
             openAccessibilitySettingsScreen()
-            return
+            return false
         }
         val success = receiver.block()
         if (!success) {
@@ -1051,6 +1068,7 @@ class MainActivity : AppCompatActivity() {
             currentStatusDetail = getString(R.string.status_action_failed_command_rejected_detail)
             refreshFragments()
         }
+        return success
     }
 
     private fun updateAccessibilityHint() {

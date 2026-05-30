@@ -81,6 +81,27 @@ class SignalingClient(
         }
     }
 
+    /** Telefonun anlik erisilebilirlik + medya mute durumunu sunucuya iter. */
+    fun pushPresenceSnapshotToServer() {
+        val socket = ws ?: return
+        sendPresenceSnapshot(socket)
+    }
+
+    private fun sendPresenceSnapshot(socket: WebSocket): Boolean {
+        return try {
+            socket.send(
+                JSONObject().apply {
+                    put("type", "request_presence")
+                    put("auth_token", authToken)
+                    put("accessibility_enabled", isAccessibilityEnabled())
+                    isMediaMuted()?.let { muted -> put("media_muted", muted) }
+                }.toString(),
+            )
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Erisilebilirlik kapali — eslesen PC'ye hata mesaji gonder (command relay uzerinden). */
     fun sendAccessibilityError() {
         val socket = ws ?: return
@@ -147,16 +168,7 @@ class SignalingClient(
                     while (isActive) {
                         delay(PRESENCE_POLL_MS)
                         val sock = ws ?: break
-                        try {
-                            sock.send(
-                                JSONObject().apply {
-                                    put("type", "request_presence")
-                                    put("auth_token", authToken)
-                                    put("accessibility_enabled", isAccessibilityEnabled())
-                                    isMediaMuted()?.let { muted -> put("media_muted", muted) }
-                                }.toString(),
-                            )
-                        } catch (_: Exception) {
+                        if (!sendPresenceSnapshot(sock)) {
                             break
                         }
                     }

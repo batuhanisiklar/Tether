@@ -589,12 +589,8 @@ class ScreenStreamService : Service() {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return true
         return try {
             val volume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            val muted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                audioManager.isStreamMute(AudioManager.STREAM_MUSIC)
-            } else {
-                volume <= 0
-            }
-            volume > 0 && !muted
+            // isStreamMute OEM'e gore tutarsiz olabildigi icin stream seviyesini baz al.
+            volume > 0
         } catch (_: Exception) {
             true
         }

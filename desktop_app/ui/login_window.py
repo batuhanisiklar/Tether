@@ -499,7 +499,7 @@ class LoginWindow(QDialog):
         lay.addWidget(sec_note)
         lay.addSpacing(6)
 
-        ver = QLabel(f"v{AppMeta.VERSION}  ·  {AppMeta.NAME}  ·  © 2026  ·  Batuhan Isiklar")
+        ver = QLabel(f"v{AppMeta.VERSION}  ·  {AppMeta.NAME}  ·  © 2026  ·  Batuhan Işıklar")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ver.setStyleSheet(text_style(c.TEXT_SUBTLE, size=9))
         lay.addWidget(ver)

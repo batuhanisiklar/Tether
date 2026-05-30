@@ -707,16 +707,7 @@ class MainWindow(
         if self._connected:
             self._ws_client.send_key_event(int(key_code))
             if int(key_code) == AndroidKeyCodes.VOL_MUTE:
-                if self._phone_media_muted is not None:
-                    self._phone_media_muted = not self._phone_media_muted
                 self._update_volume_mute_button_label()
-            if self._audio_player is not None:
-                self._audio_player.adjust_for_android_key(
-                    int(key_code),
-                    volume_up=AndroidKeyCodes.VOL_UP,
-                    volume_down=AndroidKeyCodes.VOL_DOWN,
-                    volume_mute=AndroidKeyCodes.VOL_MUTE,
-                )
 
     def _set_remote_controls_enabled(self, enabled: bool) -> None:
         for btn in getattr(self, "_key_buttons", []):
@@ -735,11 +726,16 @@ class MainWindow(
             btn.setText("Ses Açma / Kapatma")
             return
         if self._phone_media_muted is True:
-            btn.setText("Sesi Aç")
+            btn.setText("Ses Kapalı (Aç)")
         elif self._phone_media_muted is False:
-            btn.setText("Sesi Kapat")
+            btn.setText("Ses Açık (Kapat)")
         else:
             btn.setText("Ses Açma / Kapatma")
+
+    def _apply_phone_media_audio_state(self) -> None:
+        if self._audio_player is None:
+            return
+        self._audio_player.set_remote_muted(self._phone_media_muted is True)
 
     # ── Presence ──────────────────────────────────────────────────────────
 
@@ -754,6 +750,7 @@ class MainWindow(
             self._screen_capture_prompt_sent = False
             self._sync_stream_aspect_fit()
             self._phone_media_muted = None
+            self._apply_phone_media_audio_state()
             if self._audio_player is not None:
                 self._audio_player.reset()
         self._set_remote_controls_enabled(bool(connected and self._remote_frame_visible))
