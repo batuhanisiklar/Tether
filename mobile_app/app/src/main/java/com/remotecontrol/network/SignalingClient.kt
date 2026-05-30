@@ -41,6 +41,7 @@ class SignalingClient(
     private val deviceAddress: String,
     private val isAccessibilityEnabled: () -> Boolean,
     private val isMediaMuted: () -> Boolean?,
+    private val onPairRequest: (partner: PartnerIdentity?) -> Unit,
     private val onPaired: (streamPort: Int, partner: PartnerIdentity?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>, partnerOnline: Boolean) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
@@ -81,6 +82,23 @@ class SignalingClient(
     private var lastNullWsLogMs: Long = 0L
     private var consecutiveDrops: Int = 0
     private val maxJsonFrameBytes = 70_000
+
+    private fun partnerIdentityFrom(json: JSONObject): PartnerIdentity? {
+        val partnerDeviceId = json.optString("partner_device_id", "")
+        return PartnerIdentity(
+            deviceId = partnerDeviceId.filter(Char::isDigit).take(12),
+            address = json.optString("partner_address", "").filter(Char::isDigit).take(12),
+            deviceName = json.optString("partner_device_name", "").trim(),
+            deviceType = json.optString("partner_device_type", "").trim(),
+            ownerName = json.optString("partner_owner_name", "").trim(),
+            ownerEmail = json.optString("partner_owner_email", "").trim(),
+        ).takeIf {
+            it.deviceId.isNotBlank() ||
+                it.deviceName.isNotBlank() ||
+                it.ownerName.isNotBlank() ||
+                it.ownerEmail.isNotBlank()
+        }
+    }
 
     /** Erisilebilirlik acildiktan sonra (ayarlardan donus vb.) sunucudaki bayragi gunceller. */
     fun pushAccessibilityToServer() {
@@ -226,21 +244,14 @@ class SignalingClient(
                             onPairedDevicesStatus(pairedDevices, onlinePairedDevices, partnerOnline)
                         }
 
+                        "pair_request" -> {
+                            val partner = partnerIdentityFrom(json)
+                            Log.i(TAG, "Pair request received")
+                            onPairRequest(partner)
+                        }
+
                         "paired" -> {
-                            val partnerDeviceId = json.optString("partner_device_id", "")
-                            val partner = PartnerIdentity(
-                                deviceId = partnerDeviceId.filter(Char::isDigit).take(12),
-                                address = json.optString("partner_address", "").filter(Char::isDigit).take(12),
-                                deviceName = json.optString("partner_device_name", "").trim(),
-                                deviceType = json.optString("partner_device_type", "").trim(),
-                                ownerName = json.optString("partner_owner_name", "").trim(),
-                                ownerEmail = json.optString("partner_owner_email", "").trim(),
-                            ).takeIf {
-                                it.deviceId.isNotBlank() ||
-                                    it.deviceName.isNotBlank() ||
-                                    it.ownerName.isNotBlank() ||
-                                    it.ownerEmail.isNotBlank()
-                            }
+                            val partner = partnerIdentityFrom(json)
                             Log.i(TAG, "Paired with PC via code!")
                             scope.launch {
                                 delay(500)

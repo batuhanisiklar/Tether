@@ -16,6 +16,7 @@ class MessageTypes:
     REGISTERED: str = "registered"
     JOINED: str = "joined"
     WAITING: str = "waiting"
+    PAIR_REQUEST: str = "pair_request"
     PAIRED: str = "paired"
     PEER_DISCONNECTED: str = "peer_disconnected"
     ERROR: str = "error"

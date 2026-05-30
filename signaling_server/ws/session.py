@@ -191,6 +191,50 @@ async def partner_identity_payload(app: web.Application, device_id: str) -> dict
     }
 
 
+def controller_target_slots(
+    app: web.Application,
+    session: dict[str, web.WebSocketResponse],
+    left_slot: str,
+    right_slot: str,
+) -> tuple[str, str]:
+    controller_slot = left_slot
+    for slot_name, slot_ws in session.items():
+        if (app["ws_meta"].get(id(slot_ws)) or {}).get("session_initiator"):
+            controller_slot = slot_name
+            break
+    target_slot = right_slot if controller_slot == left_slot else left_slot
+    return controller_slot, target_slot
+
+
+async def notify_pair_request(app: web.Application, code: str) -> None:
+    session = app["sessions"].get(code, {})
+    session_devices = app["session_devices"].get(code, {})
+    if len(session) < 2:
+        return
+
+    slots = list(session.keys())[:2]
+    left_slot, right_slot = slots[0], slots[1]
+    controller_slot, target_slot = controller_target_slots(app, session, left_slot, right_slot)
+    target_ws = session.get(target_slot)
+    if target_ws is None:
+        return
+
+    controller_device_id = str(session_devices.get(controller_slot) or "")
+    controller_identity = await partner_identity_payload(app, controller_device_id)
+    await send_json(
+        target_ws,
+        {
+            "type": MessageTypes.PAIR_REQUEST,
+            "code": code,
+            **controller_identity,
+        },
+    )
+
+    controller_ws = session.get(controller_slot)
+    if controller_ws is not None:
+        await send_json(controller_ws, {"type": MessageTypes.WAITING, "message": "Telefonda onay bekleniyor..."})
+
+
 async def notify_paired(app: web.Application, code: str) -> None:
     session = app["sessions"].get(code, {})
     session_devices = app["session_devices"].get(code, {})
@@ -210,16 +254,9 @@ async def notify_paired(app: web.Application, code: str) -> None:
     )
     logger.info("paired code=%s slots=%s phone_accessibility_enabled=%s", code, list(session.keys()), _phone_a11y)
 
-    controller_slot = left_slot
-    for slot_name, slot_ws in session.items():
-        if (app["ws_meta"].get(id(slot_ws)) or {}).get("session_initiator"):
-            controller_slot = slot_name
-            break
-    target_slot = right_slot if controller_slot == left_slot else left_slot
+    controller_slot, target_slot = controller_target_slots(app, session, left_slot, right_slot)
     controller_device_id = str(session_devices.get(controller_slot) or "")
     target_device_id = str(session_devices.get(target_slot) or "")
-    await save_connection_pair(app, controller_device_id, target_device_id)
-
     for slot_name, slot_ws in session.items():
         partner_slot = right_slot if slot_name == left_slot else left_slot
         control_mode = "controller" if slot_name == controller_slot else "target"
@@ -292,7 +329,7 @@ async def handle_register_or_join(
     await send_json(ws, {"type": ack_type, "code": code, "role": role})
 
     if len(session) >= 2:
-        await notify_paired(app, code)
+        await notify_pair_request(app, code)
     elif message.get("type") == MessageTypes.JOIN:
         await send_json(ws, {"type": MessageTypes.WAITING, "message": "Partner baglanmayi bekliyor..."})
 
@@ -315,4 +352,8 @@ async def handle_pair_confirm(app: web.Application, meta: dict[str, Any], messag
         return
     if first_device_id != normalize_device_id(str(meta.get("device_id") or "")):
         return
+    await save_connection_pair(app, second_device_id, first_device_id)
+    peer_code = str(meta.get("peer_code") or "")
+    if peer_code:
+        await notify_paired(app, peer_code)
     await broadcast_presence_for_devices(app, first_device_id, second_device_id)

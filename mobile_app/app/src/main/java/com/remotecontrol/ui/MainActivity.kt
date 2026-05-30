@@ -32,6 +32,7 @@ import com.remotecontrol.data.DeviceIdentityStore
 import com.remotecontrol.data.DeviceSummary
 import com.remotecontrol.data.UserProfile
 import com.remotecontrol.device.HardwareFingerprint
+import com.remotecontrol.network.PartnerIdentity
 import com.remotecontrol.network.SignalingClient
 import com.remotecontrol.service.CameraStreamService
 import com.remotecontrol.service.ControlReceiver
@@ -104,6 +105,7 @@ class MainActivity : AppCompatActivity() {
     private var partnerOfflineAckStreak = 0
     /** paired geldi ama erisilebilirlik kapaliydi; kullanici ayarlardan acinca yayin dugmesi icin hazirlik. */
     private var pairingAwaitingAccessibility = false
+    private var pendingScreenShareAfterPairApproval = false
     /** Erisilebilirlik ayarina gecis akisi aktifken zorla one getirmeyi engeller. */
     private var openingAccessibilitySettings = false
     /** Panelden gelen son mutlak ekran rotasyonu: 0, 90, 180, 270. */
@@ -418,6 +420,12 @@ class MainActivity : AppCompatActivity() {
             deviceAddress = address,
             isAccessibilityEnabled = { isAccessibilityServiceEnabled() },
             isMediaMuted = { currentMediaMutedState() },
+            onPairRequest = { partner ->
+                runOnUiThread {
+                    if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
+                    showPairRequestDialog(partner)
+                }
+            },
             onPaired = { _, partner ->
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
@@ -426,18 +434,12 @@ class MainActivity : AppCompatActivity() {
                     if (!partnerDeviceId.isNullOrBlank()) {
                         onFirstPairComplete(partnerDeviceId)
                     }
-                    if (requesterName.isNotBlank()) {
-                        Toast.makeText(
-                            this@MainActivity,
-                            getString(R.string.pair_request_toast, requesterName),
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
                     updateAccessibilityHint()
                     if (!isAccessibilityServiceEnabled()) {
                         pairingAwaitingAccessibility = true
                         remoteSessionPaired = false
                         streamRunning = false
+                        pendingScreenShareAfterPairApproval = false
                         currentStatus = getString(R.string.status_accessibility_off_title)
                         currentStatusDetail = requesterName
                             .takeIf { it.isNotBlank() }
@@ -466,6 +468,10 @@ class MainActivity : AppCompatActivity() {
                     )
                     notifyConnectedIfEnabled(requesterName)
                     refreshFragments()
+                    if (pendingScreenShareAfterPairApproval) {
+                        pendingScreenShareAfterPairApproval = false
+                        requestScreenCapture()
+                    }
                 }
             },
             onPairedDevicesStatus = { pairedDeviceIds, onlineDeviceIds, partnerOnline ->
@@ -750,7 +756,7 @@ class MainActivity : AppCompatActivity() {
             showAccessibilityRequiredDialog()
             return
         }
-        if (streamRunning) return
+        if (streamRunning || awaitingMediaProjectionConsent) return
         updateStatus(getString(R.string.pair_screen_permission_hint))
         requestScreenCapture()
     }
@@ -978,6 +984,47 @@ class MainActivity : AppCompatActivity() {
                 openAccessibilitySettingsScreen()
             }
             .setNegativeButton(getString(R.string.dialog_cancel), null)
+            .show()
+    }
+
+    private fun showPairRequestDialog(partner: PartnerIdentity?) {
+        val pcDeviceId = partner?.deviceId.orEmpty()
+        val requesterName = partner?.displayName().orEmpty().ifBlank { getString(R.string.pair_request_unknown_pc) }
+        currentStatus = getString(R.string.pair_request_status_title)
+        currentStatusDetail = getString(R.string.pair_request_status_detail, requesterName)
+        refreshFragments()
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.pair_request_dialog_title))
+            .setMessage(getString(R.string.pair_request_dialog_message, requesterName))
+            .setPositiveButton(getString(R.string.pair_request_approve)) { _, _ ->
+                if (pcDeviceId.isBlank()) {
+                    Toast.makeText(this, getString(R.string.pair_request_missing_device), Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                pendingScreenShareAfterPairApproval = true
+                signalingClient?.sendPairConfirm(pcDeviceId)
+                currentStatus = getString(R.string.pair_request_approved_title)
+                currentStatusDetail = getString(R.string.pair_request_approved_detail, requesterName)
+                refreshFragments()
+            }
+            .setNegativeButton(getString(R.string.dialog_cancel)) { _, _ ->
+                pendingScreenShareAfterPairApproval = false
+                remoteSessionPaired = false
+                pairingAwaitingAccessibility = false
+                Toast.makeText(this, getString(R.string.pair_request_denied), Toast.LENGTH_SHORT).show()
+                signalingClient?.disconnect(sendServerLogout = true)
+                signalingClient = null
+                currentStatus = getString(R.string.status_online_waiting_pc_title)
+                currentStatusDetail = getString(R.string.status_online_waiting_pc_detail, currentAddress)
+                refreshFragments()
+                scope.launch {
+                    delay(350)
+                    if (!isFinishing && !isDestroyed && sessionStore.isLoggedIn()) {
+                        connectSignaling()
+                    }
+                }
+            }
             .show()
     }
 
