@@ -8,12 +8,16 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.media.projection.MediaProjectionManager
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
+import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
@@ -526,7 +530,6 @@ class MainActivity : AppCompatActivity() {
             sessionStore.savePairedPcAddress(it)
             pairedPcAddress = it
         }
-        signalingClient?.sendPairConfirm(pcDeviceId)
         addRecentEvent(getString(R.string.event_pair_confirmed))
         refreshFragments()
         Log.i(TAG, "Pair confirmed with PC: $pcDeviceId")
@@ -977,55 +980,75 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAccessibilityRequiredDialog() {
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.dialog_accessibility_required_title))
-            .setMessage(getString(R.string.dialog_accessibility_required_message))
-            .setPositiveButton(getString(R.string.dialog_open_settings)) { _, _ ->
+        ThemedDialogs.showConfirmation(
+            context = this,
+            title = getString(R.string.dialog_accessibility_required_title),
+            message = getString(R.string.dialog_accessibility_required_message),
+            positiveText = getString(R.string.dialog_open_settings),
+            negativeText = getString(R.string.dialog_cancel),
+            iconRes = R.drawable.ic_settings,
+            onPositive = {
                 openAccessibilitySettingsScreen()
-            }
-            .setNegativeButton(getString(R.string.dialog_cancel), null)
-            .show()
+            },
+        )
     }
 
     private fun showPairRequestDialog(partner: PartnerIdentity?) {
         val pcDeviceId = partner?.deviceId.orEmpty()
         val requesterName = partner?.displayName().orEmpty().ifBlank { getString(R.string.pair_request_unknown_pc) }
+        val deviceNumber = partner?.deviceNumber().orEmpty().ifBlank { getString(R.string.devices_item_unknown) }
         currentStatus = getString(R.string.pair_request_status_title)
         currentStatusDetail = getString(R.string.pair_request_status_detail, requesterName)
         refreshFragments()
 
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.pair_request_dialog_title))
-            .setMessage(getString(R.string.pair_request_dialog_message, requesterName))
-            .setPositiveButton(getString(R.string.pair_request_approve)) { _, _ ->
-                if (pcDeviceId.isBlank()) {
-                    Toast.makeText(this, getString(R.string.pair_request_missing_device), Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                pendingScreenShareAfterPairApproval = true
-                signalingClient?.sendPairConfirm(pcDeviceId)
-                currentStatus = getString(R.string.pair_request_approved_title)
-                currentStatusDetail = getString(R.string.pair_request_approved_detail, requesterName)
-                refreshFragments()
+        val dialogView = layoutInflater.inflate(R.layout.dialog_pair_request, null)
+        dialogView.findViewById<TextView>(R.id.tv_pair_request_name).text = requesterName
+        dialogView.findViewById<TextView>(R.id.tv_pair_request_message).text =
+            getString(R.string.pair_request_dialog_message, requesterName)
+        dialogView.findViewById<TextView>(R.id.tv_pair_request_device_number).text = deviceNumber
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+
+        dialogView.findViewById<Button>(R.id.btn_pair_request_approve).setOnClickListener {
+            if (pcDeviceId.isBlank()) {
+                Toast.makeText(this, getString(R.string.pair_request_missing_device), Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
-            .setNegativeButton(getString(R.string.dialog_cancel)) { _, _ ->
-                pendingScreenShareAfterPairApproval = false
-                remoteSessionPaired = false
-                pairingAwaitingAccessibility = false
-                Toast.makeText(this, getString(R.string.pair_request_denied), Toast.LENGTH_SHORT).show()
-                signalingClient?.disconnect(sendServerLogout = true)
-                signalingClient = null
-                currentStatus = getString(R.string.status_online_waiting_pc_title)
-                currentStatusDetail = getString(R.string.status_online_waiting_pc_detail, currentAddress)
-                refreshFragments()
-                scope.launch {
-                    delay(350)
-                    if (!isFinishing && !isDestroyed && sessionStore.isLoggedIn()) {
-                        connectSignaling()
-                    }
+            pendingScreenShareAfterPairApproval = true
+            signalingClient?.sendPairConfirm(pcDeviceId)
+            currentStatus = getString(R.string.pair_request_approved_title)
+            currentStatusDetail = getString(R.string.pair_request_approved_detail, requesterName)
+            refreshFragments()
+            dialog.dismiss()
+        }
+
+        dialogView.findViewById<Button>(R.id.btn_pair_request_cancel).setOnClickListener {
+            pendingScreenShareAfterPairApproval = false
+            remoteSessionPaired = false
+            pairingAwaitingAccessibility = false
+            Toast.makeText(this, getString(R.string.pair_request_denied), Toast.LENGTH_SHORT).show()
+            signalingClient?.disconnect(sendServerLogout = true)
+            signalingClient = null
+            currentStatus = getString(R.string.status_online_waiting_pc_title)
+            currentStatusDetail = getString(R.string.status_online_waiting_pc_detail, currentAddress)
+            refreshFragments()
+            dialog.dismiss()
+            scope.launch {
+                delay(350)
+                if (!isFinishing && !isDestroyed && sessionStore.isLoggedIn()) {
+                    connectSignaling()
                 }
             }
-            .show()
+        }
+
+        dialog.setOnCancelListener {
+            dialogView.findViewById<Button>(R.id.btn_pair_request_cancel).performClick()
+        }
+        dialog.show()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
     }
 
     private fun refreshFragments() {

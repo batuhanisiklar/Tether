@@ -356,14 +356,18 @@ class SettingsFragment : Fragment(), DashboardFragment {
             Toast.makeText(requireContext(), getString(R.string.settings_clear_connections_empty), Toast.LENGTH_SHORT).show()
             return
         }
-        androidx.appcompat.app.AlertDialog.Builder(requireContext())
-            .setTitle(getString(R.string.settings_clear_connections_confirm_title))
-            .setMessage(getString(R.string.settings_clear_connections_confirm_message, count))
-            .setPositiveButton(getString(R.string.settings_clear_connections_confirm_action)) { _, _ ->
+        ThemedDialogs.showConfirmation(
+            context = requireContext(),
+            title = getString(R.string.settings_clear_connections_confirm_title),
+            message = getString(R.string.settings_clear_connections_confirm_message, count),
+            positiveText = getString(R.string.settings_clear_connections_confirm_action),
+            negativeText = getString(R.string.dialog_cancel),
+            iconRes = R.drawable.ic_delete,
+            destructive = true,
+            onPositive = {
                 clearAllConnections()
-            }
-            .setNegativeButton(getString(R.string.dialog_cancel), null)
-            .show()
+            },
+        )
     }
 
     private fun clearAllConnections() {

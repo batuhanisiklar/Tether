@@ -352,6 +352,9 @@ async def handle_pair_confirm(app: web.Application, meta: dict[str, Any], messag
         return
     if first_device_id != normalize_device_id(str(meta.get("device_id") or "")):
         return
+    if meta.get("pair_confirmed"):
+        return
+    meta["pair_confirmed"] = True
     await save_connection_pair(app, second_device_id, first_device_id)
     peer_code = str(meta.get("peer_code") or "")
     if peer_code:

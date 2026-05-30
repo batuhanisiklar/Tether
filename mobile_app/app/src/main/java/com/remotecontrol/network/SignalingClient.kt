@@ -16,6 +16,11 @@ data class PartnerIdentity(
     val ownerName: String,
     val ownerEmail: String,
 ) {
+    fun deviceNumber(): String {
+        val digits = address.ifBlank { deviceId }.filter(Char::isDigit).take(12)
+        return digits.chunked(4).joinToString("-").ifBlank { "Bilinmiyor" }
+    }
+
     fun displayName(): String {
         val owner = ownerName.takeIf { it.isNotBlank() } ?: ownerEmail.takeIf { it.isNotBlank() }
         return listOfNotNull(owner, deviceName.takeIf { it.isNotBlank() })

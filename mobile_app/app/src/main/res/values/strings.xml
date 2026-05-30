@@ -145,6 +145,7 @@
   <string name="pair_request_unknown_pc">Bilinmeyen bilgisayar</string>
   <string name="pair_request_dialog_title">Bağlantı isteği</string>
   <string name="pair_request_dialog_message">%1$s telefonunuza bağlanmak istiyor. Onaylıyor musunuz?</string>
+  <string name="pair_request_device_number_label">Bağlanan cihaz numarası</string>
   <string name="pair_request_approve">Onayla</string>
   <string name="pair_request_missing_device">Bağlanan cihaz doğrulanamadı.</string>
   <string name="pair_request_denied">Bağlantı isteği reddedildi.</string>

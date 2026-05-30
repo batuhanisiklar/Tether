@@ -8,7 +8,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.remotecontrol.R
@@ -133,13 +132,18 @@ class DevicesFragment : Fragment(), DashboardFragment {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             )
             setOnClickListener {
-                AlertDialog.Builder(requireContext())
-                    .setMessage(getString(R.string.forget_pairing_confirm))
-                    .setPositiveButton(R.string.forget_device) { _, _ ->
+                ThemedDialogs.showConfirmation(
+                    context = requireContext(),
+                    title = getString(R.string.remove_device),
+                    message = getString(R.string.forget_pairing_confirm),
+                    positiveText = getString(R.string.forget_device),
+                    negativeText = getString(R.string.dialog_cancel),
+                    iconRes = R.drawable.ic_delete,
+                    destructive = true,
+                    onPositive = {
                         host.forgetPairingFromUi(device.deviceId, device.address)
-                    }
-                    .setNegativeButton(R.string.dialog_cancel, null)
-                    .show()
+                    },
+                )
             }
         }
         headerRow.addView(deleteButton)
