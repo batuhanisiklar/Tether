@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 async def health_check(_request: web.Request) -> web.Response:
     """Yuk dengeleyici / istemci: HTTP katmaninin ayakta oldugunu dogrular (DB sart degil)."""
-    return web.json_response({"ok": True, "service": "remote-phone-control-signaling"})
+    return web.json_response({"ok": True, "service": "tether-signaling"})
 
 
 async def on_cleanup(app: web.Application) -> None:

@@ -14,9 +14,9 @@ from typing import Dict, List, Tuple
 # ──────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class AppMeta:
-    NAME: str          = "Remote Phone Control"
+    NAME: str          = "Tether"
     VERSION: str       = "1.0.0"
-    WINDOW_TITLE: str  = "Remote Phone Control"
+    WINDOW_TITLE: str  = "Tether"
     MIN_WIDTH: int     = 1000
     MIN_HEIGHT: int    = 700
     DEFAULT_WIDTH: int = 1280

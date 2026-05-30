@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">Remote Phone Control</string>
+  <string name="app_name">Tether</string>
   <string name="accessibility_description">Bilgisayardan dokunma ve kaydırma denetimi sağlar.</string>
   <string name="login_icon">Uygulama logosu</string>
   <string name="login_title">Hoş geldiniz</string>
@@ -28,8 +28,8 @@
   <string name="register_button">Kayıt ekranına git</string>
   <string name="register_submit_button">Kayıt Ol</string>
   <string name="register_loading">Hesap oluşturuluyor…</string>
-  <string name="login_footer">© 2026 · Remote Phone Control · Batuhan Işıklar</string>
-  <string name="main_title">Remote Phone Control</string>
+  <string name="login_footer">© 2026 · Tether · Batuhan Işıklar</string>
+  <string name="main_title">Tether</string>
   <string name="main_subtitle">Telefonunuzu bilgisayarınızdan yönetin</string>
   <string name="main_user_prefix">Aktif hesap</string>
   <string name="nav_home">Ana Sayfa</string>
@@ -44,7 +44,7 @@
   <string name="home_accessibility_section_title">Erişilebilirlik</string>
   <string name="home_accessibility_steps_title">Ne yapmalıyım?</string>
   <string name="home_accessibility_step_1">1. Aşağıdaki düğmeyle erişilebilirlik ayarlarını açın.</string>
-  <string name="home_accessibility_step_2">2. Listeden Remote Phone Control servisini etkinleştirin.</string>
+  <string name="home_accessibility_step_2">2. Listeden Tether servisini etkinleştirin.</string>
   <string name="home_accessibility_step_3">3. Uygulamaya dönüp bilgisayardan tekrar bağlantı başlatın.</string>
   <string name="home_accessibility_steps_title_enabled">Sıradaki adım</string>
   <string name="home_accessibility_enabled_step_1">1. Erişilebilirlik servisi açık ve kullanıma hazır.</string>
@@ -94,7 +94,7 @@
   <string name="settings_notifications_disconnect">Bağlantı kesildiğinde bildir</string>
   <string name="settings_notifications_channel_name">Bağlantı Bildirimleri</string>
   <string name="settings_notify_connected_title">Bilgisayar bağlandı</string>
-  <string name="settings_notify_connected_message">Remote Phone Control bağlantısı hazır.</string>
+  <string name="settings_notify_connected_message">Tether bağlantısı hazır.</string>
   <string name="settings_notify_disconnected_title">Bağlantı kesildi</string>
   <string name="settings_notify_disconnected_message">Bağlantı koptu, yeniden denemeniz gerekebilir.</string>
   <string name="settings_account_settings_title">Hesap Ayarları</string>
@@ -116,10 +116,10 @@
   <string name="settings_send_feedback">Geri Bildirim Gönder</string>
   <string name="settings_diagnostics_title">Tanı Bilgileri</string>
   <string name="settings_recent_events_title">Son Olaylar</string>
-  <string name="settings_share_logs_subject">Remote Phone Control Tanı Bilgileri</string>
+  <string name="settings_share_logs_subject">Tether Tanı Bilgileri</string>
   <string name="settings_share_logs_chooser">Paylaşım uygulaması seçin</string>
   <string name="settings_support_email">support@remotephonecontrol.app</string>
-  <string name="settings_feedback_subject">Remote Phone Control Geri Bildirim</string>
+  <string name="settings_feedback_subject">Tether Geri Bildirim</string>
   <string name="settings_feedback_body_template">Merhaba,\n\nGeri bildiriminiz:\n\n---\nSabit adres: %1$s\nAndroid: %2$s\nCihaz: %3$s</string>
   <string name="settings_feedback_no_email_app">E-posta uygulaması bulunamadı.</string>
   <string name="help_title">Kurulum ve Sık Sorulan Sorular</string>

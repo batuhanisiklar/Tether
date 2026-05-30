@@ -38,10 +38,10 @@
   <string name="notification_screen_starting">Ekran yayını başlatılıyor…</string>
   <string name="notification_screen_active">Ekran yayını aktif</string>
   <string name="notification_screen_active_with_audio">Ekran yayını aktif (sesli)</string>
-  <string name="notification_title_screen">Remote Phone Control — Ekran</string>
+  <string name="notification_title_screen">Tether — Ekran</string>
   <string name="notification_channel_screen">Ekran Yayını</string>
   <string name="notification_camera_active">Kamera yayını aktif</string>
-  <string name="notification_title_camera">Remote Phone Control — Kamera</string>
+  <string name="notification_title_camera">Tether — Kamera</string>
   <string name="notification_channel_camera">Kamera Yayını</string>
   <string name="device_status_online">Çevrimiçi</string>
   <string name="device_status_offline">Çevrimdışı</string>

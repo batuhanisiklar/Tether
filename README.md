@@ -1,4 +1,4 @@
-# Remote Phone Control
+# Tether
 
 Android telefonu masaustunden goruntulemek ve kontrol etmek icin uc parcali bir sistem:
 
@@ -9,7 +9,7 @@ Android telefonu masaustunden goruntulemek ve kontrol etmek icin uc parcali bir 
 ## Proje Yapisi
 
 ```text
-remote_phone_control/
+Tether/
 ├── desktop_app/          # PyQt6 masaustu uygulamasi
 │   ├── main.py           # Desktop entry point
 │   ├── config/           # Sabitler ve prefs

@@ -1,5 +1,5 @@
 """
-Giriş penceresi — Remote Phone Control
+Giriş penceresi — Tether
 =======================================
 Sekmeli kart tasarımı: Giriş yap / Kayıt ol.
 Kimlik doğrulama işlemleri `BackendApi` üzerinden yürütülür.
@@ -206,7 +206,7 @@ class LoginWindow(QDialog):
         lay.addLayout(logo_wrap)
         lay.addSpacing(18)
 
-        app_name = QLabel("Remote Phone Control")
+        app_name = QLabel("Tether")
         app_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         app_name.setStyleSheet(text_style(c.TEXT, size=20, weight=800))
         lay.addWidget(app_name)
