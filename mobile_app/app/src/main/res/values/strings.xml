@@ -95,6 +95,7 @@
   <string name="settings_notifications_channel_name">Bağlantı Bildirimleri</string>
   <string name="settings_notify_connected_title">Bilgisayar bağlandı</string>
   <string name="settings_notify_connected_message">Tether bağlantısı hazır.</string>
+  <string name="settings_notify_connected_message_named">%1$s bağlantı isteği gönderdi.</string>
   <string name="settings_notify_disconnected_title">Bağlantı kesildi</string>
   <string name="settings_notify_disconnected_message">Bağlantı koptu, yeniden denemeniz gerekebilir.</string>
   <string name="settings_account_settings_title">Hesap Ayarları</string>
@@ -140,7 +141,9 @@
   <string name="help_q6">Yayın donuyorsa veya gecikiyorsa nasıl iyileştiririm?</string>
   <string name="help_a6">Ağ kalitesini artırın, aynı ağdaki yoğun indirmeleri durdurun ve arka planda gereksiz uygulamaları kapatın.</string>
   <string name="pair_pc_connected_title">Bilgisayar bağlandı</string>
+  <string name="pair_request_toast">%1$s bağlanmaya çalışıyor.</string>
   <string name="pair_start_broadcast_hint">Bilgisayar bağlandı. Ekran paylaşımı bilgisayardan başlatılır; izin penceresini onaylayın.</string>
+  <string name="pair_start_broadcast_hint_named">%1$s bağlandı. Ekran paylaşımı bilgisayardan başlatılır; izin penceresini onaylayın.</string>
   <string name="pair_screen_permission_hint">Ekran görüntüsünü bilgisayara aktarmak için açılan izin penceresini onaylayın.</string>
   <string name="pair_camera_starting_hint">Kamera yayını için izin isteniyor.</string>
   <string name="logout">Çıkış Yap</string>

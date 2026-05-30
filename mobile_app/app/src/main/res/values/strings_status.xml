@@ -16,6 +16,7 @@
   <string name="status_signaling_connecting">Sunucuya bağlanılıyor…</string>
   <string name="status_accessibility_off_title">Erişilebilirlik kapalı</string>
   <string name="status_accessibility_off_detail">Kontrol için erişilebilirlik servisini açın.</string>
+  <string name="status_accessibility_off_detail_named">%1$s bağlanmak istiyor. Kontrol için erişilebilirlik servisini açın.</string>
   <string name="status_online_waiting_pc_title">Çevrimiçi; bağlantı bilgisayardan başlatılır</string>
   <string name="status_online_waiting_pc_detail">Sabit adres: %1$s</string>
   <string name="status_accessibility_required_share_detail">Ekran paylaşımı için erişilebilirliği açın, ardından bilgisayardan tekrar bağlanın.</string>
@@ -50,6 +51,7 @@
   <string name="event_app_opened">Uygulama açıldı.</string>
   <string name="event_waiting_for_pc">Bilgisayardan bağlantı bekleniyor.</string>
   <string name="event_pc_connected">Bilgisayar oturumu bağlandı.</string>
+  <string name="event_pc_connected_named">%1$s bilgisayar oturumu bağlandı.</string>
   <string name="event_pair_confirmed">Eşleşme onayı gönderildi.</string>
   <string name="event_pairing_removed">Eşleşme kaydı kaldırıldı.</string>
   <string name="event_transport_reconnecting">Sunucu bağlantısı yenileniyor.</string>

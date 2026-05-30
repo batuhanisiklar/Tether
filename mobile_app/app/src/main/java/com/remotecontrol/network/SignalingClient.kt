@@ -8,6 +8,25 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+data class PartnerIdentity(
+    val deviceId: String,
+    val address: String,
+    val deviceName: String,
+    val deviceType: String,
+    val ownerName: String,
+    val ownerEmail: String,
+) {
+    fun displayName(): String {
+        val owner = ownerName.takeIf { it.isNotBlank() } ?: ownerEmail.takeIf { it.isNotBlank() }
+        return listOfNotNull(owner, deviceName.takeIf { it.isNotBlank() })
+            .distinct()
+            .joinToString(" - ")
+            .takeIf { it.isNotBlank() }
+            ?: deviceId.takeLast(4).takeIf { it.isNotBlank() }?.let { "Bilgisayar ...$it" }
+            ?: "Bilgisayar"
+    }
+}
+
 /**
  * Signaling sunucusuyla WebSocket üzerinden haberleşir.
  *
@@ -22,7 +41,7 @@ class SignalingClient(
     private val deviceAddress: String,
     private val isAccessibilityEnabled: () -> Boolean,
     private val isMediaMuted: () -> Boolean?,
-    private val onPaired: (streamPort: Int, partnerDeviceId: String?) -> Unit,
+    private val onPaired: (streamPort: Int, partner: PartnerIdentity?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>, partnerOnline: Boolean) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
     /** PC oturumu kapandi; WebSocket acik kalir (yeniden baglanti telefondan yapilmaz). */
@@ -209,10 +228,23 @@ class SignalingClient(
 
                         "paired" -> {
                             val partnerDeviceId = json.optString("partner_device_id", "")
+                            val partner = PartnerIdentity(
+                                deviceId = partnerDeviceId.filter(Char::isDigit).take(12),
+                                address = json.optString("partner_address", "").filter(Char::isDigit).take(12),
+                                deviceName = json.optString("partner_device_name", "").trim(),
+                                deviceType = json.optString("partner_device_type", "").trim(),
+                                ownerName = json.optString("partner_owner_name", "").trim(),
+                                ownerEmail = json.optString("partner_owner_email", "").trim(),
+                            ).takeIf {
+                                it.deviceId.isNotBlank() ||
+                                    it.deviceName.isNotBlank() ||
+                                    it.ownerName.isNotBlank() ||
+                                    it.ownerEmail.isNotBlank()
+                            }
                             Log.i(TAG, "Paired with PC via code!")
                             scope.launch {
                                 delay(500)
-                                onPaired(8080, partnerDeviceId.ifBlank { null })
+                                onPaired(8080, partner)
                             }
                         }
 

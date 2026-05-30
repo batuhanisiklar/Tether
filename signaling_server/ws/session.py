@@ -11,7 +11,7 @@ from aiohttp import web
 
 from signaling_server.config import MessageTypes
 from signaling_server.db_client import ServerDbClient
-from signaling_server.helpers import normalize_device_id, send_json, websocket_is_closed
+from signaling_server.helpers import normalize_device_id, owner_fields, send_json, websocket_is_closed
 from signaling_server.ws.auth import bind_owned_ws_device
 from signaling_server.ws.presence import broadcast_presence_for_devices
 
@@ -167,6 +167,30 @@ async def save_connection_pair(app: web.Application, controller_device_id: str, 
     await asyncio.to_thread(app["db"].create_connection, controller_id, target_id)
 
 
+async def partner_identity_payload(app: web.Application, device_id: str) -> dict[str, Any]:
+    normalized_id = normalize_device_id(device_id)
+    if not normalized_id:
+        return {}
+
+    device = await asyncio.to_thread(app["db"].get_device_by_id, normalized_id)
+    if not device:
+        return {
+            "partner_device_id": normalized_id,
+            "partner_address": normalized_id,
+        }
+
+    user_id = int(device.get("user_id")) if device.get("user_id") is not None else None
+    owner = owner_fields(app.get("db"), user_id, {})
+    return {
+        "partner_device_id": normalized_id,
+        "partner_address": normalized_id,
+        "partner_device_name": str(device.get("device_name") or ""),
+        "partner_device_type": str(device.get("device_type") or ""),
+        "partner_owner_name": str(owner.get("owner_name") or ""),
+        "partner_owner_email": str(owner.get("owner_email") or ""),
+    }
+
+
 async def notify_paired(app: web.Application, code: str) -> None:
     session = app["sessions"].get(code, {})
     session_devices = app["session_devices"].get(code, {})
@@ -199,14 +223,16 @@ async def notify_paired(app: web.Application, code: str) -> None:
     for slot_name, slot_ws in session.items():
         partner_slot = right_slot if slot_name == left_slot else left_slot
         control_mode = "controller" if slot_name == controller_slot else "target"
+        partner_device_id = str(session_devices.get(partner_slot) or "")
+        partner_identity = await partner_identity_payload(app, partner_device_id)
         await send_json(
             slot_ws,
             {
                 "type": MessageTypes.PAIRED,
                 "code": code,
                 "your_role": str((app["ws_meta"].get(id(slot_ws)) or {}).get("role") or ""),
-                "partner_device_id": str(session_devices.get(partner_slot) or ""),
                 "control_mode": control_mode,
+                **partner_identity,
             },
         )
 

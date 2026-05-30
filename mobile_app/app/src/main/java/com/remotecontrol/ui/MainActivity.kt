@@ -418,11 +418,20 @@ class MainActivity : AppCompatActivity() {
             deviceAddress = address,
             isAccessibilityEnabled = { isAccessibilityServiceEnabled() },
             isMediaMuted = { currentMediaMutedState() },
-            onPaired = { _, partnerDeviceId ->
+            onPaired = { _, partner ->
                 runOnUiThread {
                     if (generation != connectionGeneration || signalingClient !== clientRef[0]) return@runOnUiThread
+                    val requesterName = partner?.displayName().orEmpty()
+                    val partnerDeviceId = partner?.deviceId
                     if (!partnerDeviceId.isNullOrBlank()) {
                         onFirstPairComplete(partnerDeviceId)
+                    }
+                    if (requesterName.isNotBlank()) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.pair_request_toast, requesterName),
+                            Toast.LENGTH_LONG,
+                        ).show()
                     }
                     updateAccessibilityHint()
                     if (!isAccessibilityServiceEnabled()) {
@@ -430,9 +439,13 @@ class MainActivity : AppCompatActivity() {
                         remoteSessionPaired = false
                         streamRunning = false
                         currentStatus = getString(R.string.status_accessibility_off_title)
-                        currentStatusDetail = getString(R.string.status_accessibility_off_detail)
+                        currentStatusDetail = requesterName
+                            .takeIf { it.isNotBlank() }
+                            ?.let { getString(R.string.status_accessibility_off_detail_named, it) }
+                            ?: getString(R.string.status_accessibility_off_detail)
                         refreshFragments()
                         signalingClient?.sendAccessibilityError()
+                        notifyConnectedIfEnabled(requesterName)
                         showAccessibilityRequiredDialog()
                         return@runOnUiThread
                     }
@@ -441,9 +454,17 @@ class MainActivity : AppCompatActivity() {
                     streamRunning = false
                     scope.launch { refreshPairings() }
                     currentStatus = getString(R.string.pair_pc_connected_title)
-                    currentStatusDetail = getString(R.string.pair_start_broadcast_hint)
-                    addRecentEvent(getString(R.string.event_pc_connected))
-                    notifyConnectedIfEnabled()
+                    currentStatusDetail = requesterName
+                        .takeIf { it.isNotBlank() }
+                        ?.let { getString(R.string.pair_start_broadcast_hint_named, it) }
+                        ?: getString(R.string.pair_start_broadcast_hint)
+                    addRecentEvent(
+                        requesterName
+                            .takeIf { it.isNotBlank() }
+                            ?.let { getString(R.string.event_pc_connected_named, it) }
+                            ?: getString(R.string.event_pc_connected),
+                    )
+                    notifyConnectedIfEnabled(requesterName)
                     refreshFragments()
                 }
             },
@@ -996,12 +1017,15 @@ class MainActivity : AppCompatActivity() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun notifyConnectedIfEnabled() {
+    private fun notifyConnectedIfEnabled(requesterName: String = "") {
         if (!appSettingsStore.notifyOnConnect()) return
         postEventNotification(
             id = EVENT_NOTIFICATION_ID_CONNECTED,
             title = getString(R.string.settings_notify_connected_title),
-            message = getString(R.string.settings_notify_connected_message),
+            message = requesterName
+                .takeIf { it.isNotBlank() }
+                ?.let { getString(R.string.settings_notify_connected_message_named, it) }
+                ?: getString(R.string.settings_notify_connected_message),
         )
     }
 
