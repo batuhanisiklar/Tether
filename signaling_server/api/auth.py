@@ -217,3 +217,34 @@ async def auth_profile_update(request: web.Request) -> web.Response:
             },
         }
     )
+
+
+async def auth_delete(request: web.Request) -> web.Response:
+    user = await require_user(request)
+    if not user:
+        return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
+    user_id, _username = user
+
+    data = await parse_json_body(request)
+    email = str(data.get("email") or "").strip().lower()
+    password = str(data.get("password") or "")
+    if not email or not password:
+        return web.json_response({"ok": False, "message": "E-posta ve şifre gereklidir."}, status=400)
+
+    profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
+    if not profile:
+        return web.json_response({"ok": False, "message": "Kullanıcı bulunamadı."}, status=404)
+
+    profile_email = str(profile.get("email") or "").strip().lower()
+    if profile_email != email:
+        return web.json_response({"ok": False, "message": "E-posta eşleşmiyor."}, status=400)
+
+    verified_user_id = await asyncio.to_thread(request.app["db"].authenticate_user, email, password)
+    if verified_user_id is None or int(verified_user_id) != int(user_id):
+        return web.json_response({"ok": False, "message": "E-posta veya şifre hatalı."}, status=401)
+
+    deleted = await asyncio.to_thread(request.app["db"].delete_user, int(user_id))
+    if not deleted:
+        return web.json_response({"ok": False, "message": "Hesap silinemedi."}, status=500)
+
+    return web.json_response({"ok": True, "message": "Hesap silindi."})
