@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_app"
+    android:clipToPadding="false"
     android:fillViewport="true"
     android:paddingHorizontal="@dimen/page_padding_h"
     android:paddingTop="@dimen/page_padding_top"
-    android:paddingBottom="@dimen/page_padding_bottom_large"
-    android:clipToPadding="false">
+    android:paddingBottom="@dimen/page_padding_bottom_large">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -26,8 +27,8 @@
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/settings_profile_title"
-                android:layout_marginBottom="4dp" />
+                android:layout_marginBottom="4dp"
+                android:text="@string/settings_profile_title" />
 
             <TextView
                 style="@style/TextRemoteControlCaption"
@@ -48,64 +49,72 @@
                     android:layout_height="56dp"
                     android:background="@drawable/profile_avatar_bg"
                     android:gravity="center"
+                    android:includeFontPadding="false"
                     android:textColor="@color/text_inverse"
                     android:textSize="20sp"
-                    android:textStyle="bold"
-                    android:includeFontPadding="false" />
+                    android:textStyle="bold" />
 
-                <LinearLayout
+                <TextView
+                    android:id="@+id/tv_username"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
                     android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/tv_username"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/text_primary"
-                        android:textSize="20sp"
-                        android:textStyle="bold"
-                        android:maxLines="2"
-                        android:ellipsize="end" />
-
-                    <TextView
-                        android:id="@+id/tv_profile_email"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="14sp"
-                        android:maxLines="2"
-                        android:ellipsize="end" />
-
-                    <TextView
-                        android:id="@+id/tv_profile_phone"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:textColor="@color/text_tertiary"
-                        android:textSize="13sp"
-                        android:maxLines="1"
-                        android:ellipsize="end" />
-                </LinearLayout>
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textColor="@color/text_primary"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
             </LinearLayout>
 
-            <Button
-                android:id="@+id/btn_profile_edit"
-                style="@style/WidgetRemoteControlSecondaryButton"
-                android:layout_width="match_parent"
+            <TextView
+                style="@style/TextRemoteControlFieldLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:text="@string/settings_profile_edit"
-                android:textAllCaps="false" />
+                android:text="@string/login_email_label" />
+
+            <TextView
+                android:id="@+id/tv_profile_email"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/login_input_bg"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="12dp"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                style="@style/TextRemoteControlFieldLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/login_phone_label" />
+
+            <TextView
+                android:id="@+id/tv_profile_phone"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/login_input_bg"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="12dp"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
             <Button
-                android:id="@+id/btn_profile_change_password"
+                android:id="@+id/btn_profile_clear_connections"
                 style="@style/WidgetRemoteControlSecondaryButton"
                 android:layout_width="match_parent"
-                android:layout_marginTop="8dp"
-                android:text="@string/settings_profile_password_section"
+                android:layout_marginTop="14dp"
+                android:text="@string/settings_clear_connections"
                 android:textAllCaps="false" />
 
             <TextView
@@ -119,240 +128,445 @@
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/layout_profile_edit_panel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/section_gap"
-            android:background="@drawable/profile_edit_panel_bg"
+            android:background="@drawable/card_soft_bg"
             android:orientation="vertical"
-            android:padding="@dimen/card_padding"
-            android:visibility="gone">
+            android:padding="@dimen/card_padding">
 
             <TextView
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/settings_profile_edit_section"
-                android:layout_marginBottom="12dp" />
-
-            <TextView
-                style="@style/TextRemoteControlFieldLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/login_first_name_label"
-                android:layout_marginBottom="4dp" />
-
-            <TextView
-                android:id="@+id/tv_readonly_full_name"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:minHeight="48dp"
-                android:gravity="center_vertical"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="12dp"
-                android:background="@drawable/login_input_bg"
-                android:textColor="@color/text_secondary"
-                android:textSize="14sp" />
+                android:text="@string/settings_notifications_title" />
 
             <TextView
                 style="@style/TextRemoteControlCaption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/settings_profile_name_locked" />
+                android:layout_marginTop="6dp"
+                android:text="@string/settings_notifications_subtitle" />
 
-            <TextView
-                style="@style/TextRemoteControlFieldLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/login_email_label"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="6dp" />
-
-            <EditText
-                android:id="@+id/et_profile_email"
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_notify_connect"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="@drawable/login_input_bg"
-                android:hint="@string/login_email_hint"
-                android:inputType="textEmailAddress"
-                android:maxLines="1"
-                android:paddingHorizontal="14dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/settings_notifications_connect"
                 android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_tertiary"
-                android:textSize="14sp" />
+                android:textSize="14sp"
+                app:switchPadding="10dp" />
 
-            <TextView
-                style="@style/TextRemoteControlFieldLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/login_phone_label"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="6dp" />
-
-            <EditText
-                android:id="@+id/et_profile_phone"
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switch_notify_disconnect"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="@drawable/login_input_bg"
-                android:hint="@string/login_phone_label"
-                android:inputType="phone"
-                android:maxLines="1"
-                android:paddingHorizontal="14dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/settings_notifications_disconnect"
                 android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_tertiary"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/tv_profile_error"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="start"
-                android:textColor="@color/danger"
-                android:textSize="12sp"
-                android:visibility="gone" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/btn_profile_cancel"
-                    style="@style/WidgetRemoteControlSecondaryButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:layout_weight="1"
-                    android:text="@string/settings_profile_cancel"
-                    android:textAllCaps="false" />
-
-                <Button
-                    android:id="@+id/btn_profile_save"
-                    style="@style/WidgetRemoteControlPrimaryButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/settings_profile_save"
-                    android:textAllCaps="false" />
-            </LinearLayout>
+                android:textSize="14sp"
+                app:switchPadding="10dp" />
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/layout_profile_password_panel"
+            android:id="@+id/layout_account_settings_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/section_gap"
-            android:background="@drawable/profile_edit_panel_bg"
+            android:background="@drawable/card_warning_bg"
             android:orientation="vertical"
-            android:padding="@dimen/card_padding"
-            android:visibility="gone">
+            android:padding="@dimen/card_padding">
 
             <TextView
+                android:id="@+id/tv_account_settings_title"
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/settings_profile_password_section"
-                android:layout_marginBottom="12dp" />
+                android:text="@string/settings_account_settings_title" />
 
             <TextView
-                style="@style/TextRemoteControlFieldLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Mevcut şifre"
-                android:layout_marginBottom="6dp" />
-
-            <EditText
-                android:id="@+id/et_profile_old_password"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="@drawable/login_input_bg"
-                android:hint="Mevcut şifreniz"
-                android:inputType="textPassword"
-                android:maxLines="1"
-                android:paddingHorizontal="14dp"
-                android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_tertiary"
-                android:textSize="14sp" />
-
-            <TextView
-                style="@style/TextRemoteControlFieldLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Yeni şifre"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="6dp" />
-
-            <EditText
-                android:id="@+id/et_profile_new_password"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="@drawable/login_input_bg"
-                android:hint="Yeni şifre"
-                android:inputType="textPassword"
-                android:maxLines="1"
-                android:paddingHorizontal="14dp"
-                android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_tertiary"
-                android:textSize="14sp" />
-
-            <TextView
-                style="@style/TextRemoteControlFieldLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Yeni şifre (tekrar)"
-                android:layout_marginTop="10dp"
-                android:layout_marginBottom="6dp" />
-
-            <EditText
-                android:id="@+id/et_profile_new_password2"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="@drawable/login_input_bg"
-                android:hint="Yeni şifre (tekrar)"
-                android:inputType="textPassword"
-                android:maxLines="1"
-                android:paddingHorizontal="14dp"
-                android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_tertiary"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/tv_profile_password_error"
+                android:id="@+id/tv_account_settings_subtitle"
+                style="@style/TextRemoteControlCaption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="start"
-                android:textColor="@color/danger"
-                android:textSize="12sp"
-                android:visibility="gone" />
+                android:layout_marginTop="6dp"
+                android:text="@string/settings_account_settings_subtitle" />
 
             <LinearLayout
+                android:id="@+id/layout_account_actions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <Button
+                    android:id="@+id/btn_change_email"
+                    style="@style/WidgetRemoteControlSecondaryButton"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/settings_change_email"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/btn_change_phone"
+                    style="@style/WidgetRemoteControlSecondaryButton"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/settings_change_phone"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/btn_profile_change_password"
+                    style="@style/WidgetRemoteControlSecondaryButton"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/settings_profile_password_section"
+                    android:textAllCaps="false" />
+
+                <Button
+                    android:id="@+id/btn_delete_account"
+                    style="@style/WidgetRemoteControlDangerButton"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/settings_delete_account"
+                    android:textAllCaps="false" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_change_email_panel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:orientation="horizontal">
+                android:orientation="vertical"
+                android:visibility="gone">
 
-                <Button
-                    android:id="@+id/btn_profile_password_cancel"
-                    style="@style/WidgetRemoteControlSecondaryButton"
-                    android:layout_width="0dp"
+                <TextView
+                    style="@style/TextRemoteControlSectionLabel"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:layout_weight="1"
-                    android:text="@string/settings_profile_cancel"
-                    android:textAllCaps="false" />
+                    android:text="@string/settings_change_email_title" />
 
-                <Button
-                    android:id="@+id/btn_profile_password_save"
-                    style="@style/WidgetRemoteControlPrimaryButton"
-                    android:layout_width="0dp"
+                <EditText
+                    android:id="@+id/et_change_email"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/login_input_bg"
+                    android:hint="@string/settings_change_email_hint"
+                    android:inputType="textEmailAddress"
+                    android:maxLines="1"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_tertiary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/tv_change_email_error"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/settings_profile_save"
-                    android:textAllCaps="false" />
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/danger"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btn_change_email_cancel"
+                        style="@style/WidgetRemoteControlSecondaryButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/settings_profile_cancel"
+                        android:textAllCaps="false" />
+
+                    <Button
+                        android:id="@+id/btn_change_email_save"
+                        style="@style/WidgetRemoteControlPrimaryButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_profile_save"
+                        android:textAllCaps="false" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_change_phone_panel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    style="@style/TextRemoteControlSectionLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_change_phone_title" />
+
+                <EditText
+                    android:id="@+id/et_change_phone"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/login_input_bg"
+                    android:hint="@string/settings_change_phone_hint"
+                    android:inputType="phone"
+                    android:maxLines="1"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_tertiary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/tv_change_phone_error"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/danger"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btn_change_phone_cancel"
+                        style="@style/WidgetRemoteControlSecondaryButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/settings_profile_cancel"
+                        android:textAllCaps="false" />
+
+                    <Button
+                        android:id="@+id/btn_change_phone_save"
+                        style="@style/WidgetRemoteControlPrimaryButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_profile_save"
+                        android:textAllCaps="false" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_change_password_panel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    style="@style/TextRemoteControlSectionLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_profile_password_section" />
+
+                <TextView
+                    style="@style/TextRemoteControlFieldLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/settings_current_password_label" />
+
+                <EditText
+                    android:id="@+id/et_change_password_old"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/login_input_bg"
+                    android:hint="@string/settings_current_password_hint"
+                    android:inputType="textPassword"
+                    android:maxLines="1"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_tertiary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    style="@style/TextRemoteControlFieldLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/settings_new_password_label" />
+
+                <EditText
+                    android:id="@+id/et_change_password_new1"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/login_input_bg"
+                    android:hint="@string/settings_new_password_hint"
+                    android:inputType="textPassword"
+                    android:maxLines="1"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_tertiary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    style="@style/TextRemoteControlFieldLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/settings_new_password_repeat_label" />
+
+                <EditText
+                    android:id="@+id/et_change_password_new2"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/login_input_bg"
+                    android:hint="@string/settings_new_password_repeat_hint"
+                    android:inputType="textPassword"
+                    android:maxLines="1"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_tertiary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/tv_change_password_error"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/danger"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btn_change_password_cancel"
+                        style="@style/WidgetRemoteControlSecondaryButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/settings_profile_cancel"
+                        android:textAllCaps="false" />
+
+                    <Button
+                        android:id="@+id/btn_change_password_save"
+                        style="@style/WidgetRemoteControlPrimaryButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_profile_save"
+                        android:textAllCaps="false" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layout_delete_account_panel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    style="@style/TextRemoteControlSectionLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_delete_account_dialog_title" />
+
+                <TextView
+                    android:id="@+id/tv_delete_account_info"
+                    style="@style/TextRemoteControlCaption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/login_input_bg"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="10dp"
+                    android:text="@string/settings_delete_account_warning"
+                    android:textColor="@color/danger"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/et_delete_account_email_inline"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/login_input_bg"
+                    android:hint="@string/settings_delete_account_email_hint"
+                    android:inputType="textEmailAddress"
+                    android:maxLines="1"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_tertiary"
+                    android:textSize="14sp" />
+
+                <EditText
+                    android:id="@+id/et_delete_account_password_inline"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/login_input_bg"
+                    android:hint="@string/settings_delete_account_password_hint"
+                    android:inputType="textPassword"
+                    android:maxLines="1"
+                    android:paddingHorizontal="14dp"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_tertiary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/tv_delete_account_error"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/danger"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btn_delete_account_cancel"
+                        style="@style/WidgetRemoteControlSecondaryButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/settings_profile_cancel"
+                        android:textAllCaps="false" />
+
+                    <Button
+                        android:id="@+id/btn_delete_account_confirm_inline"
+                        style="@style/WidgetRemoteControlDangerButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_delete_account_confirm"
+                        android:textAllCaps="false" />
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
 
@@ -368,29 +582,22 @@
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/settings_device_title"
-                android:layout_marginBottom="8dp" />
+                android:text="@string/settings_app_info_title" />
 
             <TextView
-                android:id="@+id/tv_device_id"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/tv_paired_pc"
+                android:id="@+id/tv_app_version"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
         </LinearLayout>
 
         <Button
             android:id="@+id/btn_logout"
-            style="@style/WidgetRemoteControlSecondaryButton"
+            style="@style/WidgetRemoteControlDangerButton"
             android:layout_width="match_parent"
+            android:layout_marginBottom="@dimen/section_gap"
             android:text="@string/logout"
             android:textAllCaps="false" />
     </LinearLayout>

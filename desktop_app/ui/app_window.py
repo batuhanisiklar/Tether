@@ -363,13 +363,12 @@ class MainWindow(
         lay.addWidget(self._header_status_dot)
         lay.addSpacing(6)
 
-        self._account_button = QPushButton(
-            f"{self._user_email or self._username}  ▾"
-        )
+        self._account_button = QPushButton(self._user_email or self._username)
         self._account_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._account_button.setFixedHeight(26)
         self._account_button.setStyleSheet(ACCOUNT_BTN_SS)
-        self._account_button.clicked.connect(self._show_account_menu)
+        self._account_button.setToolTip("Ayarları aç")
+        self._account_button.clicked.connect(self._open_profile_drawer)
         lay.addWidget(self._account_button)
 
         return bar
@@ -507,7 +506,7 @@ class MainWindow(
                 or self._user_email
                 or self._username
             )
-            self._account_button.setText(f"{acct}  ▾")
+            self._account_button.setText(acct)
 
     def _show_warning_banner(self, title: str, message: str) -> None:
         banner = getattr(self, "_warning_banner", None)
@@ -585,9 +584,11 @@ class MainWindow(
         menu.addAction(header_action)
         menu.addSeparator()
 
-        profile_action = menu.addAction("Profil bilgileri")
-        edit_action = menu.addAction("Bilgileri düzenle")
+        settings_action = menu.addAction("Ayarlar")
+        email_action = menu.addAction("E-posta değiştir")
+        phone_action = menu.addAction("Telefon numarası değiştir")
         pwd_action = menu.addAction("Şifre değiştir")
+        delete_action = menu.addAction("Hesabı sil")
         menu.addSeparator()
         logout_action = menu.addAction("Çıkış yap")
         logout_action.setData("danger")
@@ -596,14 +597,20 @@ class MainWindow(
         popup_pos.setX(popup_pos.x() + 4)
         popup_pos.setY(popup_pos.y() + 6)
         selected = menu.exec(self._fit_menu_pos_in_window(menu, popup_pos))
-        if selected == profile_action:
+        if selected == settings_action:
             self._open_profile_drawer()
-        elif selected == edit_action:
+        elif selected == email_action:
             self._open_profile_drawer()
-            self._set_profile_panel("edit")
+            self._set_profile_panel("email")
+        elif selected == phone_action:
+            self._open_profile_drawer()
+            self._set_profile_panel("phone")
         elif selected == pwd_action:
             self._open_profile_drawer()
             self._set_profile_panel("password")
+        elif selected == delete_action:
+            self._open_profile_drawer()
+            self._set_profile_panel("delete")
         elif selected == logout_action:
             self._on_logout()
 

@@ -32,7 +32,7 @@ class SignalingClient(
 ) {
     companion object {
         private const val TAG = "SignalingClient"
-        private const val MAX_PENDING_FRAME_BYTES = 1_500_000L
+        private const val MAX_PENDING_FRAME_BYTES = 2_600_000L
         private const val PRESENCE_POLL_MS = 3_500L
         /** Diğer servislerden frame göndermek için erişilebilir instance */
         var instance: SignalingClient? = null
@@ -276,6 +276,9 @@ class SignalingClient(
         ws?.send(msg.toString())
         Log.i(TAG, "Sent pair_confirm: $deviceId <-> $pcDeviceId")
     }
+
+    /** Anlik WebSocket gonderim kuyrugu (byte). */
+    fun pendingQueueBytes(): Long = ws?.queueSize() ?: 0L
 
     /**
      * JPEG'i binary WebSocket cercevesi olarak gonderir (sunucu `send_bytes` ile PC'ye iletir).

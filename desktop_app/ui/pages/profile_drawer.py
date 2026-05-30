@@ -1,13 +1,12 @@
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -17,16 +16,11 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 
-from desktop_app.config import Colors
+from desktop_app.config import AppMeta, Colors
 from desktop_app.ui.styles.app_styles import (
     PROFILE_DRAWER_CLOSE_BTN_SS,
     _ACCENT,
-    _BG_INPUT,
-    _BG_RAISED,
-    _BORDER,
-    _BORDER_SUBTLE,
     _RED,
     _TEXT,
     _TEXT_DIM,
@@ -39,29 +33,26 @@ if TYPE_CHECKING:
 
 _C = Colors
 
-# ── Modern card palette ────────────────────────────────────────────────────
-_DRAWER_BG      = "#161616"
-_CARD_BG        = "#1C1C1C"
-_CARD_BORDER    = "rgba(255,255,255,0.06)"
-_CARD_RADIUS    = 12
-_AVATAR_SIZE    = 48
-_AVATAR_BG      = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #E8604C, stop:1 #F07858)"
-_AVATAR_TEXT    = "#FFFFFF"
+_DRAWER_BG = "#161616"
+_CARD_BG = "#1C1C1C"
+_CARD_BORDER = "rgba(255,255,255,0.06)"
+_CARD_RADIUS = 12
+_AVATAR_SIZE = 48
+_AVATAR_BG = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #E8604C, stop:1 #F07858)"
+_AVATAR_TEXT = "#FFFFFF"
 
 
 def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
-    """Profil drawer widget'ını oluşturur; pencere (parent) üzerinde float eder."""
     drawer = QFrame(parent)
     drawer.setObjectName("profile_drawer")
     drawer.setStyleSheet(
         f"QFrame#profile_drawer {{"
-        f"  background-color: {_DRAWER_BG};"
-        f"  border-left: 1px solid {_CARD_BORDER};"
+        f"background-color: {_DRAWER_BG};"
+        f"border-left: 1px solid {_CARD_BORDER};"
         f"}}"
     )
     drawer.setFixedWidth(window._profile_drawer_width)
 
-    # Sol kenar gölge efekti
     shadow = QGraphicsDropShadowEffect(drawer)
     shadow.setBlurRadius(32)
     shadow.setXOffset(-8)
@@ -73,9 +64,8 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     root.setContentsMargins(20, 18, 20, 18)
     root.setSpacing(0)
 
-    # ── Header ────────────────────────────────────────────────────────────
     header = QHBoxLayout()
-    title = QLabel("Profil")
+    title = QLabel("Ayarlar")
     title.setStyleSheet(f"color: {_TEXT}; font-size: 17px; font-weight: 700;")
     header.addWidget(title)
     header.addStretch()
@@ -84,31 +74,17 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     btn_close.setFixedHeight(32)
     btn_close.setMinimumWidth(86)
     btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn_close.setStyleSheet(f"""
-        QPushButton {{
-            color: {_TEXT_SEC};
-            background-color: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 8px;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 0 14px;
-        }}
-        QPushButton:hover {{
-            background-color: rgba(255,255,255,0.08);
-            color: {_TEXT};
-            border-color: rgba(255,255,255,0.12);
-        }}
-        QPushButton:pressed {{ background-color: rgba(255,255,255,0.04); }}
-    """)
-    btn_close.setToolTip("Profil panelini kapat")
+    btn_close.setStyleSheet(PROFILE_DRAWER_CLOSE_BTN_SS)
+    btn_close.setToolTip("Ayarlar panelini kapat")
     btn_close.clicked.connect(window._close_profile_drawer)
     header.addWidget(btn_close)
     root.addLayout(header)
 
-    hint = QLabel("Hesap bilgileri ve güvenlik ayarları")
+    hint = QLabel("Hesap ve güvenlik ayarları")
     hint.setWordWrap(True)
-    hint.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px; margin-top: 4px; margin-bottom: 6px;")
+    hint.setStyleSheet(
+        f"color: {_TEXT_DIM}; font-size: 11px; margin-top: 4px; margin-bottom: 6px;"
+    )
     root.addWidget(hint)
 
     window._profile_load_err = QLabel("")
@@ -117,7 +93,6 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     window._profile_load_err.hide()
     root.addWidget(window._profile_load_err)
 
-    # ── Scrollable content ────────────────────────────────────────────────
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -133,22 +108,35 @@ def build_profile_drawer(window: "MainWindow", parent: QWidget) -> QFrame:
     root.addWidget(scroll, stretch=1)
 
     _build_account_card(window, lay)
-    _build_action_buttons(window, lay)
-    _build_edit_block(window, lay)
+    _build_account_settings(window, lay)
+    _build_email_block(window, lay)
+    _build_phone_block(window, lay)
     _build_password_block(window, lay)
+    _build_delete_account_block(window, lay)
+    _build_app_info_card(lay)
+    _build_logout_button(window, lay)
 
     lay.addStretch()
     return drawer
 
 
 def _card_frame() -> QFrame:
-    """Modern rounded card container."""
     card = QFrame()
     card.setStyleSheet(
-        f"QFrame {{ background-color: {_CARD_BG};"
-        f" border: none; border-radius: {_CARD_RADIUS}px; }}"
+        f"QFrame {{ background-color: {_CARD_BG}; border: none; border-radius: {_CARD_RADIUS}px; }}"
     )
     return card
+
+
+def _danger_button_style() -> str:
+    return filled_button_style(
+        background="#5A2A2A",
+        foreground="#FFD7D7",
+        hover="#6A3131",
+        pressed="#4A1E1E",
+        disabled_background="#3A2A2A",
+        disabled_foreground="#AA8E8E",
+    )
 
 
 def _contact_icon_label(kind: str) -> QLabel:
@@ -170,7 +158,15 @@ def _contact_icon_label(kind: str) -> QLabel:
     painter.drawRoundedRect(QRectF(0.5, 0.5, 27, 27), 8, 8)
 
     icon = QColor(_ACCENT)
-    painter.setPen(QPen(icon, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    painter.setPen(
+        QPen(
+            icon,
+            1.7,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+            Qt.PenJoinStyle.RoundJoin,
+        )
+    )
     painter.setBrush(Qt.BrushStyle.NoBrush)
 
     if kind == "email":
@@ -199,7 +195,6 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     summary_lay.setContentsMargins(16, 14, 16, 16)
     summary_lay.setSpacing(14)
 
-    # Kullanıcı avatarı ve isim
     head_row = QHBoxLayout()
     head_row.setSpacing(14)
 
@@ -207,9 +202,8 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     window._profile_avatar_lbl.setFixedSize(_AVATAR_SIZE, _AVATAR_SIZE)
     window._profile_avatar_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     window._profile_avatar_lbl.setStyleSheet(
-        f"QLabel {{ background: {_AVATAR_BG}; color: {_AVATAR_TEXT};"
-        f" font-size: 16px; font-weight: 700;"
-        f" border: none; border-radius: {_AVATAR_SIZE // 2}px; }}"
+        f"QLabel {{ background: {_AVATAR_BG}; color: {_AVATAR_TEXT}; "
+        f"font-size: 16px; font-weight: 700; border: none; border-radius: {_AVATAR_SIZE // 2}px; }}"
     )
     head_row.addWidget(window._profile_avatar_lbl, alignment=Qt.AlignmentFlag.AlignTop)
 
@@ -217,9 +211,7 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     title_col.setSpacing(2)
     window._profile_view_name = QLabel("")
     window._profile_view_name.setWordWrap(True)
-    window._profile_view_name.setStyleSheet(
-        f"color: {_TEXT}; font-size: 15px; font-weight: 600;"
-    )
+    window._profile_view_name.setStyleSheet(f"color: {_TEXT}; font-size: 15px; font-weight: 600;")
     title_col.addWidget(window._profile_view_name)
     acc_lbl = QLabel("Kayıtlı kullanıcı")
     acc_lbl.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px;")
@@ -227,15 +219,12 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     head_row.addLayout(title_col, stretch=1)
     summary_lay.addLayout(head_row)
 
-    # Bilgi satırları — modern ikon + değer düzeni
     info_lay = QVBoxLayout()
     info_lay.setSpacing(10)
 
-    # E-posta satırı
     email_row = QHBoxLayout()
     email_row.setSpacing(10)
-    email_icon = _contact_icon_label("email")
-    email_row.addWidget(email_icon)
+    email_row.addWidget(_contact_icon_label("email"))
     email_col = QVBoxLayout()
     email_col.setSpacing(0)
     email_key = QLabel("E-posta")
@@ -248,11 +237,9 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     email_row.addLayout(email_col, stretch=1)
     info_lay.addLayout(email_row)
 
-    # Telefon satırı
     phone_row = QHBoxLayout()
     phone_row.setSpacing(10)
-    phone_icon = _contact_icon_label("phone")
-    phone_row.addWidget(phone_icon)
+    phone_row.addWidget(_contact_icon_label("phone"))
     phone_col = QVBoxLayout()
     phone_col.setSpacing(0)
     phone_key = QLabel("Telefon")
@@ -266,159 +253,283 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     info_lay.addLayout(phone_row)
 
     summary_lay.addLayout(info_lay)
+
+    window._profile_btn_clear_connections = QPushButton("Tüm Cihazları Kaldır")
+    window._profile_btn_clear_connections.setMinimumHeight(40)
+    window._profile_btn_clear_connections.setCursor(Qt.CursorShape.PointingHandCursor)
+    window._profile_btn_clear_connections.setStyleSheet(outline_button_style())
+    window._profile_btn_clear_connections.clicked.connect(window._clear_all_connections_from_drawer)
+    summary_lay.addWidget(window._profile_btn_clear_connections)
+
     parent_lay.addWidget(account_card)
 
 
-def _build_action_buttons(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
-    section = QLabel("İşlemler")
-    section.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px;")
+def _build_account_settings(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
+    section = QLabel("Hesap Ayarları")
+    section.setStyleSheet(f"color: {_TEXT}; font-size: 13px; font-weight: 700;")
     parent_lay.addWidget(section)
 
-    ops_col = QVBoxLayout()
+    sub = QLabel("E-posta, telefon, şifre değiştirme ve hesap silme işlemleri.")
+    sub.setWordWrap(True)
+    sub.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 11px; margin-top: 2px;")
+    parent_lay.addWidget(sub)
+
+    window._profile_actions_block = QWidget()
+    ops_col = QVBoxLayout(window._profile_actions_block)
+    ops_col.setContentsMargins(0, 0, 0, 0)
     ops_col.setSpacing(8)
 
-    window._profile_action_edit = QPushButton("Bilgileri düzenle")
-    window._profile_action_edit.setMinimumHeight(40)
-    window._profile_action_edit.setSizePolicy(
-        QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-    )
-    window._profile_action_edit.setCursor(Qt.CursorShape.PointingHandCursor)
-    window._profile_action_edit.setStyleSheet(filled_button_style())
-    window._profile_action_edit.clicked.connect(
-        lambda: window._set_profile_panel("edit")
-    )
-    ops_col.addWidget(window._profile_action_edit)
+    def _action_button(text: str, panel: str, attr_name: str) -> None:
+        btn = QPushButton(text)
+        btn.setMinimumHeight(40)
+        btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet(outline_button_style())
+        btn.clicked.connect(lambda: window._set_profile_panel(panel))
+        setattr(window, attr_name, btn)
+        ops_col.addWidget(btn)
 
-    window._profile_action_pwd = QPushButton("Şifre değiştir")
-    window._profile_action_pwd.setMinimumHeight(40)
-    window._profile_action_pwd.setSizePolicy(
-        QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-    )
-    window._profile_action_pwd.setCursor(Qt.CursorShape.PointingHandCursor)
-    window._profile_action_pwd.setStyleSheet(outline_button_style())
-    window._profile_action_pwd.clicked.connect(
-        lambda: window._set_profile_panel("password")
-    )
-    ops_col.addWidget(window._profile_action_pwd)
-    parent_lay.addLayout(ops_col)
+    _action_button("E-posta Değiştir", "email", "_profile_action_email")
+    _action_button("Telefon Numarası Değiştir", "phone", "_profile_action_phone")
+    _action_button("Şifre Değiştir", "password", "_profile_action_pwd")
+
+    window._profile_action_delete = QPushButton("Hesabı Sil")
+    window._profile_action_delete.setMinimumHeight(40)
+    window._profile_action_delete.setCursor(Qt.CursorShape.PointingHandCursor)
+    window._profile_action_delete.setStyleSheet(_danger_button_style())
+    window._profile_action_delete.clicked.connect(lambda: window._set_profile_panel("delete"))
+    ops_col.addWidget(window._profile_action_delete)
+
+    parent_lay.addWidget(window._profile_actions_block)
 
 
-def _build_edit_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
-    window._profile_edit_block = _card_frame()
-    edit_lay = QVBoxLayout(window._profile_edit_block)
-    edit_lay.setContentsMargins(16, 16, 16, 16)
-    edit_lay.setSpacing(10)
+def _build_email_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
+    window._profile_email_block = _card_frame()
+    lay = QVBoxLayout(window._profile_email_block)
+    lay.setContentsMargins(16, 16, 16, 16)
+    lay.setSpacing(10)
 
-    edit_lay.addWidget(_section_lbl("İletişim bilgileri"))
-
-    edit_lay.addWidget(_field_lbl("Ad ve soyad"))
-    window._profile_readonly_name = QLabel("")
-    window._profile_readonly_name.setWordWrap(True)
-    window._profile_readonly_name.setMinimumHeight(34)
-    window._profile_readonly_name.setStyleSheet(
-        f"color: {_TEXT_SEC}; font-size: 12px; padding: 8px 12px;"
-        f" background-color: rgba(255,255,255,0.03); border: none;"
-        f" border-radius: 8px;"
-    )
-    edit_lay.addWidget(window._profile_readonly_name)
-
-    cap = QLabel("Kayıt sırasında belirlenir; buradan değiştirilemez.")
-    cap.setWordWrap(True)
-    cap.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 10px;")
-    edit_lay.addWidget(cap)
-
-    edit_lay.addWidget(_field_lbl("E-posta"))
+    lay.addWidget(_section_lbl("E-posta Değiştir"))
+    lay.addWidget(_field_lbl("Yeni e-posta adresi"))
     window._profile_inp_email = QLineEdit()
-    window._profile_inp_email.setFixedHeight(36)
+    window._profile_inp_email.setFixedHeight(38)
     window._profile_inp_email.setStyleSheet(line_edit_style())
-    edit_lay.addWidget(window._profile_inp_email)
+    lay.addWidget(window._profile_inp_email)
 
-    edit_lay.addWidget(_field_lbl("Telefon"))
-    window._profile_inp_phone = QLineEdit()
-    window._profile_inp_phone.setFixedHeight(36)
-    window._profile_inp_phone.setStyleSheet(line_edit_style())
-    edit_lay.addWidget(window._profile_inp_phone)
-
-    window._profile_err = QLabel("")
-    window._profile_err.setWordWrap(True)
-    window._profile_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
-    edit_lay.addWidget(window._profile_err)
+    window._profile_email_err = QLabel("")
+    window._profile_email_err.setWordWrap(True)
+    window._profile_email_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+    lay.addWidget(window._profile_email_err)
 
     btn_row = QHBoxLayout()
     btn_row.setSpacing(8)
-    window._profile_btn_cancel = QPushButton("Vazgeç")
-    window._profile_btn_cancel.setFixedHeight(38)
-    window._profile_btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-    window._profile_btn_cancel.setStyleSheet(outline_button_style())
-    window._profile_btn_cancel.clicked.connect(window._on_profile_cancel)
-    btn_row.addWidget(window._profile_btn_cancel)
+    cancel = QPushButton("Vazgeç")
+    cancel.setFixedHeight(38)
+    cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+    cancel.setStyleSheet(outline_button_style())
+    cancel.clicked.connect(window._on_profile_email_cancel)
+    btn_row.addWidget(cancel)
 
-    window._profile_btn_save = QPushButton("Kaydet")
-    window._profile_btn_save.setFixedHeight(38)
-    window._profile_btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
-    window._profile_btn_save.setStyleSheet(filled_button_style())
-    window._profile_btn_save.clicked.connect(window._save_profile_from_drawer)
-    btn_row.addWidget(window._profile_btn_save)
-    edit_lay.addLayout(btn_row)
+    save = QPushButton("Kaydet")
+    save.setFixedHeight(38)
+    save.setCursor(Qt.CursorShape.PointingHandCursor)
+    save.setStyleSheet(filled_button_style())
+    save.clicked.connect(window._save_email_from_drawer)
+    btn_row.addWidget(save)
+    lay.addLayout(btn_row)
 
-    parent_lay.addWidget(window._profile_edit_block)
-    window._profile_edit_block.hide()
+    parent_lay.addWidget(window._profile_email_block)
+    window._profile_email_block.hide()
+
+
+def _build_phone_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
+    window._profile_phone_block = _card_frame()
+    lay = QVBoxLayout(window._profile_phone_block)
+    lay.setContentsMargins(16, 16, 16, 16)
+    lay.setSpacing(10)
+
+    lay.addWidget(_section_lbl("Telefon Numarası Değiştir"))
+    lay.addWidget(_field_lbl("Yeni telefon numarası"))
+    window._profile_inp_phone = QLineEdit()
+    window._profile_inp_phone.setFixedHeight(38)
+    window._profile_inp_phone.setMaxLength(11)
+    window._profile_inp_phone.setPlaceholderText("05XXXXXXXXX")
+    window._profile_inp_phone.setStyleSheet(line_edit_style())
+    window._profile_inp_phone.textChanged.connect(
+        lambda text: window._profile_inp_phone.setText(
+            "".join(ch for ch in text if ch.isdigit())[:11]
+        )
+        if any(not ch.isdigit() for ch in text)
+        else None
+    )
+    lay.addWidget(window._profile_inp_phone)
+
+    window._profile_phone_err = QLabel("")
+    window._profile_phone_err.setWordWrap(True)
+    window._profile_phone_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+    lay.addWidget(window._profile_phone_err)
+
+    btn_row = QHBoxLayout()
+    btn_row.setSpacing(8)
+    cancel = QPushButton("Vazgeç")
+    cancel.setFixedHeight(38)
+    cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+    cancel.setStyleSheet(outline_button_style())
+    cancel.clicked.connect(window._on_profile_phone_cancel)
+    btn_row.addWidget(cancel)
+
+    save = QPushButton("Kaydet")
+    save.setFixedHeight(38)
+    save.setCursor(Qt.CursorShape.PointingHandCursor)
+    save.setStyleSheet(filled_button_style())
+    save.clicked.connect(window._save_phone_from_drawer)
+    btn_row.addWidget(save)
+    lay.addLayout(btn_row)
+
+    parent_lay.addWidget(window._profile_phone_block)
+    window._profile_phone_block.hide()
 
 
 def _build_password_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     window._profile_pwd_block = _card_frame()
-    pw_lay = QVBoxLayout(window._profile_pwd_block)
-    pw_lay.setContentsMargins(16, 16, 16, 16)
-    pw_lay.setSpacing(10)
-    pw_lay.addWidget(_section_lbl("Şifre değiştirme"))
+    lay = QVBoxLayout(window._profile_pwd_block)
+    lay.setContentsMargins(16, 16, 16, 16)
+    lay.setSpacing(10)
+
+    lay.addWidget(_section_lbl("Şifre Değiştir"))
 
     def _pw_field(label: str, attr: str) -> None:
         inp = QLineEdit()
-        inp.setFixedHeight(36)
+        inp.setFixedHeight(38)
         inp.setEchoMode(QLineEdit.EchoMode.Password)
         inp.setStyleSheet(line_edit_style())
-        pw_lay.addWidget(_field_lbl(label))
-        pw_lay.addWidget(inp)
+        lay.addWidget(_field_lbl(label))
+        lay.addWidget(inp)
         setattr(window, attr, inp)
 
-    _pw_field("Mevcut şifre",         "_profile_inp_old")
-    _pw_field("Yeni şifre",           "_profile_inp_pwd1")
-    _pw_field("Yeni şifre (tekrar)",  "_profile_inp_pwd2")
+    _pw_field("Mevcut şifre", "_profile_inp_old")
+    _pw_field("Yeni şifre", "_profile_inp_pwd1")
+    _pw_field("Yeni şifre (tekrar)", "_profile_inp_pwd2")
 
     window._profile_pwd_err = QLabel("")
     window._profile_pwd_err.setWordWrap(True)
     window._profile_pwd_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
-    pw_lay.addWidget(window._profile_pwd_err)
+    lay.addWidget(window._profile_pwd_err)
 
-    pw_btn = QHBoxLayout()
-    pw_btn.setSpacing(8)
+    btn_row = QHBoxLayout()
+    btn_row.setSpacing(8)
+    cancel = QPushButton("Vazgeç")
+    cancel.setFixedHeight(38)
+    cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+    cancel.setStyleSheet(outline_button_style())
+    cancel.clicked.connect(window._on_profile_pwd_cancel)
+    btn_row.addWidget(cancel)
 
-    window._profile_pwd_cancel = QPushButton("Vazgeç")
-    window._profile_pwd_cancel.setFixedHeight(38)
-    window._profile_pwd_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-    window._profile_pwd_cancel.setStyleSheet(outline_button_style())
-    window._profile_pwd_cancel.clicked.connect(window._on_profile_pwd_cancel)
-    pw_btn.addWidget(window._profile_pwd_cancel)
-
-    window._profile_pwd_save = QPushButton("Kaydet")
-    window._profile_pwd_save.setFixedHeight(38)
-    window._profile_pwd_save.setCursor(Qt.CursorShape.PointingHandCursor)
-    window._profile_pwd_save.setStyleSheet(filled_button_style())
-    window._profile_pwd_save.clicked.connect(window._save_password_from_drawer)
-    pw_btn.addWidget(window._profile_pwd_save)
-    pw_lay.addLayout(pw_btn)
+    save = QPushButton("Kaydet")
+    save.setFixedHeight(38)
+    save.setCursor(Qt.CursorShape.PointingHandCursor)
+    save.setStyleSheet(filled_button_style())
+    save.clicked.connect(window._save_password_from_drawer)
+    btn_row.addWidget(save)
+    lay.addLayout(btn_row)
 
     parent_lay.addWidget(window._profile_pwd_block)
     window._profile_pwd_block.hide()
 
 
+def _build_delete_account_block(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
+    window._profile_delete_block = _card_frame()
+    lay = QVBoxLayout(window._profile_delete_block)
+    lay.setContentsMargins(16, 16, 16, 16)
+    lay.setSpacing(10)
+
+    lay.addWidget(_section_lbl("Hesabı Sil"))
+
+    window._profile_delete_info = QLabel("")
+    window._profile_delete_info.setWordWrap(True)
+    window._profile_delete_info.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px;")
+    lay.addWidget(window._profile_delete_info)
+
+    warning = QLabel("Dikkat: Bu işlem kalıcıdır ve hesabınızla birlikte tüm eşleşmeler silinir.")
+    warning.setWordWrap(True)
+    warning.setStyleSheet(
+        f"color: {_RED}; font-size: 11px; border: 1px solid rgba(248,113,113,0.35); "
+        f"background-color: rgba(248,113,113,0.10); border-radius: 8px; padding: 8px;"
+    )
+    lay.addWidget(warning)
+
+    lay.addWidget(_field_lbl("Hesap e-postası"))
+    window._profile_delete_inp_email = QLineEdit()
+    window._profile_delete_inp_email.setFixedHeight(38)
+    window._profile_delete_inp_email.setStyleSheet(line_edit_style())
+    lay.addWidget(window._profile_delete_inp_email)
+
+    lay.addWidget(_field_lbl("Hesap şifresi"))
+    window._profile_delete_inp_password = QLineEdit()
+    window._profile_delete_inp_password.setFixedHeight(38)
+    window._profile_delete_inp_password.setEchoMode(QLineEdit.EchoMode.Password)
+    window._profile_delete_inp_password.setStyleSheet(line_edit_style())
+    lay.addWidget(window._profile_delete_inp_password)
+
+    window._profile_delete_err = QLabel("")
+    window._profile_delete_err.setWordWrap(True)
+    window._profile_delete_err.setStyleSheet(f"color: {_RED}; font-size: 11px;")
+    lay.addWidget(window._profile_delete_err)
+
+    btn_row = QHBoxLayout()
+    btn_row.setSpacing(8)
+    cancel = QPushButton("Vazgeç")
+    cancel.setFixedHeight(38)
+    cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+    cancel.setStyleSheet(outline_button_style())
+    cancel.clicked.connect(window._on_profile_delete_cancel)
+    btn_row.addWidget(cancel)
+
+    window._profile_delete_confirm_btn = QPushButton("Hesabı Kalıcı Sil")
+    window._profile_delete_confirm_btn.setFixedHeight(38)
+    window._profile_delete_confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    window._profile_delete_confirm_btn.setStyleSheet(_danger_button_style())
+    window._profile_delete_confirm_btn.clicked.connect(window._delete_account_from_drawer)
+    btn_row.addWidget(window._profile_delete_confirm_btn)
+    lay.addLayout(btn_row)
+
+    parent_lay.addWidget(window._profile_delete_block)
+    window._profile_delete_block.hide()
+
+
+def _build_app_info_card(parent_lay: QVBoxLayout) -> None:
+    card = _card_frame()
+    lay = QVBoxLayout(card)
+    lay.setContentsMargins(16, 14, 16, 14)
+    lay.setSpacing(6)
+
+    title = QLabel("Uygulama Bilgisi")
+    title.setStyleSheet(f"color: {_TEXT}; font-size: 13px; font-weight: 700;")
+    lay.addWidget(title)
+
+    version = QLabel(f"Sürüm: {AppMeta.VERSION}")
+    version.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 12px;")
+    lay.addWidget(version)
+
+    parent_lay.addWidget(card)
+
+
+def _build_logout_button(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
+    window._profile_logout_btn = QPushButton("Çıkış Yap")
+    window._profile_logout_btn.setMinimumHeight(42)
+    window._profile_logout_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    window._profile_logout_btn.setStyleSheet(_danger_button_style())
+    window._profile_logout_btn.clicked.connect(window._on_logout)
+    parent_lay.addWidget(window._profile_logout_btn)
+
+
 def _field_lbl(text: str) -> QLabel:
-    l = QLabel(text)
-    l.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
-    return l
+    lbl = QLabel(text)
+    lbl.setStyleSheet(f"color: {_TEXT_SEC}; font-size: 11px; font-weight: 600;")
+    return lbl
 
 
 def _section_lbl(text: str) -> QLabel:
-    l = QLabel(text)
-    l.setStyleSheet(f"color: {_TEXT}; font-size: 13px; font-weight: 700;")
-    return l
+    lbl = QLabel(text)
+    lbl.setStyleSheet(f"color: {_TEXT}; font-size: 13px; font-weight: 700;")
+    return lbl

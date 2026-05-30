@@ -19,6 +19,7 @@ import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import com.remotecontrol.R
 import com.remotecontrol.network.SignalingClient
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -58,10 +59,19 @@ class ScreenStreamService : Service() {
             private set
 
         // ── Performans sabitleri ─────────────────────────────────────────
-        private const val MAX_SIDE = 720          // Maksimum kenar uzunluğu (piksel)
-        private const val JPEG_QUALITY = 65       // JPEG sıkıştırma kalitesi (%)
-        private const val MIN_FRAME_INTERVAL_MS = 33L   // ~30 FPS
-        private const val IMAGE_READER_BUFFERS = 3      // ImageReader tampon sayısı
+        private const val MAX_SIDE_HIGH = 900
+        private const val MAX_SIDE_MED = 760
+        private const val MAX_SIDE_LOW = 640
+        private const val JPEG_QUALITY_HIGH = 72
+        private const val JPEG_QUALITY_MED = 64
+        private const val JPEG_QUALITY_LOW = 56
+        private const val FRAME_INTERVAL_FAST_MS = 22L
+        private const val FRAME_INTERVAL_NORMAL_MS = 28L
+        private const val FRAME_INTERVAL_SLOW_MS = 34L
+        private const val QUEUE_BYTES_ELEVATED = 700_000L
+        private const val QUEUE_BYTES_CONGESTED = 1_500_000L
+        private const val QUEUE_BYTES_DROP_CAPTURE = 2_400_000L
+        private const val IMAGE_READER_BUFFERS = 5      // ImageReader tampon sayısı
     }
 
     private var mediaProjection: MediaProjection? = null
@@ -73,6 +83,9 @@ class ScreenStreamService : Service() {
     // ── Frame rate limiter ───────────────────────────────────────────────
     private val encodingInProgress = AtomicBoolean(false)
     private var lastFrameSentMs = 0L
+    private val jpegOut = ByteArrayOutputStream(512 * 1024)
+    private val frameSlotLock = Any()
+    private var pendingFrame: PendingFrame? = null
 
     // ── Döndürme algılama ────────────────────────────────────────────────
     private var orientationListener: OrientationEventListener? = null
@@ -92,6 +105,12 @@ class ScreenStreamService : Service() {
     private var savedResultCode: Int = Activity.RESULT_CANCELED
     private var savedResultData: Intent? = null
 
+    private data class PendingFrame(
+        val bitmap: Bitmap,
+        val rotation: Int,
+        val queuedBytesAtCapture: Long,
+    )
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -107,7 +126,7 @@ class ScreenStreamService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = buildNotification("Ekran yayını başlatılıyor...")
+        val notification = buildNotification(getString(R.string.notification_screen_starting))
 
         // Android 10+ için FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION zorunlu
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -186,7 +205,16 @@ class ScreenStreamService : Service() {
             Log.i(TAG, "Screen stream started (WebSocket relay mode)")
 
             val notifManager = getSystemService(NotificationManager::class.java)
-            notifManager.notify(1, buildNotification("Ekran yayını aktif" + if (isAudioEnabled) " (Sesli)" else ""))
+            notifManager.notify(
+                1,
+                buildNotification(
+                    if (isAudioEnabled) {
+                        getString(R.string.notification_screen_active_with_audio)
+                    } else {
+                        getString(R.string.notification_screen_active)
+                    },
+                ),
+            )
 
             if (isAudioEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startAudioCapture()
@@ -243,10 +271,18 @@ class ScreenStreamService : Service() {
         imageReader?.setOnImageAvailableListener({ reader ->
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
             try {
+                val queuedBytes = SignalingClient.instance?.pendingQueueBytes() ?: 0L
+                val encodeProfile = encodeProfileForQueue(queuedBytes)
                 val now = SystemClock.elapsedRealtime()
 
-                // Frame rate limiter: minimum 33ms aralık (~30 FPS) + önceki encode bitmeli
-                if (now - lastFrameSentMs < MIN_FRAME_INTERVAL_MS || !encodingInProgress.compareAndSet(false, true)) {
+                // Kuyruk çok doluysa encode etmeden kareyi atla (CPU ve gecikme koruması).
+                if (queuedBytes >= QUEUE_BYTES_DROP_CAPTURE) {
+                    image.close()
+                    return@setOnImageAvailableListener
+                }
+
+                // Frame rate limiter.
+                if (now - lastFrameSentMs < encodeProfile.minFrameIntervalMs) {
                     image.close()
                     return@setOnImageAvailableListener
                 }
@@ -263,60 +299,126 @@ class ScreenStreamService : Service() {
                 val imgWidth = captureWidth
                 val imgHeight = captureHeight
 
-                val bmp = Bitmap.createBitmap(
-                    imgWidth + rowPadding / pixelStride, imgHeight, Bitmap.Config.ARGB_8888
-                )
-                bmp.copyPixelsFromBuffer(buffer)
+                val rowWidth = imgWidth + rowPadding / pixelStride
+                val rawBmp = Bitmap.createBitmap(rowWidth, imgHeight, Bitmap.Config.ARGB_8888)
+                rawBmp.copyPixelsFromBuffer(buffer)
                 image.close()
+                val bmp = if (rowWidth == imgWidth) {
+                    rawBmp
+                } else {
+                    val cropped = Bitmap.createBitmap(rawBmp, 0, 0, imgWidth, imgHeight)
+                    rawBmp.recycle()
+                    cropped
+                }
 
                 // Mevcut frame rotasyonunu yakala (closure'a al)
                 val rotation = frameRotation()
 
-                // Encoding'i executor thread'e aktar — ImageReader callback bloklanmaz
-                executor.execute {
-                    try {
-                        val scale = minOf(0.8f, MAX_SIDE.toFloat() / maxOf(imgWidth, imgHeight))
-                        val scaledW = maxOf(1, (imgWidth * scale).toInt())
-                        val scaledH = maxOf(1, (imgHeight * scale).toInt())
-
-                        val scaled = Bitmap.createScaledBitmap(bmp, scaledW, scaledH, true)
-                        bmp.recycle()
-
-                        val out = ByteArrayOutputStream()
-                        scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
-                        scaled.recycle()
-
-                        val jpegBytes = out.toByteArray()
-                        frameCount++
-                        lastFrameSentMs = SystemClock.elapsedRealtime()
-
-                        val client = SignalingClient.instance
-                        if (client != null) {
-                            try {
-                                client.sendFrame(jpegBytes, rotation)
-                                if (frameCount % 30 == 0L) {
-                                    Log.i(TAG, "✅ Frame sent via WebSocket: ${jpegBytes.size} bytes (frame #$frameCount, rot=$rotation)")
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "❌ Frame gönderme hatası: $e", e)
-                            }
-                        } else {
-                            if (frameCount <= 10 || frameCount % 100 == 0L) {
-                                Log.w(TAG, "⚠️ SignalingClient.instance is null - frame #$frameCount gönderilemedi (${jpegBytes.size} bytes)")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Frame encode error: $e")
-                    } finally {
-                        encodingInProgress.set(false)
-                    }
-                }
+                enqueueLatestFrame(bmp, rotation, queuedBytes)
             } catch (e: Exception) {
                 Log.e(TAG, "Frame error: $e")
-                encodingInProgress.set(false)
                 try { image.close() } catch (_: Exception) {}
             }
         }, null)
+    }
+
+    private fun enqueueLatestFrame(bitmap: Bitmap, rotation: Int, queuedBytes: Long) {
+        val previous = synchronized(frameSlotLock) {
+            val replaced = pendingFrame?.bitmap
+            pendingFrame = PendingFrame(
+                bitmap = bitmap,
+                rotation = rotation,
+                queuedBytesAtCapture = queuedBytes,
+            )
+            replaced
+        }
+        previous?.recycle()
+
+        if (encodingInProgress.compareAndSet(false, true)) {
+            executor.execute { drainPendingFrames() }
+        }
+    }
+
+    private fun drainPendingFrames() {
+        try {
+            while (true) {
+                val frame = synchronized(frameSlotLock) {
+                    val next = pendingFrame ?: return
+                    pendingFrame = null
+                    next
+                }
+                encodeAndSendFrame(frame)
+            }
+        } finally {
+            encodingInProgress.set(false)
+            val hasPending = synchronized(frameSlotLock) { pendingFrame != null }
+            if (hasPending && encodingInProgress.compareAndSet(false, true)) {
+                executor.execute { drainPendingFrames() }
+            }
+        }
+    }
+
+    private fun encodeAndSendFrame(frame: PendingFrame) {
+        var scaled: Bitmap? = null
+        try {
+            val currentQueueBytes = SignalingClient.instance?.pendingQueueBytes() ?: frame.queuedBytesAtCapture
+            val encodeProfile = encodeProfileForQueue(currentQueueBytes)
+            val now = SystemClock.elapsedRealtime()
+            val waitMs = (lastFrameSentMs + encodeProfile.minFrameIntervalMs) - now
+            if (waitMs > 0L) {
+                SystemClock.sleep(waitMs)
+            }
+
+            val srcW = frame.bitmap.width
+            val srcH = frame.bitmap.height
+            val maxSide = maxOf(srcW, srcH).coerceAtLeast(1)
+            val scale = minOf(1.0f, encodeProfile.maxSide.toFloat() / maxSide.toFloat())
+            val scaledW = maxOf(1, (srcW * scale).toInt())
+            val scaledH = maxOf(1, (srcH * scale).toInt())
+
+            scaled = if (scaledW == srcW && scaledH == srcH) {
+                frame.bitmap
+            } else {
+                Bitmap.createScaledBitmap(frame.bitmap, scaledW, scaledH, false)
+            }
+
+            jpegOut.reset()
+            scaled.compress(Bitmap.CompressFormat.JPEG, encodeProfile.jpegQuality, jpegOut)
+            val jpegBytes = jpegOut.toByteArray()
+            frameCount++
+            lastFrameSentMs = SystemClock.elapsedRealtime()
+
+            val client = SignalingClient.instance
+            if (client != null) {
+                client.sendFrame(jpegBytes, frame.rotation)
+                if (frameCount % 120 == 0L) {
+                    Log.i(
+                        TAG,
+                        "Frame sent: ${jpegBytes.size}B #$frameCount rot=${frame.rotation} q=$currentQueueBytes maxSide=${encodeProfile.maxSide} qlty=${encodeProfile.jpegQuality}",
+                    )
+                }
+            } else if (frameCount <= 10 || frameCount % 100 == 0L) {
+                Log.w(TAG, "⚠️ SignalingClient.instance is null - frame #$frameCount gönderilemedi (${jpegBytes.size} bytes)")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Frame encode/send error: $e", e)
+        } finally {
+            if (scaled != null && scaled !== frame.bitmap && !scaled.isRecycled) {
+                scaled.recycle()
+            }
+            if (!frame.bitmap.isRecycled) {
+                frame.bitmap.recycle()
+            }
+        }
+    }
+
+    private fun clearPendingFrame() {
+        val pendingBitmap = synchronized(frameSlotLock) {
+            val bmp = pendingFrame?.bitmap
+            pendingFrame = null
+            bmp
+        }
+        pendingBitmap?.recycle()
     }
 
     // ── Döndürme dinleyicisi ─────────────────────────────────────────────
@@ -352,8 +454,9 @@ class ScreenStreamService : Service() {
             imageReader?.close()
             imageReader = null
 
-            // Encoding'in bitmesini bekle
+            // Eski pending kareyi de at.
             encodingInProgress.set(false)
+            clearPendingFrame()
 
             // Yeni boyutları oku
             readDisplayMetrics()
@@ -380,6 +483,32 @@ class ScreenStreamService : Service() {
     fun setRemoteRotationDegrees(degrees: Int) {
         remoteRotationOverride = surfaceRotationForDegrees(degrees)
         Log.i(TAG, "Remote rotation override set: ${degrees}deg -> ${remoteRotationOverride}")
+    }
+
+    private data class EncodeProfile(
+        val maxSide: Int,
+        val jpegQuality: Int,
+        val minFrameIntervalMs: Long,
+    )
+
+    private fun encodeProfileForQueue(queuedBytes: Long): EncodeProfile {
+        return when {
+            queuedBytes >= QUEUE_BYTES_CONGESTED -> EncodeProfile(
+                maxSide = MAX_SIDE_LOW,
+                jpegQuality = JPEG_QUALITY_LOW,
+                minFrameIntervalMs = FRAME_INTERVAL_SLOW_MS,
+            )
+            queuedBytes >= QUEUE_BYTES_ELEVATED -> EncodeProfile(
+                maxSide = MAX_SIDE_MED,
+                jpegQuality = JPEG_QUALITY_MED,
+                minFrameIntervalMs = FRAME_INTERVAL_NORMAL_MS,
+            )
+            else -> EncodeProfile(
+                maxSide = MAX_SIDE_HIGH,
+                jpegQuality = JPEG_QUALITY_HIGH,
+                minFrameIntervalMs = FRAME_INTERVAL_FAST_MS,
+            )
+        }
     }
 
     private fun frameRotation(): Int {
@@ -481,6 +610,7 @@ class ScreenStreamService : Service() {
         orientationListener?.disable()
         orientationListener = null
 
+        clearPendingFrame()
         virtualDisplay?.release()
         imageReader?.close()
         mediaProjection?.stop()
@@ -492,7 +622,7 @@ class ScreenStreamService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Ekran Yayını",
+                getString(R.string.notification_channel_screen),
                 NotificationManager.IMPORTANCE_LOW
             )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -501,7 +631,7 @@ class ScreenStreamService : Service() {
 
     private fun buildNotification(text: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Remote Control — Ekran")
+            .setContentTitle(getString(R.string.notification_title_screen))
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setPriority(NotificationCompat.PRIORITY_LOW)

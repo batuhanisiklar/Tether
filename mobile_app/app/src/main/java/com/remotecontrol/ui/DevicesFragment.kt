@@ -1,4 +1,4 @@
-package com.remotecontrol.ui
+﻿package com.remotecontrol.ui
 
 import android.graphics.Typeface
 import android.os.Bundle
@@ -58,13 +58,16 @@ class DevicesFragment : Fragment(), DashboardFragment {
     private fun buildRow(device: DeviceSummary, host: MainActivity): View {
         val row = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
-            background = ContextCompat.getDrawable(requireContext(), R.drawable.card_bg)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = ContextCompat.getDrawable(
+                requireContext(),
+                if (device.online) R.drawable.device_card_online_bg else R.drawable.device_card_bg,
+            )
+            setPadding(dp(16), dp(16), dp(16), dp(16))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply {
-                bottomMargin = dp(10)
+                bottomMargin = dp(12)
             }
         }
 
@@ -73,28 +76,32 @@ class DevicesFragment : Fragment(), DashboardFragment {
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
 
-        val statusDot = View(requireContext()).apply {
-            val dotColor = if (device.online) R.color.success else R.color.danger
-            setBackgroundColor(ContextCompat.getColor(requireContext(), dotColor))
-            layoutParams = LinearLayout.LayoutParams(dp(8), dp(8))
-        }
-        headerRow.addView(statusDot)
-
         val title = TextView(requireContext()).apply {
-            text = device.displayName()
+            text = device.username?.takeIf { it.isNotBlank() } ?: host.usernameText()
             setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setTypeface(typeface, Typeface.BOLD)
-            setPadding(dp(10), 0, 0, 0)
         }
         headerRow.addView(title)
 
         val statusLabel = TextView(requireContext()).apply {
-            text = if (device.online) "çevrimiçi" else "Offline"
-            setTextColor(ContextCompat.getColor(requireContext(),
-                if (device.online) R.color.success else R.color.text_tertiary))
+            text = if (device.online) getString(R.string.device_status_online) else getString(R.string.device_status_offline)
+            setTextColor(
+                ContextCompat.getColor(
+                    requireContext(),
+                    if (device.online) R.color.success else R.color.danger,
+                ),
+            )
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setPadding(dp(8), 0, 0, 0)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = ContextCompat.getDrawable(
+                requireContext(),
+                if (device.online) R.drawable.device_status_chip_online else R.drawable.device_status_chip_offline,
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { leftMargin = dp(8) }
         }
         headerRow.addView(statusLabel)
 
@@ -107,8 +114,8 @@ class DevicesFragment : Fragment(), DashboardFragment {
             setImageResource(R.drawable.ic_delete)
             setColorFilter(ContextCompat.getColor(requireContext(), R.color.text_primary))
             contentDescription = getString(R.string.remove_device)
-            setBackgroundResource(android.R.drawable.list_selector_background)
-            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = ContextCompat.getDrawable(requireContext(), R.drawable.card_soft_bg)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -127,22 +134,46 @@ class DevicesFragment : Fragment(), DashboardFragment {
 
         row.addView(headerRow)
 
-        val subtitle = TextView(requireContext()).apply {
-            val addressPart = device.address
-                ?.takeIf { it.isNotBlank() }
-                ?.filter { it.isDigit() }
-                ?.take(12)
-                ?.chunked(4)
-                ?.joinToString("-")
-            val statusPart = if (device.online) "Aktif" else "Cevrimdisi"
-            text = listOfNotNull(addressPart, statusPart).joinToString("  •  ")
-            setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setPadding(dp(18), dp(4), 0, 0)
+        val detailsBox = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            background = ContextCompat.getDrawable(requireContext(), R.drawable.guide_question_bg)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(10) }
         }
-        row.addView(subtitle)
+
+        val deviceNameLine = TextView(requireContext()).apply {
+            text = getString(
+                R.string.devices_item_device_name,
+                device.deviceName?.takeIf { it.isNotBlank() } ?: getString(R.string.devices_item_unknown),
+            )
+            setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        }
+        detailsBox.addView(deviceNameLine)
+
+        val deviceNoLine = TextView(requireContext()).apply {
+            text = getString(R.string.devices_item_device_number, formatDeviceNumber(device))
+            setTextColor(ContextCompat.getColor(requireContext(), R.color.text_tertiary))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, dp(4), 0, 0)
+        }
+        detailsBox.addView(deviceNoLine)
+        row.addView(detailsBox)
 
         return row
+    }
+
+    private fun formatDeviceNumber(device: DeviceSummary): String {
+        val digits = device.address
+            ?.takeIf { it.isNotBlank() }
+            ?.filter { it.isDigit() }
+            ?.take(12)
+            .orEmpty()
+        if (digits.isNotBlank()) return digits.chunked(4).joinToString("-")
+        return device.deviceId.takeLast(12).ifBlank { getString(R.string.devices_item_unknown) }
     }
 
     private fun dp(value: Int): Int = TypedValue.applyDimension(
@@ -156,3 +187,4 @@ class DevicesFragment : Fragment(), DashboardFragment {
         super.onDestroyView()
     }
 }
+

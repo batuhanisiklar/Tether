@@ -44,10 +44,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
+                android:lineSpacingMultiplier="1.2"
                 android:text="@string/home_hero_tagline"
                 android:textColor="@color/text_secondary"
-                android:textSize="14sp"
-                android:lineSpacingMultiplier="1.2" />
+                android:textSize="14sp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -63,9 +63,9 @@
                     style="@style/TextRemoteControlSectionLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginBottom="10dp"
                     android:text="@string/connection_code_title"
-                    android:textColor="@color/primary"
-                    android:layout_marginBottom="10dp" />
+                    android:textColor="@color/primary" />
 
                 <TextView
                     android:id="@+id/tv_code"
@@ -86,8 +86,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:orientation="horizontal"
-                    android:gravity="center">
+                    android:gravity="center"
+                    android:orientation="horizontal">
 
                     <ImageButton
                         android:id="@+id/btn_home_copy_code"
@@ -134,17 +134,59 @@
                 style="@style/TextRemoteControlSectionLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/home_accessibility_section_title"
-                android:layout_marginBottom="8dp" />
+                android:layout_marginBottom="8dp"
+                android:text="@string/home_accessibility_section_title" />
 
             <TextView
                 android:id="@+id/tv_home_accessibility"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:lineSpacingMultiplier="1.15"
                 android:textColor="@color/warning"
                 android:textSize="14sp"
-                android:textStyle="bold"
-                android:lineSpacingMultiplier="1.15" />
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/layout_home_accessibility_steps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tv_home_accessibility_steps_title"
+                    style="@style/TextRemoteControlSectionLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/home_accessibility_steps_title" />
+
+                <TextView
+                    android:id="@+id/tv_home_accessibility_step_1"
+                    style="@style/TextRemoteControlCaption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingMultiplier="1.15"
+                    android:text="@string/home_accessibility_step_1" />
+
+                <TextView
+                    android:id="@+id/tv_home_accessibility_step_2"
+                    style="@style/TextRemoteControlCaption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:lineSpacingMultiplier="1.15"
+                    android:text="@string/home_accessibility_step_2" />
+
+                <TextView
+                    android:id="@+id/tv_home_accessibility_step_3"
+                    style="@style/TextRemoteControlCaption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:lineSpacingMultiplier="1.15"
+                    android:text="@string/home_accessibility_step_3" />
+            </LinearLayout>
 
             <Button
                 android:id="@+id/btn_home_accessibility"
@@ -155,154 +197,60 @@
                 android:textAllCaps="false" />
         </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="10dp"
-            android:letterSpacing="0.06"
-            android:text="@string/home_tips_heading"
-            android:textAllCaps="true"
-            android:textColor="@color/text_tertiary"
-            android:textSize="11sp"
-            android:textStyle="bold" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="@dimen/section_gap_small"
-            android:baselineAligned="false"
-            android:orientation="horizontal">
+            android:background="@drawable/card_bg"
+            android:minHeight="180dp"
+            android:orientation="vertical"
+            android:padding="@dimen/card_padding">
 
-            <LinearLayout
-                android:layout_width="0dp"
+            <TextView
+                style="@style/TextRemoteControlSectionLabel"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:minHeight="132dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="6dp"
-                android:background="@drawable/home_info_tile_1_bg"
-                android:orientation="vertical"
-                android:padding="10dp">
+                android:text="@string/home_recent_events_title" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="4dp"
-                    android:text="@string/home_info_tile_1_title"
-                    android:textColor="@color/text_primary"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:gravity="top"
-                    android:lineSpacingMultiplier="1.15"
-                    android:maxLines="6"
-                    android:text="@string/home_info_tile_1_body"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/tv_home_event_1"
+                style="@style/TextRemoteControlBody"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:minHeight="132dp"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/home_info_tile_2_bg"
-                android:orientation="vertical"
-                android:padding="10dp">
+                android:layout_marginTop="10dp"
+                android:lineSpacingMultiplier="1.15" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="4dp"
-                    android:text="@string/home_info_tile_2_title"
-                    android:textColor="@color/text_primary"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
+            <TextView
+                android:id="@+id/tv_home_event_2"
+                style="@style/TextRemoteControlBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:lineSpacingMultiplier="1.15" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:gravity="top"
-                    android:lineSpacingMultiplier="1.15"
-                    android:maxLines="6"
-                    android:text="@string/home_info_tile_2_body"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp" />
-            </LinearLayout>
+            <TextView
+                android:id="@+id/tv_home_event_3"
+                style="@style/TextRemoteControlBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:lineSpacingMultiplier="1.15" />
+
+            <TextView
+                android:id="@+id/tv_home_event_4"
+                style="@style/TextRemoteControlBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:lineSpacingMultiplier="1.15" />
+
+            <TextView
+                android:id="@+id/tv_home_event_5"
+                style="@style/TextRemoteControlBody"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:lineSpacingMultiplier="1.15" />
         </LinearLayout>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:baselineAligned="false"
-            android:orientation="horizontal">
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:minHeight="132dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="6dp"
-                android:background="@drawable/home_info_tile_3_bg"
-                android:orientation="vertical"
-                android:padding="10dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="4dp"
-                    android:text="@string/home_info_tile_3_title"
-                    android:textColor="@color/text_primary"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:gravity="top"
-                    android:lineSpacingMultiplier="1.15"
-                    android:maxLines="6"
-                    android:text="@string/home_info_tile_3_body"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:minHeight="132dp"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/card_soft_bg"
-                android:orientation="vertical"
-                android:padding="10dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="4dp"
-                    android:text="@string/home_info_tile_4_title"
-                    android:textColor="@color/text_primary"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:gravity="top"
-                    android:lineSpacingMultiplier="1.15"
-                    android:maxLines="6"
-                    android:text="@string/home_info_tile_4_body"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp" />
-            </LinearLayout>
-        </LinearLayout>
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

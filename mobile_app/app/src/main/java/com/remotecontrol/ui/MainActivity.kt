@@ -2,6 +2,9 @@ package com.remotecontrol.ui
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -14,9 +17,12 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.remotecontrol.R
+import com.remotecontrol.auth.AppSettingsStore
 import com.remotecontrol.auth.LoginActivity
 import com.remotecontrol.auth.SessionStore
 import com.remotecontrol.data.AuthSession
@@ -36,12 +42,23 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
+    data class ClearPairingsResult(
+        val total: Int,
+        val cleared: Int,
+        val failed: Int,
+    )
 
     companion object {
         private const val TAG = "MainActivity"
         const val SIGNALING_URL = "wss://connect-your-phone.onrender.com"
+        private const val EVENT_CHANNEL_ID = "app_events_channel"
+        private const val EVENT_NOTIFICATION_ID_CONNECTED = 3101
+        private const val EVENT_NOTIFICATION_ID_DISCONNECTED = 3102
 
         fun buildDeviceName(): String {
             val manufacturer = Build.MANUFACTURER.trim()
@@ -57,6 +74,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var sessionStore: SessionStore
+    private lateinit var appSettingsStore: AppSettingsStore
     private lateinit var deviceIdentityStore: DeviceIdentityStore
     private lateinit var backendApi: BackendApi
 
@@ -67,10 +85,11 @@ class MainActivity : AppCompatActivity() {
     private val deviceName: String by lazy { buildDeviceName() }
     private var pairedPcId: String? = null
     private var pairedPcAddress: String? = null
-    private var currentStatus = "Baslatiliyor..."
+    private var currentStatus = "Başlatılıyor…"
     private var currentStatusDetail = ""
     private var currentAddress = "------------"
     private var currentPairings: List<DeviceSummary> = emptyList()
+    private val recentEvents: ArrayDeque<Pair<Long, String>> = ArrayDeque()
     private var streamRunning = false
     /** MediaProjection sistem diyalogu acikken tekrar launch edilmesini engeller */
     private var awaitingMediaProjectionConsent = false
@@ -97,7 +116,8 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             startScreenStream(result.resultCode, result.data!!)
         } else {
-            updateStatus("Ekran kaydi izni reddedildi")
+            updateStatus(getString(R.string.status_screen_permission_denied))
+            addRecentEvent(getString(R.string.event_screen_permission_denied))
         }
     }
 
@@ -107,7 +127,8 @@ class MainActivity : AppCompatActivity() {
         if (granted) {
             startCameraStream(useFront = false)
         } else {
-            updateStatus("Kamera izni reddedildi")
+            updateStatus(getString(R.string.status_camera_permission_denied))
+            addRecentEvent(getString(R.string.event_camera_permission_denied))
         }
     }
 
@@ -129,6 +150,7 @@ class MainActivity : AppCompatActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         sessionStore = SessionStore(this)
+        appSettingsStore = AppSettingsStore(this)
         deviceIdentityStore = DeviceIdentityStore(this)
         backendApi = BackendApi(SIGNALING_URL)
 
@@ -140,6 +162,7 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        createEventNotificationChannel()
 
         val sessionDigits = sessionStore.address().filter(Char::isDigit).take(12)
         deviceId = sessionDigits.ifBlank { deviceIdentityStore.deviceId() }
@@ -148,6 +171,7 @@ class MainActivity : AppCompatActivity() {
         accessibilityEnabled = isAccessibilityServiceEnabled()
         currentAddress = sessionStore.address().ifBlank { "------------" }
         updateAccessibilityHint()
+        addRecentEvent(getString(R.string.event_app_opened))
 
         setupNavigation(savedInstanceState == null)
         requestNotificationPermission()
@@ -164,6 +188,8 @@ class MainActivity : AppCompatActivity() {
 
     fun sessionStoreRef(): SessionStore = sessionStore
 
+    fun appSettingsStoreRef(): AppSettingsStore = appSettingsStore
+
     fun backendApiRef(): BackendApi = backendApi
 
     fun currentDeviceId(): String = deviceId
@@ -173,6 +199,7 @@ class MainActivity : AppCompatActivity() {
             when (item.itemId) {
                 R.id.nav_home -> showFragment("home") { HomeFragment() }
                 R.id.nav_devices -> showFragment("devices") { DevicesFragment() }
+                R.id.nav_help -> showFragment("help") { HelpFragment() }
                 R.id.nav_profile -> showFragment("profile") { SettingsFragment() }
                 else -> false
             }
@@ -188,6 +215,14 @@ class MainActivity : AppCompatActivity() {
             .replace(binding.fragmentContainer.id, fragment, tag)
             .commit()
         return true
+    }
+
+    fun openHelpTab() {
+        binding.bottomNavigation.selectedItemId = R.id.nav_help
+    }
+
+    fun openDevicesTab() {
+        binding.bottomNavigation.selectedItemId = R.id.nav_devices
     }
 
     fun forgetPairingFromUi(partnerDeviceId: String, partnerAddress: String?) {
@@ -209,6 +244,7 @@ class MainActivity : AppCompatActivity() {
                     pairedPcAddress = null
                 }
                 Toast.makeText(this@MainActivity, getString(R.string.forget_pairing_success), Toast.LENGTH_SHORT).show()
+                addRecentEvent(getString(R.string.event_pairing_removed))
                 refreshPairings()
             } else {
                 Toast.makeText(this@MainActivity, result.error, Toast.LENGTH_SHORT).show()
@@ -218,7 +254,7 @@ class MainActivity : AppCompatActivity() {
 
     fun openAccessibilitySettingsScreen() {
         openingAccessibilitySettings = true
-        Toast.makeText(this, "Dokunma kontrolu icin erisilebilirlik servisini acin.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, getString(R.string.toast_open_accessibility_needed), Toast.LENGTH_LONG).show()
         startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
@@ -245,7 +281,7 @@ class MainActivity : AppCompatActivity() {
         finish()
     }
 
-    fun usernameText(): String = sessionStore.username().ifBlank { "Kullanici" }
+    fun usernameText(): String = sessionStore.username().ifBlank { "Kullanıcı" }
         .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 
     fun homeUserDisplayText(): String {
@@ -267,27 +303,40 @@ class MainActivity : AppCompatActivity() {
 
     fun currentPairings(): List<DeviceSummary> = currentPairings
 
+    fun pairedPcCount(): Int = currentPairings.count { it.deviceType == "pc" }
+
+    fun recentEventLines(limit: Int = 3): List<String> {
+        val formatter = SimpleDateFormat("HH:mm", Locale("tr", "TR"))
+        return recentEvents
+            .take(limit)
+            .map { (timeMs, message) ->
+                "${formatter.format(Date(timeMs))} • $message"
+            }
+    }
+
     fun isAccessibilityServiceEnabledForUi(): Boolean = isAccessibilityServiceEnabled()
 
-    fun deviceSummaryText(): String = "Bu cihaz: $deviceName"
+    fun deviceSummaryText(): String = getString(R.string.device_summary_template, deviceName)
 
     fun accessibilitySummaryText(): String = if (accessibilityEnabled) {
-        "Erisilebilirlik servisi aktif"
+        getString(R.string.accessibility_summary_enabled)
     } else {
-        "Dokunma kontrolu icin erisilebilirlik servisini acin"
+        getString(R.string.accessibility_summary_disabled)
     }
 
     /** PC oturumu kapandi; telefon signaling'e bagli kalir, yeniden baglanti yalnizca masaustunden. */
     private fun handlePeerSessionEnded() {
         if (isFinishing || isDestroyed) return
-        Log.i(TAG, "PC oturumu sona erdi — yayin durduruldu, WS acik")
+        Log.i(TAG, "PC oturumu sona erdi - yayın durduruldu, WS açık")
         stopAllStreams()
         remoteSessionPaired = false
         hasRemoteRotationOverride = false
         remoteRotationDegrees = 0
         pairingAwaitingAccessibility = false
-        currentStatus = "Bilgisayar baglantisi kesildi"
-        currentStatusDetail = "Oturumu masaustu uygulamasindan yeniden baslatin; telefon sabit adreste bekliyor."
+        currentStatus = getString(R.string.status_peer_disconnected_title)
+        currentStatusDetail = getString(R.string.status_peer_disconnected_detail)
+        addRecentEvent(getString(R.string.event_peer_session_ended))
+        notifyDisconnectedIfEnabled(currentStatusDetail)
         navigateToHomeAfterDisconnect()
         refreshFragments()
     }
@@ -295,12 +344,14 @@ class MainActivity : AppCompatActivity() {
     /** Soket koptu; oturumu yeniden kurmak icin (kullanici arayuzunden degil, transport). */
     private fun reconnectSignalingTransport() {
         if (isFinishing || isDestroyed || !sessionStore.isLoggedIn()) return
-        Log.w(TAG, "Signaling soketi koptu — transport yenileniyor")
+        Log.w(TAG, "Signaling soketi koptu - transport yenileniyor")
         stopAllStreams()
         remoteSessionPaired = false
         pairingAwaitingAccessibility = false
-        currentStatus = "Baglanti kesildi"
-        currentStatusDetail = "Sunucuya yeniden baglaniliyor..."
+        currentStatus = getString(R.string.status_connection_lost_title)
+        currentStatusDetail = getString(R.string.status_connection_lost_detail)
+        addRecentEvent(getString(R.string.event_transport_reconnecting))
+        notifyDisconnectedIfEnabled(currentStatusDetail)
         navigateToHomeAfterDisconnect()
         refreshFragments()
         signalingClient?.disconnect(sendServerLogout = false)
@@ -314,13 +365,14 @@ class MainActivity : AppCompatActivity() {
      */
     private fun restartSignalingAfterAccessibilityOpened() {
         if (isFinishing || isDestroyed || !sessionStore.isLoggedIn()) return
-        Log.i(TAG, "Erisilebilirlik acildi — signaling sifirlaniyor (temiz hat)")
+        Log.i(TAG, "Erişilebilirlik açıldı - signaling sıfırlanıyor (temiz hat)")
         streamRunning = false
         remoteSessionPaired = false
         pairingAwaitingAccessibility = false
         stopAllStreams()
-        currentStatus = "Erisilebilirlik hazir"
-        currentStatusDetail = "Baglanti yenilendi; bilgisayardan tekrar eslestirin."
+        currentStatus = getString(R.string.status_accessibility_ready_title)
+        currentStatusDetail = getString(R.string.status_accessibility_ready_detail)
+        addRecentEvent(getString(R.string.event_accessibility_reconnected))
         refreshFragments()
         signalingClient?.disconnect(sendServerLogout = true)
         signalingClient = null
@@ -331,7 +383,7 @@ class MainActivity : AppCompatActivity() {
                 signalingClient?.pushAccessibilityToServer()
             }
         }
-        Toast.makeText(this, "Erisilebilirlik icin baglanti sifirlandi.", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.toast_accessibility_connection_reset), Toast.LENGTH_SHORT).show()
     }
 
     private fun connectSignaling() {
@@ -339,8 +391,9 @@ class MainActivity : AppCompatActivity() {
         val address = currentAddress.filter(Char::isDigit).take(12)
         val ownDeviceId = deviceId.filter(Char::isDigit).take(12)
         if (token.isBlank() || ownDeviceId.length != 12 || address.length != 12) {
-            currentStatus = "Cihaz adresi hazir degil"
-            currentStatusDetail = "Oturum ve cihaz adresi dogrulandiktan sonra baglanti acilir."
+            currentStatus = getString(R.string.status_address_not_ready_title)
+            currentStatusDetail = getString(R.string.status_address_not_ready_detail)
+            addRecentEvent(getString(R.string.event_address_not_ready))
             refreshFragments()
             return
         }
@@ -351,7 +404,7 @@ class MainActivity : AppCompatActivity() {
         partnerOfflineAckStreak = 0
         remoteSessionPaired = false
         pairingAwaitingAccessibility = false
-        currentStatus = "Signaling sunucusuna baglaniyor"
+        currentStatus = getString(R.string.status_signaling_connecting)
         currentStatusDetail = ""
         refreshFragments()
 
@@ -375,8 +428,8 @@ class MainActivity : AppCompatActivity() {
                         pairingAwaitingAccessibility = true
                         remoteSessionPaired = false
                         streamRunning = false
-                        currentStatus = "Erisilebilirlik kapali"
-                        currentStatusDetail = "Kontrol icin erisilebilirlik servisini acin."
+                        currentStatus = getString(R.string.status_accessibility_off_title)
+                        currentStatusDetail = getString(R.string.status_accessibility_off_detail)
                         refreshFragments()
                         signalingClient?.sendAccessibilityError()
                         showAccessibilityRequiredDialog()
@@ -388,6 +441,8 @@ class MainActivity : AppCompatActivity() {
                     scope.launch { refreshPairings() }
                     currentStatus = getString(R.string.pair_pc_connected_title)
                     currentStatusDetail = getString(R.string.pair_start_broadcast_hint)
+                    addRecentEvent(getString(R.string.event_pc_connected))
+                    notifyConnectedIfEnabled()
                     refreshFragments()
                 }
             },
@@ -414,8 +469,9 @@ class MainActivity : AppCompatActivity() {
         clientRef[0] = client
         signalingClient = client
         signalingClient?.connect()
-        currentStatus = "Çevrimiçi; baglanti bilgisayardan baslatilir"
-        currentStatusDetail = "Sabit adres: $currentAddress"
+        currentStatus = getString(R.string.status_online_waiting_pc_title)
+        currentStatusDetail = getString(R.string.status_online_waiting_pc_detail, currentAddress)
+        addRecentEvent(getString(R.string.event_waiting_for_pc))
         refreshFragments()
         Log.i(TAG, "Device address: $currentAddress")
     }
@@ -446,6 +502,7 @@ class MainActivity : AppCompatActivity() {
             pairedPcAddress = it
         }
         signalingClient?.sendPairConfirm(pcDeviceId)
+        addRecentEvent(getString(R.string.event_pair_confirmed))
         refreshFragments()
         Log.i(TAG, "Pair confirmed with PC: $pcDeviceId")
     }
@@ -534,7 +591,7 @@ class MainActivity : AppCompatActivity() {
                 val x = (params["x"] as? Number)?.toFloat() ?: return
                 val y = (params["y"] as? Number)?.toFloat() ?: return
                 runOnUiThread {
-                    withControlReceiver("Dokunma komutu") { performTouch(x, y) }
+                    withControlReceiver(getString(R.string.command_touch)) { performTouch(x, y) }
                 }
             }
             "swipe" -> {
@@ -543,13 +600,13 @@ class MainActivity : AppCompatActivity() {
                 val x2 = (params["x2"] as? Number)?.toFloat() ?: return
                 val y2 = (params["y2"] as? Number)?.toFloat() ?: return
                 runOnUiThread {
-                    withControlReceiver("Kaydirma komutu") { performSwipe(x1, y1, x2, y2) }
+                    withControlReceiver(getString(R.string.command_swipe)) { performSwipe(x1, y1, x2, y2) }
                 }
             }
             "key_event" -> {
                 val keyCode = (params["key_code"] as? Number)?.toInt() ?: return
                 runOnUiThread {
-                    withControlReceiver("Tus komutu") { performKeyEvent(keyCode) }
+                    withControlReceiver(getString(R.string.command_key)) { performKeyEvent(keyCode) }
                 }
             }
             "rotate_screen" -> {
@@ -579,7 +636,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 if (text.isBlank()) return
                 runOnUiThread {
-                    withControlReceiver("Metin gonder") { performPasteText(text) }
+                    withControlReceiver(getString(R.string.command_paste)) { performPasteText(text) }
                 }
             }
             else -> Log.w(TAG, "Unknown command: $action")
@@ -611,7 +668,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestScreenCapture() {
         if (awaitingMediaProjectionConsent) {
-            Log.i(TAG, "MediaProjection izni zaten bekleniyor — diyalog tekrar acilmiyor")
+            Log.i(TAG, "MediaProjection izni zaten bekleniyor - diyalog tekrar açılmıyor")
             return
         }
         
@@ -648,8 +705,8 @@ class MainActivity : AppCompatActivity() {
         }
         if (!isAccessibilityServiceEnabled()) {
             pairingAwaitingAccessibility = true
-            currentStatus = "Erisilebilirlik kapali"
-            currentStatusDetail = "Ekran paylasimi icin erisilebilirligi acin; ardindan bilgisayardan tekrar baglanin."
+            currentStatus = getString(R.string.status_accessibility_off_title)
+            currentStatusDetail = getString(R.string.status_accessibility_required_share_detail)
             refreshFragments()
             signalingClient?.sendAccessibilityError()
             showAccessibilityRequiredDialog()
@@ -670,9 +727,10 @@ class MainActivity : AppCompatActivity() {
         }
         startForegroundService(intent)
 
-        currentStatusDetail = "Ekran WebSocket uzerinden gonderiliyor"
+        currentStatusDetail = getString(R.string.status_screen_streaming_detail)
         streamRunning = true
-        updateStatus("Ekran yayini aktif")
+        updateStatus(getString(R.string.status_screen_streaming_title))
+        addRecentEvent(getString(R.string.event_screen_stream_started))
 
         moveTaskToBack(true)
     }
@@ -692,9 +750,10 @@ class MainActivity : AppCompatActivity() {
         }
         startForegroundService(intent)
 
-        currentStatusDetail = "Kamera WebSocket uzerinden gonderiliyor"
+        currentStatusDetail = getString(R.string.status_camera_streaming_detail)
         streamRunning = true
-        updateStatus("Kamera yayini aktif")
+        updateStatus(getString(R.string.status_camera_streaming_title))
+        addRecentEvent(getString(R.string.event_camera_stream_started))
     }
 
     /** Yalnizca masaustu camera_off komutu; telefon arayuzunde durdurma yok. */
@@ -702,7 +761,8 @@ class MainActivity : AppCompatActivity() {
         stopService(Intent(this, CameraStreamService::class.java))
         streamRunning = false
         currentStatusDetail = ""
-        updateStatus("Kamera yayini masaustunden durduruldu")
+        updateStatus(getString(R.string.status_camera_stopped_from_desktop))
+        addRecentEvent(getString(R.string.event_camera_stream_stopped_remote))
     }
 
     private fun stopAllStreams() {
@@ -816,6 +876,7 @@ class MainActivity : AppCompatActivity() {
                     device.copy(address = normalizedAddress, paired = false)
                 } else {
                     existing.copy(
+                        username = existing.username ?: device.username,
                         deviceName = existing.deviceName ?: device.deviceName,
                         address = existing.address ?: normalizedAddress,
                         online = existing.online || device.online,
@@ -833,6 +894,7 @@ class MainActivity : AppCompatActivity() {
                     device.copy(address = normalizedAddress, paired = true)
                 } else {
                     existing.copy(
+                        username = existing.username ?: device.username,
                         deviceName = existing.deviceName ?: device.deviceName,
                         address = existing.address ?: normalizedAddress,
                         online = existing.online || device.online,
@@ -872,12 +934,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAccessibilityRequiredDialog() {
         AlertDialog.Builder(this)
-            .setTitle("Erisilebilirlik gerekli")
-            .setMessage("Bilgisayardan kontrol edebilmek icin Erisilebilirlik servisini acman gerekiyor. Ayarlara gidelim mi?")
-            .setPositiveButton("Ayarlari ac") { _, _ ->
+            .setTitle(getString(R.string.dialog_accessibility_required_title))
+            .setMessage(getString(R.string.dialog_accessibility_required_message))
+            .setPositiveButton(getString(R.string.dialog_open_settings)) { _, _ ->
                 openAccessibilitySettingsScreen()
             }
-            .setNegativeButton("Vazgec", null)
+            .setNegativeButton(getString(R.string.dialog_cancel), null)
             .show()
     }
 
@@ -906,6 +968,69 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun createEventNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java)
+        val channel = NotificationChannel(
+            EVENT_CHANNEL_ID,
+            getString(R.string.settings_notifications_channel_name),
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun notifyConnectedIfEnabled() {
+        if (!appSettingsStore.notifyOnConnect()) return
+        postEventNotification(
+            id = EVENT_NOTIFICATION_ID_CONNECTED,
+            title = getString(R.string.settings_notify_connected_title),
+            message = getString(R.string.settings_notify_connected_message),
+        )
+    }
+
+    private fun notifyDisconnectedIfEnabled(message: String) {
+        if (!appSettingsStore.notifyOnDisconnect()) return
+        postEventNotification(
+            id = EVENT_NOTIFICATION_ID_DISCONNECTED,
+            title = getString(R.string.settings_notify_disconnected_title),
+            message = message.ifBlank { getString(R.string.settings_notify_disconnected_message) },
+        )
+    }
+
+    private fun postEventNotification(id: Int, title: String, message: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = launchIntent?.let {
+            PendingIntent.getActivity(
+                this,
+                id,
+                it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
+
+        val notification = NotificationCompat.Builder(this, EVENT_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .apply { if (pendingIntent != null) setContentIntent(pendingIntent) }
+            .build()
+
+        runCatching {
+            NotificationManagerCompat.from(this).notify(id, notification)
+        }
+    }
+
     private fun updateStatus(message: String) {
         currentStatus = message
         refreshFragments()
@@ -914,16 +1039,16 @@ class MainActivity : AppCompatActivity() {
     private fun withControlReceiver(actionLabel: String, block: ControlReceiver.() -> Boolean) {
         val receiver = ControlReceiver.instance
         if (receiver == null) {
-            currentStatus = "$actionLabel uygulanamadi"
-            currentStatusDetail = "Erisilebilirlik servisini acin ve tekrar deneyin."
+            currentStatus = getString(R.string.status_action_failed_template, actionLabel)
+            currentStatusDetail = getString(R.string.status_action_failed_accessibility_detail)
             refreshFragments()
             openAccessibilitySettingsScreen()
             return
         }
         val success = receiver.block()
         if (!success) {
-            currentStatus = "$actionLabel uygulanamadi"
-            currentStatusDetail = "Android erisilebilirlik servisi komutu reddetti."
+            currentStatus = getString(R.string.status_action_failed_template, actionLabel)
+            currentStatusDetail = getString(R.string.status_action_failed_command_rejected_detail)
             refreshFragments()
         }
     }
@@ -931,10 +1056,38 @@ class MainActivity : AppCompatActivity() {
     private fun updateAccessibilityHint() {
         accessibilityEnabled = isAccessibilityServiceEnabled()
         if (!accessibilityEnabled) {
-            if (currentStatusDetail.isBlank() || currentStatusDetail.contains("Erisilebilirlik", ignoreCase = true)) {
-                currentStatusDetail = "Kontrol icin Erisilebilirlik ayarlarini acin."
+            if (currentStatusDetail.isBlank() || currentStatusDetail.contains("erişilebilirlik", ignoreCase = true)) {
+                currentStatusDetail = getString(R.string.status_accessibility_hint_detail)
             }
         }
+    }
+
+    suspend fun clearAllPairingsFromUi(): ClearPairingsResult {
+        val token = sessionStore.authToken()
+        if (token.isBlank()) return ClearPairingsResult(total = 0, cleared = 0, failed = 0)
+
+        val targets = currentPairings
+            .filter { it.paired && it.deviceId.isNotBlank() }
+            .distinctBy { it.deviceId }
+
+        if (targets.isEmpty()) return ClearPairingsResult(total = 0, cleared = 0, failed = 0)
+
+        var cleared = 0
+        var failed = 0
+        targets.forEach { pairing ->
+            val result = backendApi.deletePairing(token, deviceId, pairing.deviceId, pairing.address)
+            if (result.error.isNullOrBlank()) {
+                cleared += 1
+            } else {
+                failed += 1
+            }
+        }
+
+        refreshPairings()
+        if (cleared > 0) {
+            addRecentEvent(getString(R.string.event_pairing_removed))
+        }
+        return ClearPairingsResult(total = targets.size, cleared = cleared, failed = failed)
     }
 
     private fun formatAddressForUi(raw: String): String {
@@ -952,15 +1105,16 @@ class MainActivity : AppCompatActivity() {
         }
         if (sessionStore.isLoggedIn() && nowA11y && !hadA11y) {
             if (pairingAwaitingAccessibility) {
-                Log.i(TAG, "Erisilebilirlik acildi — mevcut oturum korunuyor")
+                Log.i(TAG, "Erişilebilirlik açıldı - mevcut oturum korunuyor")
                 pairingAwaitingAccessibility = false
                 remoteSessionPaired = false
                 accessibilityEnabled = true
-                currentStatus = "Erisilebilirlik aktif"
-                currentStatusDetail = "Bilgisayardan tekrar baglanin."
+                currentStatus = getString(R.string.status_accessibility_enabled_title)
+                currentStatusDetail = getString(R.string.status_accessibility_enabled_detail)
+                addRecentEvent(getString(R.string.event_accessibility_enabled))
                 refreshFragments()
                 signalingClient?.pushAccessibilityToServer()
-                Toast.makeText(this, "Erisilebilirlik aktif.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.toast_accessibility_enabled), Toast.LENGTH_SHORT).show()
             } else {
                 accessibilityEnabled = true
                 signalingClient?.pushAccessibilityToServer()
@@ -987,4 +1141,14 @@ class MainActivity : AppCompatActivity() {
         signalingClient = null
         super.onDestroy()
     }
+
+    private fun addRecentEvent(message: String) {
+        if (message.isBlank()) return
+        if (recentEvents.firstOrNull()?.second == message) return
+        recentEvents.addFirst(System.currentTimeMillis() to message)
+        while (recentEvents.size > 12) {
+            recentEvents.removeLast()
+        }
+    }
 }
+

@@ -12,6 +12,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
+import com.remotecontrol.R
 import com.remotecontrol.network.SignalingClient
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -51,7 +52,7 @@ class CameraStreamService : LifecycleService() {
         val useFront = intent?.getBooleanExtra(EXTRA_USE_FRONT, false) ?: false
 
         // Android 10+ kamera foreground service type zorunlu
-        val notification = buildNotification("Kamera yayını aktif")
+        val notification = buildNotification(getString(R.string.notification_camera_active))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(2, notification,
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
@@ -148,14 +149,14 @@ class CameraStreamService : LifecycleService() {
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
-            CHANNEL_ID, "Kamera Yayını", NotificationManager.IMPORTANCE_LOW
+            CHANNEL_ID, getString(R.string.notification_channel_camera), NotificationManager.IMPORTANCE_LOW
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun buildNotification(text: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Remote Control — Kamera")
+            .setContentTitle(getString(R.string.notification_title_camera))
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setPriority(NotificationCompat.PRIORITY_LOW)

@@ -7,17 +7,40 @@ android {
     namespace = "com.remotecontrol"
     compileSdk = 34
 
+    signingConfigs {
+        create("release") {
+            val storeFilePath = System.getenv("RC_RELEASE_STORE_FILE")
+            val storePasswordEnv = System.getenv("RC_RELEASE_STORE_PASSWORD")
+            val keyAliasEnv = System.getenv("RC_RELEASE_KEY_ALIAS")
+            val keyPasswordEnv = System.getenv("RC_RELEASE_KEY_PASSWORD")
+
+            if (
+                !storeFilePath.isNullOrBlank() &&
+                !storePasswordEnv.isNullOrBlank() &&
+                !keyAliasEnv.isNullOrBlank() &&
+                !keyPasswordEnv.isNullOrBlank()
+            ) {
+                storeFile = file(storeFilePath)
+                storePassword = storePasswordEnv
+                keyAlias = keyAliasEnv
+                keyPassword = keyPasswordEnv
+            } else {
+                initWith(getByName("debug"))
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.remotecontrol"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.2"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -52,9 +75,6 @@ dependencies {
 
     // Coroutines
     implementation(libs.coroutines.android)
-
-    // NanoHTTPD (MJPEG HTTP sunucu)
-    implementation(libs.nanohttpd)
 
     // Lifecycle Service (CameraStreamService için LifecycleService)
     implementation(libs.lifecycle.service)

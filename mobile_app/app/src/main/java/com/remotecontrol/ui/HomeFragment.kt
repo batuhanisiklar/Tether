@@ -66,6 +66,24 @@ class HomeFragment : Fragment(), DashboardFragment {
         binding.tvCode.text = host.currentCodeText()
         binding.tvHomeAccessibility.text = host.accessibilitySummaryText()
         val a11yOn = host.isAccessibilityServiceEnabledForUi()
+        val events = host.recentEventLines(limit = 5)
+        val eventViews = listOf(
+            binding.tvHomeEvent1,
+            binding.tvHomeEvent2,
+            binding.tvHomeEvent3,
+            binding.tvHomeEvent4,
+            binding.tvHomeEvent5,
+        )
+        eventViews.forEachIndexed { index, textView ->
+            val line = events.getOrNull(index)
+            if (line == null) {
+                textView.text = getString(R.string.home_recent_events_empty)
+                textView.visibility = if (index == 0) View.VISIBLE else View.GONE
+            } else {
+                textView.text = line
+                textView.visibility = View.VISIBLE
+            }
+        }
         val ctx = requireContext()
         binding.layoutHomeAccessibilityCard.setBackgroundResource(
             if (a11yOn) R.drawable.home_accessibility_success_bg else R.drawable.card_warning_bg,
@@ -73,6 +91,18 @@ class HomeFragment : Fragment(), DashboardFragment {
         binding.tvHomeAccessibility.setTextColor(
             ContextCompat.getColor(ctx, if (a11yOn) R.color.success else R.color.warning),
         )
+        if (a11yOn) {
+            binding.tvHomeAccessibilityStepsTitle.text = getString(R.string.home_accessibility_steps_title_enabled)
+            binding.tvHomeAccessibilityStep1.text = getString(R.string.home_accessibility_enabled_step_1)
+            binding.tvHomeAccessibilityStep2.text = getString(R.string.home_accessibility_enabled_step_2)
+            binding.tvHomeAccessibilityStep3.text = getString(R.string.home_accessibility_enabled_step_3)
+        } else {
+            binding.tvHomeAccessibilityStepsTitle.text = getString(R.string.home_accessibility_steps_title)
+            binding.tvHomeAccessibilityStep1.text = getString(R.string.home_accessibility_step_1)
+            binding.tvHomeAccessibilityStep2.text = getString(R.string.home_accessibility_step_2)
+            binding.tvHomeAccessibilityStep3.text = getString(R.string.home_accessibility_step_3)
+        }
+        binding.layoutHomeAccessibilitySteps.visibility = View.VISIBLE
         binding.btnHomeAccessibility.visibility = if (a11yOn) View.GONE else View.VISIBLE
     }
 

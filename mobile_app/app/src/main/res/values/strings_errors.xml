@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="dialog_accessibility_required_title">Erişilebilirlik gerekli</string>
+  <string name="dialog_accessibility_required_message">Bilgisayardan kontrol edebilmek için erişilebilirlik servisini açmanız gerekiyor. Ayarlara gidelim mi?</string>
+  <string name="dialog_open_settings">Ayarları aç</string>
+  <string name="dialog_cancel">Vazgeç</string>
+
+  <string name="settings_profile_fetch_failed">Kullanıcı bilgileri alınamadı.</string>
+  <string name="settings_profile_email_invalid">Geçerli bir e-posta adresi girin.</string>
+  <string name="settings_profile_updated">Profil güncellendi.</string>
+  <string name="settings_password_current_required">Mevcut şifre gerekli.</string>
+  <string name="settings_password_new_required">Yeni şifreyi iki alana da girin.</string>
+  <string name="settings_password_mismatch">Yeni şifreler eşleşmiyor.</string>
+  <string name="settings_password_too_short">Şifre en az 6 karakter olmalı.</string>
+  <string name="settings_password_updated">Şifre güncellendi.</string>
+  <string name="settings_clear_connections_empty">Kaldırılacak eşleşmiş cihaz yok.</string>
+  <string name="settings_clear_connections_success">%1$d eşleşmiş cihaz kaldırıldı.</string>
+  <string name="settings_clear_connections_partial">%1$d cihaz kaldırıldı, %2$d cihaz kaldırılamadı.</string>
+  <string name="settings_clear_connections_failed">Cihazlar kaldırılamadı. Lütfen tekrar deneyin.</string>
+
+  <string name="login_error_email_password_required">E-posta ve şifre zorunludur.</string>
+  <string name="login_error_name_required">Ad ve soyad zorunludur.</string>
+  <string name="login_error_email_invalid">Geçerli bir e-posta adresi girin.</string>
+  <string name="login_error_password_short">Şifre en az 6 karakter olmalıdır.</string>
+  <string name="login_error_password_mismatch">Şifreler eşleşmiyor.</string>
+  <string name="login_error_unexpected">Beklenmeyen bir hata oluştu.</string>
+</resources>

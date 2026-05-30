@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT_CONNECT = 25
 _TIMEOUT_READ = 90
 _TIMEOUT_READ_AUTH = 180
+_AUTH_RETRY_DELAY_SECONDS = 1.2
 
 
 def _http_base(ws_url: str) -> str:
@@ -90,11 +91,17 @@ class BackendApi:
             "mac_address": mac_address,
         }
         try:
-            r = self._post_json_with_cold_start_retry(url, body)
-            data = r.json() if r.text else {}
-            if r.status_code >= 400 or not data.get("ok"):
-                return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
-            return data, ""
+            for attempt in range(2):
+                r = self._post_json_with_cold_start_retry(url, body)
+                data = r.json() if r.text else {}
+                if r.status_code >= 400 or not data.get("ok"):
+                    if attempt == 0 and r.status_code == 401:
+                        logger.info("login: first attempt got 401, retrying once")
+                        time.sleep(_AUTH_RETRY_DELAY_SECONDS)
+                        continue
+                    return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
+                return data, ""
+            return None, "Giris dogrulanamadi. Lutfen tekrar deneyin."
         except (ReadTimeout, ConnectTimeout) as e:
             logger.warning("login zaman asimi: %s", e)
             return (
@@ -302,4 +309,31 @@ class BackendApi:
             return True, ""
         except (ReadTimeout, ConnectTimeout, RequestException) as e:
             logger.warning("delete_pairing: %s", e)
+            return False, str(e)
+
+    def delete_account(
+        self,
+        token: str,
+        *,
+        email: str,
+        password: str,
+    ) -> tuple[bool, str]:
+        url = f"{self._base}/auth/delete"
+        body = {
+            "email": (email or "").strip().lower(),
+            "password": password or "",
+        }
+        try:
+            r = self._session.post(
+                url,
+                headers=self._headers(token),
+                json=body,
+                timeout=self._timeout_tuple(),
+            )
+            data = r.json() if r.text else {}
+            if r.status_code >= 400 or not data.get("ok"):
+                return False, str(data.get("message") or r.text or f"HTTP {r.status_code}")
+            return True, ""
+        except (ReadTimeout, ConnectTimeout, RequestException) as e:
+            logger.warning("delete_account: %s", e)
             return False, str(e)

@@ -1,7 +1,6 @@
 package com.remotecontrol.device
 
 import android.content.Context
-import android.net.wifi.WifiManager
 import android.provider.Settings
 import java.net.NetworkInterface
 import java.util.Collections
@@ -14,18 +13,6 @@ object HardwareFingerprint {
     fun macOrAndroidId(context: Context): String {
         val fromIface = macFromInterfaces()
         if (fromIface != null) return fromIface
-        val wifi = try {
-            @Suppress("DEPRECATION")
-            context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        } catch (_: Exception) {
-            null
-        }
-        @Suppress("DEPRECATION")
-        val legacy = wifi?.connectionInfo?.macAddress
-            ?.replace(":", "")
-            ?.lowercase()
-            ?.takeIf { it.length == 12 && it != "020000000000" }
-        if (legacy != null) return legacy
         val aid = Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ANDROID_ID,

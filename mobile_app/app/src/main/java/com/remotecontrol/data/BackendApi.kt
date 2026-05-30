@@ -1,6 +1,7 @@
 package com.remotecontrol.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -26,6 +27,7 @@ data class AuthSession(
 data class DeviceSummary(
     val deviceId: String,
     val deviceType: String,
+    val username: String? = null,
     val deviceName: String?,
     val address: String?,
     val online: Boolean,
@@ -146,13 +148,19 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(error = "Cihaz kaydi guncellenemedi.")
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Cihaz kaydı güncellenemedi.",
+                        ),
+                    )
                 }
                 val address = runCatching { JSONObject(body).optString("address") }.getOrDefault("")
                 ApiResult(data = address)
             }
         } catch (_: IOException) {
-            ApiResult(error = "Sunucuya ulasilamadi. Baglanti adresini kontrol edin.")
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
         }
     }
 
@@ -166,14 +174,20 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(error = "Cihaz listesi alinmadi.")
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Eşleşme listesi alınamadı.",
+                        ),
+                    )
                 }
                 val json = JSONObject(body)
                 val pairings = parseDevices(json.optJSONArray("pairings"))
                 ApiResult(data = pairings)
             }
         } catch (_: IOException) {
-            ApiResult(error = "Cihaz listesi alinirken sunucuya ulasilamadi.")
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
         }
     }
 
@@ -187,14 +201,20 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(error = "Cihaz listesi alinmadi.")
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Cihaz listesi alınamadı.",
+                        ),
+                    )
                 }
                 val json = JSONObject(body)
                 val devices = parseDevices(json.optJSONArray("devices"))
                 ApiResult(data = devices)
             }
         } catch (_: IOException) {
-            ApiResult(error = "Cihaz listesi alinirken sunucuya ulasilamadi.")
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
         }
     }
 
@@ -208,22 +228,29 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(error = "Recent cihaz listesi alinmadi.")
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Son kullanılan cihaz listesi alınamadı.",
+                        ),
+                    )
                 }
                 val json = JSONObject(body)
                 val devices = parseDevices(json.optJSONArray("devices"))
                 ApiResult(data = devices)
             }
         } catch (_: IOException) {
-            ApiResult(error = "Recent cihaz listesi alinirken sunucuya ulasilamadi.")
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
         }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun deletePairing(
         token: String,
         deviceId: String,
         partnerDeviceId: String,
-        partnerAddress: String?,
+        _partnerAddress: String?,
     ): ApiResult<Unit> = withContext(Dispatchers.IO) {
         try {
             val payload = JSONObject().apply {
@@ -238,13 +265,18 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    val message = runCatching { JSONObject(body).optString("message") }.getOrDefault("")
-                    return@withContext ApiResult(error = message.ifBlank { "Eslesme silinemedi." })
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Eşleşme silinemedi.",
+                        ),
+                    )
                 }
                 ApiResult(data = Unit)
             }
         } catch (_: IOException) {
-            ApiResult(error = "Eslesme silinirken sunucuya ulasilamadi.")
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
         }
     }
 
@@ -258,7 +290,13 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(error = "Kullanici bilgisi alinamadi.")
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Kullanıcı bilgisi alınamadı.",
+                        ),
+                    )
                 }
                 return@withContext runCatching {
                     val json = JSONObject(body)
@@ -278,11 +316,11 @@ class BackendApi(
                         )
                     )
                 }.getOrElse {
-                    ApiResult(error = "Sunucu yaniti gecersiz (me parse basarisiz).")
+                    ApiResult(error = "Sunucu yanıtı işlenemedi. Lütfen tekrar deneyin.")
                 }
             }
         } catch (_: IOException) {
-            ApiResult(error = "Kullanici bilgisi alinirken sunucuya ulasilamadi.")
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
         }
     }
 
@@ -296,7 +334,13 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(error = "Kullanici bilgisi alinamadi.")
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Profil bilgileri alınamadı.",
+                        ),
+                    )
                 }
                 return@withContext runCatching {
                     val json = JSONObject(body)
@@ -318,11 +362,11 @@ class BackendApi(
                         )
                     )
                 }.getOrElse {
-                    ApiResult(error = "Sunucu yaniti gecersiz (profile parse basarisiz).")
+                    ApiResult(error = "Sunucu yanıtı işlenemedi. Lütfen tekrar deneyin.")
                 }
             }
         } catch (_: IOException) {
-            ApiResult(error = "Kullanici bilgisi alinirken sunucuya ulasilamadi.")
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
         }
     }
 
@@ -352,8 +396,13 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    val message = runCatching { JSONObject(body).optString("message") }.getOrDefault("")
-                    return@withContext ApiResult(error = message.ifBlank { "Profil guncellenemedi." })
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Profil güncellenemedi.",
+                        ),
+                    )
                 }
                 return@withContext runCatching {
                     val json = JSONObject(body)
@@ -373,71 +422,122 @@ class BackendApi(
                         )
                     )
                 }.getOrElse {
-                    ApiResult(error = "Sunucu yaniti gecersiz (profile update parse basarisiz).")
+                    ApiResult(error = "Sunucu yanıtı işlenemedi. Lütfen tekrar deneyin.")
                 }
             }
         } catch (_: IOException) {
-            ApiResult(error = "Profil guncellenirken sunucuya ulasilamadi.")
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
+        }
+    }
+
+    suspend fun deleteAccount(
+        token: String,
+        email: String,
+        password: String,
+    ): ApiResult<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("email", email.trim().lowercase())
+                put("password", password)
+            }
+            val request = Request.Builder()
+                .url("$baseHttpUrl/auth/delete")
+                .addHeader("Authorization", "Bearer $token")
+                .post(payload.toString().toRequestBody(jsonType))
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext ApiResult(
+                        error = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Hesap silinemedi.",
+                        ),
+                    )
+                }
+                ApiResult(data = Unit)
+            }
+        } catch (_: IOException) {
+            ApiResult(error = BackendErrorMapper.mapNetworkError())
         }
     }
 
     private suspend fun authRequest(path: String, payload: JSONObject): ApiResult<AuthSession> = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("$baseHttpUrl$path")
-                .post(payload.toString().toRequestBody(jsonType))
-                .build()
+        for (attempt in 0 until 2) {
+            try {
+                val request = Request.Builder()
+                    .url("$baseHttpUrl$path")
+                    .post(payload.toString().toRequestBody(jsonType))
+                    .build()
 
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    val message = when (response.code) {
-                        404, 405 -> "Sunucuda kimlik dogrulama API'si aktif degil. Guncel sunucuyu calistirin."
-                        401 -> runCatching { JSONObject(body).optString("message") }.getOrDefault("Kullanici adi veya sifre hatali.")
-                        else -> runCatching { JSONObject(body).optString("message") }.getOrDefault("").ifBlank {
-                            "Kimlik dogrulama basarisiz."
-                        }
-                    }
-                    return@withContext ApiResult(error = message)
-                }
-                // Sunucudan beklenmeyen JSON gelirse UYGULAMAYI cektirmesin diye korumalı parse.
-                val parsed = runCatching {
-                    val json = JSONObject(body)
-                    val user = json.getJSONObject("user")
-                    val authToken = json.getString("token")
-                    val uid = when {
-                        user.has("id") -> user.getInt("id")
-                        user.has("user_id") -> user.getInt("user_id")
-                        else -> -1
-                    }
-                    require(uid >= 0) { "missing user id" }
-                    ApiResult(
-                        data = AuthSession(
-                            token = authToken,
-                            userId = uid,
-                            username = user.optString("username"),
-                            address = user.optString("address"),
+                var retryAfterUnauthorized = false
+                var parsedResult: ApiResult<AuthSession>? = null
+
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        val message = BackendErrorMapper.mapHttpError(
+                            statusCode = response.code,
+                            responseBody = body,
+                            fallback = "Kimlik doğrulama başarısız.",
                         )
-                    )
-                }.getOrElse {
-                    ApiResult(error = "Sunucu yaniti gecersiz (auth parse basarisiz).")
+                        if (response.code == 401 && attempt == 0) {
+                            retryAfterUnauthorized = true
+                        } else {
+                            parsedResult = ApiResult(error = message)
+                        }
+                        return@use
+                    }
+                    parsedResult = runCatching {
+                        val json = JSONObject(body)
+                        val user = json.getJSONObject("user")
+                        val authToken = json.getString("token")
+                        val uid = when {
+                            user.has("id") -> user.getInt("id")
+                            user.has("user_id") -> user.getInt("user_id")
+                            else -> -1
+                        }
+                        require(uid >= 0) { "missing user id" }
+                        ApiResult(
+                            data = AuthSession(
+                                token = authToken,
+                                userId = uid,
+                                username = user.optString("username"),
+                                address = user.optString("address"),
+                            )
+                        )
+                    }.getOrElse {
+                        ApiResult(error = "Sunucu yanıtı işlenemedi. Lütfen tekrar deneyin.")
+                    }
                 }
-                return@withContext parsed
-            }
-        } catch (_: IOException) {
-            ApiResult(error = "Sunucuya ulasilamadi. URL ve internet baglantisini kontrol edin.")
-        }
-    }
 
+                if (retryAfterUnauthorized) {
+                    delay(1200)
+                    continue
+                }
+                return@withContext parsedResult ?: ApiResult(error = "Kimlik doğrulama başarısız.")
+            } catch (_: IOException) {
+                if (attempt == 0) {
+                    delay(1200)
+                    continue
+                }
+                return@withContext ApiResult(error = BackendErrorMapper.mapNetworkError())
+            }
+        }
+        ApiResult(error = "Giriş doğrulanamadı. Lütfen tekrar deneyin.")
+    }
     private fun parseDevices(array: JSONArray?): List<DeviceSummary> {
         if (array == null) return emptyList()
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
+                val owner = extractOwnerName(item)
                 add(
                     DeviceSummary(
                         deviceId = item.optString("device_id"),
                         deviceType = item.optString("device_type"),
+                        username = owner,
                         deviceName = item.optString("device_name").takeIf { it.isNotBlank() },
                         address = item.optString("address").takeIf { it.isNotBlank() },
                         online = item.optBoolean("is_online", false),
@@ -446,5 +546,38 @@ class BackendApi(
                 )
             }
         }
+    }
+
+    private fun extractOwnerName(item: JSONObject): String? {
+        val directFirst = firstNonBlank(
+            item.optString("first_name"),
+            item.optString("owner_first_name"),
+            item.optString("user_first_name"),
+        )
+        val directLast = firstNonBlank(
+            item.optString("last_name"),
+            item.optString("owner_last_name"),
+            item.optString("user_last_name"),
+        )
+        val fullFromDirect = listOf(directFirst, directLast).filter { it.isNotBlank() }.joinToString(" ")
+        if (fullFromDirect.isNotBlank()) return fullFromDirect
+
+        val ownerObj = item.optJSONObject("owner")
+        if (ownerObj != null) {
+            val ownerFirst = firstNonBlank(ownerObj.optString("first_name"), ownerObj.optString("firstName"))
+            val ownerLast = firstNonBlank(ownerObj.optString("last_name"), ownerObj.optString("lastName"))
+            val fullFromOwner = listOf(ownerFirst, ownerLast).filter { it.isNotBlank() }.joinToString(" ")
+            if (fullFromOwner.isNotBlank()) return fullFromOwner
+        }
+
+        return firstNonBlank(
+            item.optString("owner_name"),
+            item.optString("username"),
+            ownerObj?.optString("username").orEmpty(),
+        ).ifBlank { null }
+    }
+
+    private fun firstNonBlank(vararg values: String): String {
+        return values.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
     }
 }

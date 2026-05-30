@@ -227,24 +227,24 @@ class LoginActivity : AppCompatActivity() {
         val macFp = HardwareFingerprint.macOrAndroidId(this)
 
         if (email.isEmpty() || password.isEmpty()) {
-            showError("E-posta ve sifre zorunludur.")
+            showError(getString(R.string.login_error_email_password_required))
             return
         }
         if (isRegister) {
             if (firstName.isEmpty() || lastName.isEmpty()) {
-                showError("Ad ve soyad zorunludur.")
+                showError(getString(R.string.login_error_name_required))
                 return
             }
             if (!email.contains("@")) {
-                showError("Gecerli bir e-posta girin.")
+                showError(getString(R.string.login_error_email_invalid))
                 return
             }
             if (password.length < 6) {
-                showError("Sifre en az 6 karakter olmali.")
+                showError(getString(R.string.login_error_password_short))
                 return
             }
             if (password != password2) {
-                showError("Sifreler eslesmiyor.")
+                showError(getString(R.string.login_error_password_mismatch))
                 return
             }
         }
@@ -270,7 +270,7 @@ class LoginActivity : AppCompatActivity() {
             setLoading(false, isRegister)
 
             if (result.error != null || result.data == null) {
-                showError(result.error ?: "Beklenmeyen bir hata olustu.")
+                showError(result.error ?: getString(R.string.login_error_unexpected))
                 if (!isRegister) {
                     binding.etPassword.text.clear()
                     binding.etPassword.requestFocus()
