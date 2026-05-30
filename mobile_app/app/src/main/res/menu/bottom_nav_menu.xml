@@ -2,11 +2,11 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:id="@+id/nav_home"
-        android:icon="@android:drawable/ic_menu_view"
+        android:icon="@drawable/ic_home"
         android:title="@string/nav_home" />
     <item
         android:id="@+id/nav_devices"
-        android:icon="@android:drawable/ic_menu_manage"
+        android:icon="@drawable/ic_devices"
         android:title="@string/nav_devices" />
     <item
         android:id="@+id/nav_help"
@@ -14,6 +14,6 @@
         android:title="@string/nav_help" />
     <item
         android:id="@+id/nav_profile"
-        android:icon="@android:drawable/ic_menu_preferences"
+        android:icon="@drawable/ic_settings"
         android:title="@string/nav_profile" />
 </menu>

@@ -46,11 +46,12 @@
             android:paddingHorizontal="@dimen/card_padding_large"
             android:paddingVertical="@dimen/card_padding_large">
 
-            <TextView
+            <ImageView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="📱"
-                android:textSize="30sp"
+                android:src="@drawable/ic_devices"
+                android:tint="@color/primary"
+                android:contentDescription="@string/nav_devices"
                 android:layout_marginBottom="@dimen/item_gap" />
 
             <TextView

@@ -76,6 +76,18 @@ class DevicesFragment : Fragment(), DashboardFragment {
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
 
+        val deviceIcon = androidx.appcompat.widget.AppCompatImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_devices)
+            setColorFilter(ContextCompat.getColor(requireContext(), R.color.primary))
+            contentDescription = getString(R.string.nav_devices)
+            background = ContextCompat.getDrawable(requireContext(), R.drawable.card_soft_bg)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply {
+                rightMargin = dp(10)
+            }
+        }
+        headerRow.addView(deviceIcon)
+
         val title = TextView(requireContext()).apply {
             text = device.username?.takeIf { it.isNotBlank() } ?: host.usernameText()
             setTextColor(ContextCompat.getColor(requireContext(), R.color.text_primary))
@@ -126,7 +138,7 @@ class DevicesFragment : Fragment(), DashboardFragment {
                     .setPositiveButton(R.string.forget_device) { _, _ ->
                         host.forgetPairingFromUi(device.deviceId, device.address)
                     }
-                    .setNegativeButton(android.R.string.cancel, null)
+                    .setNegativeButton(R.string.dialog_cancel, null)
                     .show()
             }
         }
