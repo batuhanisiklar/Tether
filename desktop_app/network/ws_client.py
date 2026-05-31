@@ -164,6 +164,9 @@ class WsClient(QObject):
     def send_key_event(self, key_code: int) -> None:
         self.send_command({"action": "key_event", "key_code": key_code})
 
+    def send_volume_delta(self, delta: int) -> None:
+        self.send_command({"action": "volume_delta", "delta": int(delta)})
+
     def send_rotate_screen(self, degrees: int) -> None:
         """Telefon aktivitesinin fiziksel yönünü ayarlar (0, 90, 180, 270)."""
         d = int(degrees) % 360

@@ -162,6 +162,11 @@ class MainWindow(
 
         self._screen_capture_prompt_sent = False
         self._last_stream_size: tuple[int, int] = (0, 0)
+        self._pending_volume_delta = 0
+        self._volume_flush_timer = QTimer(self)
+        self._volume_flush_timer.setSingleShot(True)
+        self._volume_flush_timer.setInterval(60)
+        self._volume_flush_timer.timeout.connect(self._flush_pending_volume_delta)
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
@@ -704,10 +709,31 @@ class MainWindow(
             self._ws_client.send_swipe(x1, y1, x2, y2)
 
     def _on_screen_remote_key(self, key_code: int) -> None:
-        if self._connected:
-            self._ws_client.send_key_event(int(key_code))
-            if int(key_code) == AndroidKeyCodes.VOL_MUTE:
-                self._update_volume_mute_button_label()
+        if not self._connected:
+            return
+        key_code = int(key_code)
+        if key_code == AndroidKeyCodes.VOL_UP:
+            self._queue_volume_delta(1)
+            return
+        if key_code == AndroidKeyCodes.VOL_DOWN:
+            self._queue_volume_delta(-1)
+            return
+        self._ws_client.send_key_event(key_code)
+        if key_code == AndroidKeyCodes.VOL_MUTE:
+            self._update_volume_mute_button_label()
+
+    def _queue_volume_delta(self, delta: int) -> None:
+        self._pending_volume_delta += int(delta)
+        if not self._volume_flush_timer.isActive():
+            self._volume_flush_timer.start()
+
+    def _flush_pending_volume_delta(self) -> None:
+        delta = self._pending_volume_delta
+        self._pending_volume_delta = 0
+        if not self._connected or delta == 0:
+            return
+        delta = max(-25, min(25, int(delta)))
+        self._ws_client.send_volume_delta(delta)
 
     def _set_remote_controls_enabled(self, enabled: bool) -> None:
         for btn in getattr(self, "_key_buttons", []):
@@ -747,6 +773,8 @@ class MainWindow(
     def _set_connected(self, connected: bool):
         self._connected = connected
         if not connected:
+            self._pending_volume_delta = 0
+            self._volume_flush_timer.stop()
             self._screen_capture_prompt_sent = False
             self._sync_stream_aspect_fit()
             self._phone_media_muted = None

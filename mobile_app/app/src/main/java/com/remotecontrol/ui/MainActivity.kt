@@ -44,6 +44,7 @@ import com.remotecontrol.service.ScreenStreamService
 import com.remotecontrol.databinding.ActivityMainBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -115,6 +116,7 @@ class MainActivity : AppCompatActivity() {
     /** Panelden gelen son mutlak ekran rotasyonu: 0, 90, 180, 270. */
     private var remoteRotationDegrees = 0
     private var hasRemoteRotationOverride = false
+    private var mediaMuteStatePushJob: Job? = null
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -636,7 +638,16 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     val success = withControlReceiver(getString(R.string.command_key)) { performKeyEvent(keyCode) }
                     if (success && isMediaVolumeKey(keyCode)) {
-                        pushMediaMuteStateNowAndSoon()
+                        scheduleMediaMuteStatePush()
+                    }
+                }
+            }
+            "volume_delta" -> {
+                val delta = ((params["delta"] as? Number)?.toInt() ?: return).coerceIn(-25, 25)
+                runOnUiThread {
+                    val success = withControlReceiver(getString(R.string.command_key)) { performVolumeDelta(delta) }
+                    if (success) {
+                        scheduleMediaMuteStatePush()
                     }
                 }
             }
@@ -685,12 +696,12 @@ class MainActivity : AppCompatActivity() {
             keyCode == KeyEvent.KEYCODE_VOLUME_MUTE
     }
 
-    private fun pushMediaMuteStateNowAndSoon() {
-        signalingClient?.pushPresenceSnapshotToServer()
-        scope.launch {
-            delay(120)
+    private fun scheduleMediaMuteStatePush() {
+        mediaMuteStatePushJob?.cancel()
+        mediaMuteStatePushJob = scope.launch {
+            delay(180)
             signalingClient?.pushPresenceSnapshotToServer()
-            delay(500)
+            delay(450)
             signalingClient?.pushPresenceSnapshotToServer()
         }
     }

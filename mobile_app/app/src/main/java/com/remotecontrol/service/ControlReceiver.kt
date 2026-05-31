@@ -12,6 +12,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.media.AudioManager
 import android.view.KeyEvent
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.*
@@ -27,6 +28,8 @@ class ControlReceiver : AccessibilityService() {
 
         /** Sessize almadan önce STREAM_MUSIC seviyesi (geri yükleme için). */
         private var musicVolBeforeMute: Int = -1
+        private const val VOLUME_UI_MIN_INTERVAL_MS = 700L
+        private var lastVolumeUiShownAtMs: Long = 0L
     }
 
     override fun onServiceConnected() {
@@ -131,14 +134,39 @@ class ControlReceiver : AccessibilityService() {
     }
 
     private fun adjustVolume(direction: Int): Boolean {
+        return performVolumeDelta(if (direction > 0) 1 else -1)
+    }
+
+    fun performVolumeDelta(delta: Int): Boolean {
+        if (delta == 0) return true
         return try {
             val am = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
-            val adj = if (direction > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
-            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, adj, AudioManager.FLAG_SHOW_UI)
+            val stream = AudioManager.STREAM_MUSIC
+            val minV = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                am.getStreamMinVolume(stream)
+            } else {
+                0
+            }
+            val maxV = am.getStreamMaxVolume(stream)
+            val current = am.getStreamVolume(stream)
+            val target = (current + delta).coerceIn(minV, maxV)
+            if (target != current) {
+                am.setStreamVolume(stream, target, volumeUiFlags())
+            }
             true
         } catch (e: Exception) {
-            Log.w(TAG, "Volume adjust: $e")
+            Log.w(TAG, "Volume delta adjust: $e")
             false
+        }
+    }
+
+    private fun volumeUiFlags(): Int {
+        val now = SystemClock.uptimeMillis()
+        return if (now - lastVolumeUiShownAtMs >= VOLUME_UI_MIN_INTERVAL_MS) {
+            lastVolumeUiShownAtMs = now
+            AudioManager.FLAG_SHOW_UI
+        } else {
+            0
         }
     }
 
@@ -155,7 +183,7 @@ class ControlReceiver : AccessibilityService() {
             when {
                 cur > 0 -> {
                     musicVolBeforeMute = cur
-                    am.setStreamVolume(stream, 0, AudioManager.FLAG_SHOW_UI)
+                    am.setStreamVolume(stream, 0, volumeUiFlags())
                     Log.d(TAG, "Mute: volume 0 (was $cur)")
                 }
                 else -> {
@@ -163,7 +191,7 @@ class ControlReceiver : AccessibilityService() {
                         musicVolBeforeMute in 1..maxV -> musicVolBeforeMute
                         else -> maxOf(1, maxV / 4)
                     }
-                    am.setStreamVolume(stream, restore, AudioManager.FLAG_SHOW_UI)
+                    am.setStreamVolume(stream, restore, volumeUiFlags())
                     Log.d(TAG, "Mute off: restored to $restore")
                     musicVolBeforeMute = -1
                 }
