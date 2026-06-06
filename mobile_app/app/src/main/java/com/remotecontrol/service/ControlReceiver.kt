@@ -30,6 +30,12 @@ class ControlReceiver : AccessibilityService() {
         private var musicVolBeforeMute: Int = -1
         private const val VOLUME_UI_MIN_INTERVAL_MS = 700L
         private var lastVolumeUiShownAtMs: Long = 0L
+
+        /** Tüm ses işlemlerini serileştirmek için ortak kilit. */
+        private val volumeLock = Any()
+        /** Mute toggle cooldown — hızlı ardışık basışları engeller. */
+        private const val MUTE_TOGGLE_COOLDOWN_MS = 250L
+        private var lastMuteToggleAtMs: Long = 0L
     }
 
     override fun onServiceConnected() {
@@ -137,26 +143,33 @@ class ControlReceiver : AccessibilityService() {
         return performVolumeDelta(if (direction > 0) 1 else -1)
     }
 
+    /**
+     * Ses seviyesini delta kadar değiştirir.
+     * Tüm ses işlemleri [volumeLock] ile serileştirilir — eşzamanlı
+     * volume_delta + mute toggle çağrılarında AudioManager yarışması önlenir.
+     */
     fun performVolumeDelta(delta: Int): Boolean {
         if (delta == 0) return true
-        return try {
-            val am = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
-            val stream = AudioManager.STREAM_MUSIC
-            val minV = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                am.getStreamMinVolume(stream)
-            } else {
-                0
+        synchronized(volumeLock) {
+            return try {
+                val am = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+                val stream = AudioManager.STREAM_MUSIC
+                val minV = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    am.getStreamMinVolume(stream)
+                } else {
+                    0
+                }
+                val maxV = am.getStreamMaxVolume(stream)
+                val current = am.getStreamVolume(stream)
+                val target = (current + delta).coerceIn(minV, maxV)
+                if (target != current) {
+                    am.setStreamVolume(stream, target, volumeUiFlags())
+                }
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "Volume delta adjust: $e")
+                false
             }
-            val maxV = am.getStreamMaxVolume(stream)
-            val current = am.getStreamVolume(stream)
-            val target = (current + delta).coerceIn(minV, maxV)
-            if (target != current) {
-                am.setStreamVolume(stream, target, volumeUiFlags())
-            }
-            true
-        } catch (e: Exception) {
-            Log.w(TAG, "Volume delta adjust: $e")
-            false
         }
     }
 
@@ -173,33 +186,45 @@ class ControlReceiver : AccessibilityService() {
     /**
      * Medya sesini tamamen kes / önceki seviyeye döndür.
      * ADJUST_TOGGLE_MUTE birçok OEM'de güvenilir değil; setStreamVolume kullanıyoruz.
+     *
+     * [volumeLock] ile serileştirilir ve cooldown uygulanır — hızlı ardışık
+     * toggle'lar AudioManager'ı tutarsız duruma düşürmez.
      */
     private fun toggleStreamMute(): Boolean {
-        val am = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
-        val stream = AudioManager.STREAM_MUSIC
-        return try {
-            val maxV = am.getStreamMaxVolume(stream)
-            val cur = am.getStreamVolume(stream)
-            when {
-                cur > 0 -> {
-                    musicVolBeforeMute = cur
-                    am.setStreamVolume(stream, 0, volumeUiFlags())
-                    Log.d(TAG, "Mute: volume 0 (was $cur)")
-                }
-                else -> {
-                    val restore = when {
-                        musicVolBeforeMute in 1..maxV -> musicVolBeforeMute
-                        else -> maxOf(1, maxV / 4)
-                    }
-                    am.setStreamVolume(stream, restore, volumeUiFlags())
-                    Log.d(TAG, "Mute off: restored to $restore")
-                    musicVolBeforeMute = -1
-                }
+        synchronized(volumeLock) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastMuteToggleAtMs < MUTE_TOGGLE_COOLDOWN_MS) {
+                Log.d(TAG, "Mute toggle cooldown — yok sayıldı")
+                return true
             }
-            true
-        } catch (e: Exception) {
-            Log.w(TAG, "Mute toggle: $e")
-            false
+            lastMuteToggleAtMs = now
+
+            val am = getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+            val stream = AudioManager.STREAM_MUSIC
+            return try {
+                val maxV = am.getStreamMaxVolume(stream)
+                val cur = am.getStreamVolume(stream)
+                when {
+                    cur > 0 -> {
+                        musicVolBeforeMute = cur
+                        am.setStreamVolume(stream, 0, volumeUiFlags())
+                        Log.d(TAG, "Mute: volume 0 (was $cur)")
+                    }
+                    else -> {
+                        val restore = when {
+                            musicVolBeforeMute in 1..maxV -> musicVolBeforeMute
+                            else -> maxOf(1, maxV / 4)
+                        }
+                        am.setStreamVolume(stream, restore, volumeUiFlags())
+                        Log.d(TAG, "Mute off: restored to $restore")
+                        musicVolBeforeMute = -1
+                    }
+                }
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "Mute toggle: $e")
+                false
+            }
         }
     }
 

@@ -168,6 +168,12 @@ class MainWindow(
         self._volume_flush_timer.setInterval(60)
         self._volume_flush_timer.timeout.connect(self._flush_pending_volume_delta)
 
+        # Mute buton kilidi — basıldığında buton kilitlenir, timer bitince açılır
+        self._mute_lock_timer = QTimer(self)
+        self._mute_lock_timer.setSingleShot(True)
+        self._mute_lock_timer.setInterval(500)
+        self._mute_lock_timer.timeout.connect(self._unlock_mute_button)
+
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -718,9 +724,10 @@ class MainWindow(
         if key_code == AndroidKeyCodes.VOL_DOWN:
             self._queue_volume_delta(-1)
             return
-        self._ws_client.send_key_event(key_code)
         if key_code == AndroidKeyCodes.VOL_MUTE:
-            self._update_volume_mute_button_label()
+            self._send_mute_with_lock()
+            return
+        self._ws_client.send_key_event(key_code)
 
     def _queue_volume_delta(self, delta: int) -> None:
         self._pending_volume_delta += int(delta)
@@ -734,6 +741,34 @@ class MainWindow(
             return
         delta = max(-25, min(25, int(delta)))
         self._ws_client.send_volume_delta(delta)
+
+    def _send_mute_with_lock(self) -> None:
+        """Mute komutunu hemen gönderir ve butonu geçici olarak kilitler.
+
+        500 ms boyunca buton tıklanamaz — hızlı ardışık basışların
+        yayını patlatması engellenir.
+        """
+        btn = getattr(self, "_btn_vol_mute", None)
+        if btn is not None and not btn.isEnabled():
+            # Buton zaten kilitli — tekrar basışı yok say
+            return
+        if not self._connected:
+            return
+        # Komutu hemen gönder
+        self._ws_client.send_key_event(AndroidKeyCodes.VOL_MUTE)
+        self._update_volume_mute_button_label()
+        # Butonu kilitle
+        if btn is not None:
+            btn.setEnabled(False)
+        self._mute_lock_timer.start()
+
+    def _unlock_mute_button(self) -> None:
+        """Timer dolunca mute butonunu tekrar aktif eder."""
+        btn = getattr(self, "_btn_vol_mute", None)
+        if btn is not None and self._connected and self._remote_frame_visible:
+            btn.setEnabled(True)
+        self._update_volume_mute_button_label()
+
 
     def _set_remote_controls_enabled(self, enabled: bool) -> None:
         for btn in getattr(self, "_key_buttons", []):
@@ -775,6 +810,7 @@ class MainWindow(
         if not connected:
             self._pending_volume_delta = 0
             self._volume_flush_timer.stop()
+            self._mute_lock_timer.stop()
             self._screen_capture_prompt_sent = False
             self._sync_stream_aspect_fit()
             self._phone_media_muted = None
