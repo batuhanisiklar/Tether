@@ -104,8 +104,8 @@ class Colors:
     GREEN_DIM:   str = "rgba(74,222,128,0.35)"
 
     # ── Durum: hata / tehlike (kırmızı) ────────────────────────────────
-    ERROR:       str = "#F87171"   # Hata metni / tehlike göstergesi
-    RED:         str = "#F87171"   # alias for ERROR
+    ERROR:       str = "#FF4D4F"   # Hata metni / tehlike göstergesi
+    RED:         str = "#FF4D4F"   # alias for ERROR
     WARNING:     str = "#FFCB70"   # Uyarı rengi
 
     # ── Buton yüzeyleri ─────────────────────────────────────────────────
@@ -119,15 +119,15 @@ class Colors:
     BTN_SEC_FG:  str = "#CCCCCC"
     BTN_SEC_HOV: str = "#3A3A3A"
 
-    BTN_DANGER_BG:  str = "#3A2020"
-    BTN_DANGER_BDR: str = "#662828"
-    BTN_DANGER_FG:  str = "#FF6666"
-    BTN_DANGER_HOV: str = "#442828"
+    BTN_DANGER_BG:  str = "#E03137"
+    BTN_DANGER_BDR: str = "#FF6B6E"
+    BTN_DANGER_FG:  str = "#FFFFFF"
+    BTN_DANGER_HOV: str = "#FF4D4F"
 
-    BTN_DISCONNECT_BG:  str = "#3A2020"
-    BTN_DISCONNECT_BDR: str = "#662828"
-    BTN_DISCONNECT_FG:  str = "#FF6666"
-    BTN_DISCONNECT_HOV: str = "#442828"
+    BTN_DISCONNECT_BG:  str = "#E03137"
+    BTN_DISCONNECT_BDR: str = "#FF6B6E"
+    BTN_DISCONNECT_FG:  str = "#FFFFFF"
+    BTN_DISCONNECT_HOV: str = "#FF4D4F"
 
     # Tuş kontrol buton renkleri
     BTN_NAV_BG:  str = "#2A3040"

@@ -130,12 +130,24 @@ def _card_frame() -> QFrame:
 
 def _danger_button_style() -> str:
     return filled_button_style(
-        background="#5A2A2A",
-        foreground="#FFD7D7",
-        hover="#6A3131",
-        pressed="#4A1E1E",
-        disabled_background="#3A2A2A",
-        disabled_foreground="#AA8E8E",
+        background="#E03137",
+        foreground="#FFFFFF",
+        hover="#FF4D4F",
+        pressed="#B91C1C",
+        disabled_background="#3A2526",
+        disabled_foreground="#8F7375",
+    )
+
+
+def _danger_outline_button_style() -> str:
+    return outline_button_style(
+        background="rgba(255,77,79,0.10)",
+        foreground="#FF6B6E",
+        border_color="rgba(255,77,79,0.52)",
+        hover_background="rgba(255,77,79,0.22)",
+        hover_foreground="#FFFFFF",
+        hover_border="#FF6B6E",
+        font_weight=700,
     )
 
 
@@ -257,7 +269,7 @@ def _build_account_card(window: "MainWindow", parent_lay: QVBoxLayout) -> None:
     window._profile_btn_clear_connections = QPushButton("Tüm Cihazları Kaldır")
     window._profile_btn_clear_connections.setMinimumHeight(40)
     window._profile_btn_clear_connections.setCursor(Qt.CursorShape.PointingHandCursor)
-    window._profile_btn_clear_connections.setStyleSheet(outline_button_style())
+    window._profile_btn_clear_connections.setStyleSheet(_danger_outline_button_style())
     window._profile_btn_clear_connections.clicked.connect(window._clear_all_connections_from_drawer)
     summary_lay.addWidget(window._profile_btn_clear_connections)
 

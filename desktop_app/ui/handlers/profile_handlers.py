@@ -7,7 +7,6 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation
-from PyQt6.QtWidgets import QMessageBox
 
 from desktop_app.config.constants import Prefs
 from desktop_app.config.prefs_store import (
@@ -15,12 +14,14 @@ from desktop_app.config.prefs_store import (
     clear_paired_phone_id,
     update_prefs,
 )
+from desktop_app.ui.components.confirm_dialog import confirm_clear_all_pairings
 from desktop_app.ui.styles.app_styles import (
     MAIN_FOOTER_BAR_HEIGHT,
     MAIN_NAV_BAR_HEIGHT,
     WIN_CHROME_BAR_HEIGHT,
 )
 from desktop_app.ui.theme import filled_button_style, outline_button_style
+from desktop_app.ui.utils import address_digits
 
 logger = logging.getLogger(__name__)
 
@@ -357,45 +358,84 @@ class ProfileHandlersMixin:
         self._on_logout()
 
     def _clear_all_connections_from_drawer(self) -> None:
-        card_list = list(self._device_cards.values())
-        total = len(card_list)
-        if total == 0:
-            self._set_status("Kaldırılacak eşleşmiş cihaz yok.")
-            return
         if not self._auth_token:
             self._set_status("Cihazları kaldırmak için tekrar giriş yapın.", error=True)
             return
 
-        answer = QMessageBox.question(
-            self,
-            "Tüm Cihazları Kaldır",
-            f"{total} eşleşmiş cihaz kaydı kalıcı olarak kaldırılacak. Silmek istiyor musunuz?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
+        targets: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def add_target(device_id: str | None, address: str | None) -> None:
+            did = str(device_id or "").strip()
+            addr = address_digits(address)
+            if not did:
+                return
+            key = (did, addr or "")
+            if key in seen:
+                return
+            seen.add(key)
+            targets.append({"device_id": did, "address": addr})
+
+        for card in list(self._device_cards.values()):
+            add_target(card.device_id, card.address)
+
+        if not targets:
+            for device in self._load_paired_devices():
+                add_target(device.get("device_id"), device.get("address"))
+
+        total = len(targets)
+        if total == 0:
+            self._set_status("Kaldırılacak eşleşmiş cihaz yok.")
+            return
+
+        if not confirm_clear_all_pairings(self, total):
             return
 
         self._profile_btn_clear_connections.setEnabled(False)
         cleared = 0
         failed = 0
         removed_active = False
+        cleared_ids: set[str] = set()
+        paired_addr = address_digits(self._paired_phone_address)
 
-        for card in card_list:
-            ok, _err = self._backend_api.delete_pairing(
-                self._auth_token,
-                self._ws_client.device_id,
-                card.device_id,
-                card.address,
-            )
-            if ok:
-                cleared += 1
-                if self._paired_phone_id == card.device_id or self._paired_phone_address == card.address:
-                    removed_active = True
+        try:
+            for target in targets:
+                device_id = target["device_id"]
+                address = target["address"]
+                ok, _err = self._backend_api.delete_pairing(
+                    self._auth_token,
+                    self._ws_client.device_id,
+                    device_id,
+                    address,
+                )
+                if ok:
+                    cleared += 1
+                    cleared_ids.add(device_id)
+                    if self._paired_phone_id == device_id or (paired_addr and paired_addr == address):
+                        removed_active = True
+                else:
+                    failed += 1
+        finally:
+            self._profile_btn_clear_connections.setEnabled(True)
+
+        if cleared_ids:
+            for device_id in cleared_ids:
+                card = self._device_cards.pop(device_id, None)
+                if card is not None:
+                    self._recent_devices_layout.removeWidget(card)
+                    card.deleteLater()
+            self._online_paired_devices.difference_update(cleared_ids)
+            if not self._device_cards:
+                self._lbl_no_devices.show()
+                self._lbl_device_count.setText("")
             else:
-                failed += 1
-
-        self._profile_btn_clear_connections.setEnabled(True)
+                online_count = sum(
+                    1 for key in self._device_cards if key in self._online_paired_devices
+                )
+                self._lbl_device_count.setText(
+                    f"{online_count} aktif / {len(self._device_cards)} cihaz"
+                )
+                self._reflow_device_cards()
 
         self._load_devices_from_db()
         self._ws_client.send_request_presence()
@@ -408,7 +448,6 @@ class ProfileHandlersMixin:
             clear_paired_phone_id()
             self._ws_client.forget_paired_phone()
             self._on_disconnect()
-            return
 
         if failed == 0:
             self._set_status(f"{cleared} eşleşmiş cihaz kaldırıldı.")

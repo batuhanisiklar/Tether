@@ -88,10 +88,10 @@ REMOTE_BTN_ICON_PRIMARY_SS = f"""
 
 REMOTE_BTN_DANGER_SS = f"""
     QPushButton {{
-        color: #FFB8B8;
+        color: #FFFFFF;
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #4A2A2A, stop:1 #3A2222);
-        border: 1px solid rgba(248, 113, 113, 0.35);
+            stop:0 #FF5A5F, stop:1 #D9272E);
+        border: 1px solid rgba(255, 107, 110, 0.72);
         border-radius: {Radius.LG}px;
         font-size: 14px;
         font-weight: 700;
@@ -99,10 +99,10 @@ REMOTE_BTN_DANGER_SS = f"""
     }}
     QPushButton:hover {{
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #5C3434, stop:1 #452828);
-        border-color: rgba(248, 113, 113, 0.55);
+            stop:0 #FF7074, stop:1 #FF3F46);
+        border-color: rgba(255, 180, 181, 0.92);
     }}
-    QPushButton:pressed {{ background: #361818; }}
+    QPushButton:pressed {{ background: #B91C1C; }}
     QPushButton:disabled {{
         background-color: {_BG_INPUT};
         color: {_TEXT_DIM};
@@ -224,8 +224,8 @@ def device_card_style(online: bool) -> str:
 
 WARNING_CLOSE_BTN_SS = f"""
     QPushButton {{
-        color: #FFCCCC;
-        background-color: rgba(248,113,113,0.16);
+        color: #FFFFFF;
+        background-color: rgba(255,77,79,0.34);
         border: none;
         border-radius: 10px;
         font-size: 11px;
@@ -234,7 +234,7 @@ WARNING_CLOSE_BTN_SS = f"""
         min-width: 64px;
     }}
     QPushButton:hover {{
-        background-color: rgba(248,113,113,0.24);
+        background-color: rgba(255,77,79,0.52);
     }}
-    QPushButton:pressed {{ background-color: rgba(248,113,113,0.22); }}
+    QPushButton:pressed {{ background-color: rgba(185,28,28,0.70); }}
 """
