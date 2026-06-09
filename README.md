@@ -47,7 +47,6 @@ Gercek secret degerlerini repoya yazmayin. `.env.example` dosyasini sablon olara
 | `AUTH_TOKEN_TTL_SEC` | Hayir | Token suresi, varsayilan 86400 |
 | `APP_ENV` | Hayir | Ortam adi (onerilen: `production`) |
 | `PORT` | Hayir | Server portu, varsayilan 8765 |
-| `RPC_SERVER_URL` | Hayir | Desktop icin varsayilan signaling URL override'i |
 
 ## Kurulum
 
@@ -76,15 +75,9 @@ $env:APP_ENV="production"
 python signaling_server/server.py
 ```
 
-Health check:
-
-```text
-GET /health
-```
-
 ### Render deploy
 
-`render.yaml` server icin `AUTH_SECRET` degerini Render tarafinda otomatik uretecek sekilde ayarlidir. Mevcut bir Render servisini Blueprint ile yonetmiyorsaniz Dashboard > Environment bolumunden su degerleri ekleyin:
+ `AUTH_SECRET` degeri Render tarafinda otomatik üretilecektir. Dashboard > Environment bolumunden su degerleri ekleyin:
 
 - `APP_ENV=production`
 - `AUTH_SECRET`: uzun, rastgele secret
