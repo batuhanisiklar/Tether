@@ -30,6 +30,7 @@ import com.remotecontrol.R
 import com.remotecontrol.auth.AppSettingsStore
 import com.remotecontrol.auth.LoginActivity
 import com.remotecontrol.auth.SessionStore
+import com.remotecontrol.data.ApiResult
 import com.remotecontrol.data.AuthSession
 import com.remotecontrol.data.BackendApi
 import com.remotecontrol.data.DeviceIdentityStore
@@ -873,17 +874,23 @@ class MainActivity : AppCompatActivity() {
     private suspend fun refreshSessionToken(): Boolean {
         val token = sessionStore.authToken()
         if (token.isBlank()) return false
-        val result = retryMeFetch(token, deviceId)
-        if (result != null) {
+        val result = retryMeFetchResult(token, deviceId)
+        val session = result.data
+        if (session != null) {
             // Sunucu yeni token dondurdu — kaydet.
-            sessionStore.save(result)
-            if (result.address.isNotBlank()) {
-                deviceId = result.address.filter(Char::isDigit).take(12)
+            sessionStore.save(session)
+            if (session.address.isNotBlank()) {
+                deviceId = session.address.filter(Char::isDigit).take(12)
                 deviceIdentityStore.saveDeviceId(deviceId)
-                currentAddress = result.address
+                currentAddress = session.address
             }
             Log.i(TAG, "Token basariyla yenilendi")
             return true
+        }
+        if (isInvalidSessionStatus(result.statusCode)) {
+            Log.w(TAG, "Token gecersiz veya kullanici silinmis; local oturum temizleniyor")
+            sessionStore.clear()
+            return false
         }
         Log.w(TAG, "Token yenilenemedi — mevcut token ile devam ediliyor")
         // Token yenilenemese bile mevcut token hala gecerli olabilir.
@@ -926,12 +933,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun retryMeFetch(token: String, deviceId: String): AuthSession? {
+        return retryMeFetchResult(token, deviceId).data
+    }
+
+    private suspend fun retryMeFetchResult(token: String, deviceId: String): ApiResult<AuthSession> {
+        var lastResult: ApiResult<AuthSession>? = null
         repeat(3) { attempt ->
             val result = backendApi.getMe(token, deviceId)
-            result.data?.let { return it }
+            result.data?.let { return result }
+            lastResult = result
+            if (isInvalidSessionStatus(result.statusCode)) return result
             if (attempt < 2) delay(500L * (attempt + 1))
         }
-        return null
+        return lastResult ?: ApiResult(error = "Kullanici bilgisi alinamadi.")
+    }
+
+    private fun isInvalidSessionStatus(statusCode: Int?): Boolean {
+        return statusCode == 401 || statusCode == 403 || statusCode == 404
     }
 
     private suspend fun refreshPairings() {

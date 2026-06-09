@@ -383,8 +383,7 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     no_dev_lay.addWidget(empty_title)
 
     empty_desc = QLabel(
-        "Telefonunuzdaki uygulamayı açın ve 12 haneli sabit adresi\n"
-        "yukarıdaki alana girerek ilk bağlantıyı kurun."
+        "Telefonunuzdaki uygulamayı açın ve 12 haneli sabit adresi yukarıdaki alana girerek ilk bağlantıyı kurun."
     )
     empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_desc.setWordWrap(True)

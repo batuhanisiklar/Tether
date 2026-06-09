@@ -40,7 +40,6 @@ class DeviceHandlersMixin:
                 self._auth_token, pc_id
             )
             if bundle and bundle.get("ok"):
-                _ingest(list(bundle.get("devices") or []))
                 _ingest(list(bundle.get("recent_devices") or []))
                 _ingest(list(bundle.get("pairings") or []))
                 return list(merged.values()) if merged else []
@@ -50,18 +49,6 @@ class DeviceHandlersMixin:
                     logger.info("phone-bundle geçici ağ kopması: %s", bundle_err)
                 else:
                     logger.warning("phone-bundle alinamadi: %s", bundle_err)
-
-            devices, err = self._backend_api.get_devices(self._auth_token)
-            if devices is not None:
-                _ingest(devices)
-            else:
-                logger.warning("Server devices alinamadi: %s", err)
-
-            recent, err = self._backend_api.get_recent_devices(self._auth_token, "phone")
-            if recent is not None:
-                _ingest(recent)
-            else:
-                logger.warning("Server recent devices alinamadi: %s", err)
 
             from desktop_app.config.prefs_store import clear_logged_in
             pairings, err = self._backend_api.get_pairings(self._auth_token, pc_id)

@@ -45,17 +45,16 @@ class LoginActivity : AppCompatActivity() {
         deviceIdentityStore = DeviceIdentityStore(this)
         backendApi = BackendApi(MainActivity.SIGNALING_URL)
 
-        if (sessionStore.isLoggedIn()) {
-            goToMain()
-            return
-        }
-
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
         attachPhoneFormatter()
         bindViews()
         loadRememberedFields()
         applyAuthModeUi()
+
+        if (sessionStore.isLoggedIn()) {
+            validateExistingSession()
+        }
     }
 
     private fun bindViews() {
@@ -295,6 +294,44 @@ class LoginActivity : AppCompatActivity() {
 
             hideError()
             goToMain()
+        }
+    }
+
+    private fun validateExistingSession() {
+        setLoading(true, isRegisterFlow = false)
+        hideError()
+        scope.launch {
+            val token = sessionStore.authToken()
+            val currentDeviceId = sessionStore.address()
+                .filter { it.isDigit() }
+                .take(12)
+                .ifBlank { deviceIdentityStore.deviceId() }
+            val result = backendApi.getMe(token, currentDeviceId)
+            val session = result.data
+
+            if (session != null) {
+                sessionStore.save(session)
+                val savedDeviceId = session.address
+                    .filter { it.isDigit() }
+                    .take(12)
+                    .ifBlank { currentDeviceId }
+                deviceIdentityStore.saveDeviceId(savedDeviceId)
+
+                val profileRes = backendApi.getProfile(session.token, savedDeviceId)
+                profileRes.data?.let { p ->
+                    sessionStore.saveProfile(p.firstName, p.lastName, p.email, p.phone)
+                }
+                goToMain()
+                return@launch
+            }
+
+            setLoading(false, isRegisterFlow = false)
+            if (result.statusCode in setOf(401, 403, 404)) {
+                sessionStore.clear()
+                showError(result.error ?: getString(R.string.login_error_unexpected))
+            } else {
+                showError(result.error ?: getString(R.string.login_error_unexpected))
+            }
         }
     }
 

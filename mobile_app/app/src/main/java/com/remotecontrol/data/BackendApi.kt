@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit
 data class ApiResult<T>(
     val data: T? = null,
     val error: String? = null,
+    val statusCode: Int? = null,
 )
 
 data class AuthSession(
@@ -148,7 +149,7 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(
+                    return@withContext ApiResult(statusCode = response.code,
                         error = BackendErrorMapper.mapHttpError(
                             statusCode = response.code,
                             responseBody = body,
@@ -174,7 +175,7 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(
+                    return@withContext ApiResult(statusCode = response.code,
                         error = BackendErrorMapper.mapHttpError(
                             statusCode = response.code,
                             responseBody = body,
@@ -290,7 +291,7 @@ class BackendApi(
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext ApiResult(
+                    return@withContext ApiResult(statusCode = response.code,
                         error = BackendErrorMapper.mapHttpError(
                             statusCode = response.code,
                             responseBody = body,
