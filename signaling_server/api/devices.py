@@ -114,9 +114,6 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
     online = request.app["online_devices"]
     owner_cache: dict[int, dict[str, Any]] = {}
 
-    devices = await asyncio.to_thread(request.app["db"].get_devices_for_user, int(user_id))
-    devices_payload = [device_payload(device, online, db=request.app["db"], owner_cache=owner_cache) for device in devices]
-
     partner_ids_raw = await asyncio.to_thread(request.app["db"].get_connected_devices_as_controller, pc_id)
     partner_ids_raw += await asyncio.to_thread(request.app["db"].get_connected_devices_as_target, pc_id)
     seen_pair: set[str] = set()
@@ -131,20 +128,8 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
             continue
         pairings_payload.append(device_payload(partner_device, online, db=request.app["db"], owner_cache=owner_cache))
 
-    partner_ids: set[str] = set()
-    for dev in devices:
-        own_id = normalize_device_id(str(dev.get("device_id") or ""))
-        if not own_id:
-            continue
-        as_controller = await asyncio.to_thread(request.app["db"].get_connected_devices_as_controller, own_id)
-        as_target = await asyncio.to_thread(request.app["db"].get_connected_devices_as_target, own_id)
-        for raw_partner_id in list(as_controller) + list(as_target):
-            normalized_partner_id = normalize_device_id(str(raw_partner_id))
-            if normalized_partner_id:
-                partner_ids.add(normalized_partner_id)
-
     recent_payload: list[dict[str, Any]] = []
-    for partner_id in partner_ids:
+    for partner_id in seen_pair:
         partner_device = await asyncio.to_thread(request.app["db"].get_device_by_id, partner_id)
         if not partner_device:
             continue
@@ -155,7 +140,7 @@ async def desktop_phone_bundle(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "ok": True,
-            "devices": devices_payload,
+            "devices": [],
             "recent_devices": recent_payload,
             "pairings": pairings_payload,
         }
