@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION gerektirir.
  *
  * Performans iyileştirmeleri:
- *   • 30 FPS frame limiter (minFrameIntervalMs)
+ *   • Sabit 30 FPS frame limiter (FRAME_INTERVAL_30_FPS_MS)
  *   • Executor-tabanlı asenkron encoding (ImageReader callback'i bloklanmaz)
  *   • 720p / %65 JPEG kalitesi (bant genişliği optimizasyonu)
  *   • OrientationEventListener ile otomatik ekran döndürme algılama
@@ -65,9 +65,7 @@ class ScreenStreamService : Service() {
         private const val JPEG_QUALITY_HIGH = 72
         private const val JPEG_QUALITY_MED = 64
         private const val JPEG_QUALITY_LOW = 56
-        private const val FRAME_INTERVAL_FAST_MS = 22L
-        private const val FRAME_INTERVAL_NORMAL_MS = 28L
-        private const val FRAME_INTERVAL_SLOW_MS = 34L
+        private const val FRAME_INTERVAL_30_FPS_MS = 33L
         private const val QUEUE_BYTES_ELEVATED = 700_000L
         private const val QUEUE_BYTES_CONGESTED = 1_500_000L
         private const val QUEUE_BYTES_DROP_CAPTURE = 2_400_000L
@@ -496,17 +494,17 @@ class ScreenStreamService : Service() {
             queuedBytes >= QUEUE_BYTES_CONGESTED -> EncodeProfile(
                 maxSide = MAX_SIDE_LOW,
                 jpegQuality = JPEG_QUALITY_LOW,
-                minFrameIntervalMs = FRAME_INTERVAL_SLOW_MS,
+                minFrameIntervalMs = FRAME_INTERVAL_30_FPS_MS,
             )
             queuedBytes >= QUEUE_BYTES_ELEVATED -> EncodeProfile(
                 maxSide = MAX_SIDE_MED,
                 jpegQuality = JPEG_QUALITY_MED,
-                minFrameIntervalMs = FRAME_INTERVAL_NORMAL_MS,
+                minFrameIntervalMs = FRAME_INTERVAL_30_FPS_MS,
             )
             else -> EncodeProfile(
                 maxSide = MAX_SIDE_HIGH,
                 jpegQuality = JPEG_QUALITY_HIGH,
-                minFrameIntervalMs = FRAME_INTERVAL_FAST_MS,
+                minFrameIntervalMs = FRAME_INTERVAL_30_FPS_MS,
             )
         }
     }

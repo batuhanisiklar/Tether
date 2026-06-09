@@ -142,17 +142,26 @@ class WsHandlersMixin:
         incoming_paired_ids = ws_device_id_set(paired_devices)
 
         current_ids = {str(k).strip() for k in self._device_cards if str(k).strip()}
-        if incoming_paired_ids != current_ids or not self._device_cards:
+        # During an active remote session the phone sends frequent presence snapshots.
+        # Treat those as lightweight state updates; reloading the HTTP bundle here
+        # creates a self-refresh loop while streaming.
+        if self._ws_mode != "session" and (incoming_paired_ids != current_ids or not self._device_cards):
             self._load_devices_from_db()
+            return
+
+        changed_online_state = False
         self._online_paired_devices.clear()
         for key, card in self._device_cards.items():
             ck = str(key).strip()
             on = bool(ck) and ck in online_ids
-            card.set_online(on)
+            if card.is_online() != on:
+                card.set_online(on)
+                changed_online_state = True
             if on:
                 self._online_paired_devices.add(key)
 
-        self._reflow_device_cards()
+        if changed_online_state and self._ws_mode != "session":
+            self._reflow_device_cards()
         online_count = len(self._online_paired_devices)
         self._lbl_device_count.setText(
             f"{online_count} aktif / {len(self._device_cards)} cihaz"

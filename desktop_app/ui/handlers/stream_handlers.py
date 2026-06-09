@@ -40,13 +40,15 @@ class StreamHandlersMixin:
                 pixmap = QPixmap.fromImage(img)
         if pixmap.isNull():
             return
+        was_frame_visible = self._remote_frame_visible
         if not self._connected:
             self._set_connected(True)
             self._switch_page(1)
         self._remote_frame_visible = True
         self._screen.set_frame(pixmap)
         self._note_stream_frame(pixmap.width(), pixmap.height())
-        self._refresh_paired_stream_status()
+        if not was_frame_visible:
+            self._refresh_paired_stream_status()
 
     # Rotation
 
