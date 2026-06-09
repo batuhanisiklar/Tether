@@ -301,6 +301,8 @@ class BackendApi(
                 return@withContext runCatching {
                     val json = JSONObject(body)
                     val user = json.getJSONObject("user")
+                    // Sunucu yeni token donduruyorsa onu kullan (auto-refresh).
+                    val refreshedToken = json.optString("token").orEmpty().ifBlank { token }
                     val uid = when {
                         user.has("id") -> user.getInt("id")
                         user.has("user_id") -> user.getInt("user_id")
@@ -309,7 +311,7 @@ class BackendApi(
                     require(uid >= 0) { "missing user id" }
                     ApiResult(
                         data = AuthSession(
-                            token = token,
+                            token = refreshedToken,
                             userId = uid,
                             username = user.optString("username"),
                             address = user.optString("address"),

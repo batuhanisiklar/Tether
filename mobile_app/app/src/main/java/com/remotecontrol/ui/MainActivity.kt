@@ -186,6 +186,14 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermission()
 
         scope.launch {
+            // Oncelikle token'i yenile (suresi dolmus olabilir).
+            val tokenRefreshed = refreshSessionToken()
+            if (!tokenRefreshed) {
+                if (!sessionStore.isLoggedIn()) {
+                    logout()
+                    return@launch
+                }
+            }
             syncDeviceState()
             syncUserProfile()
             refreshPairings()
@@ -855,6 +863,31 @@ class MainActivity : AppCompatActivity() {
                 })
                 refreshFragments()
             }
+    }
+
+    /**
+     * Sunucudan yeni token alir ve sessionStore'a kaydeder.
+     * Token suresi dolmussa sunucu otomatik yeniler (soft-refresh).
+     * Basarisiz olursa false doner.
+     */
+    private suspend fun refreshSessionToken(): Boolean {
+        val token = sessionStore.authToken()
+        if (token.isBlank()) return false
+        val result = retryMeFetch(token, deviceId)
+        if (result != null) {
+            // Sunucu yeni token dondurdu — kaydet.
+            sessionStore.save(result)
+            if (result.address.isNotBlank()) {
+                deviceId = result.address.filter(Char::isDigit).take(12)
+                deviceIdentityStore.saveDeviceId(deviceId)
+                currentAddress = result.address
+            }
+            Log.i(TAG, "Token basariyla yenilendi")
+            return true
+        }
+        Log.w(TAG, "Token yenilenemedi — mevcut token ile devam ediliyor")
+        // Token yenilenemese bile mevcut token hala gecerli olabilir.
+        return sessionStore.authToken().isNotBlank()
     }
 
     private suspend fun syncUserProfile() {
