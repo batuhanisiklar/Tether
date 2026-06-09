@@ -73,3 +73,32 @@ def parse_token(token: str) -> dict[str, Any] | None:
         return payload
     except Exception:
         return None
+
+
+def parse_token_allow_expired(token: str, max_age_seconds: int = 30 * 86400) -> dict[str, Any] | None:
+    """
+    Token'in imzasini dogrular ancak suresi dolmus olmasina izin verir
+    (en fazla max_age_seconds kadar eski). Sessiz token yenileme icin kullanilir.
+    """
+    try:
+        payload_part, signature_part = token.split(".", 1)
+        expected = hmac.new(_secret(), payload_part.encode("ascii"), hashlib.sha256).digest()
+        actual = _b64decode(signature_part)
+        if not hmac.compare_digest(expected, actual):
+            return None
+
+        payload = json.loads(_b64decode(payload_part).decode("utf-8"))
+        user_id = payload.get("user_id")
+        username = payload.get("username")
+        iat = payload.get("iat")
+        now = int(time.time())
+
+        if not isinstance(user_id, int) or not str(username or "").strip():
+            return None
+        # Token cok eski ise kabul etme (max 30 gun varsayilan).
+        if isinstance(iat, int) and (now - iat) > max_age_seconds:
+            return None
+        return payload
+    except Exception:
+        return None
+

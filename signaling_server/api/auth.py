@@ -1,4 +1,4 @@
-﻿"""
+"""
 HTTP auth endpoint'leri â€” register, login, me, profile update.
 """
 from __future__ import annotations
@@ -8,10 +8,33 @@ from typing import Any
 
 from aiohttp import web
 
-from signaling_server.auth import issue_token
+from signaling_server.auth import issue_token, parse_token_allow_expired
 from signaling_server.helpers import normalize_device_id, parse_json_body, username_from_email
 from signaling_server.ws.auth import require_user
 from signaling_server.ws.presence import register_or_reuse_device
+
+
+async def _try_soft_refresh(request: web.Request) -> tuple[int, str] | None:
+    """
+    Token suresi dolmusa, imza hala gecerliyse ve kullanici mevcutsa
+    yeniden dogrulama yapmadan (user_id, username) dondurur.
+    Bu sayede uygulama yeniden acildiginda sessiz token yenileme saglanir.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+    payload = parse_token_allow_expired(auth_header[7:])
+    if not payload:
+        return None
+    user_id = payload.get("user_id")
+    username = str(payload.get("username") or "")
+    if not isinstance(user_id, int) or not username:
+        return None
+    # Kullanicinin hala veritabaninda mevcut oldugunu dogrula.
+    profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
+    if not profile:
+        return None
+    return int(user_id), username
 
 
 async def auth_register(request: web.Request) -> web.Response:
@@ -127,7 +150,12 @@ async def auth_login(request: web.Request) -> web.Response:
 async def auth_me(request: web.Request) -> web.Response:
     user = await require_user(request)
     if not user:
-        return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
+        # Token suresi dolmus olabilir — soft-refresh denemesi yap.
+        refreshed = await _try_soft_refresh(request)
+        if not refreshed:
+            return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
+        user = refreshed
+
     user_id, username = user
     profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
     if not profile:
@@ -139,12 +167,19 @@ async def auth_me(request: web.Request) -> web.Response:
         address = device_id if device and int(device.get("user_id")) == int(user_id) else ""
     else:
         address = ""
+
+    # Her basarili /auth/me cagrisinda yeni token dondur (auto-refresh).
+    new_email = str(profile.get("email") or "").strip().lower()
+    refreshed_username = username_from_email(new_email) if new_email else username
+    new_token = issue_token(int(user_id), refreshed_username)
+
     return web.json_response(
         {
             "ok": True,
+            "token": new_token,
             "user": {
                 "id": int(profile["user_id"]),
-                "username": username,
+                "username": refreshed_username,
                 "email": str(profile.get("email") or ""),
                 "first_name": str(profile.get("first_name") or ""),
                 "last_name": str(profile.get("last_name") or ""),
