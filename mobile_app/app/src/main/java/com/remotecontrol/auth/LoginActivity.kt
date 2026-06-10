@@ -35,6 +35,7 @@ class LoginActivity : AppCompatActivity() {
 
     private var loginPasswordVisible = false
     private var confirmPasswordVisible = false
+    private var validatingStoredSession = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +52,7 @@ class LoginActivity : AppCompatActivity() {
         applyAuthModeUi()
 
         if (sessionStore.isLoggedIn()) {
+            showSessionValidation(true)
             validateExistingSession()
         }
     }
@@ -143,6 +145,7 @@ class LoginActivity : AppCompatActivity() {
         refreshPhoneBlockVisibility()
         resetPasswordVisibilityUi()
         hideError()
+        syncSessionValidationUi()
     }
 
     private fun resetPasswordVisibilityUi() {
@@ -246,6 +249,8 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun validateExistingSession() {
+        validatingStoredSession = true
+        syncSessionValidationUi()
         setLoading(true, isRegisterFlow = false)
         hideError()
         scope.launch {
@@ -273,6 +278,8 @@ class LoginActivity : AppCompatActivity() {
                 return@launch
             }
 
+            validatingStoredSession = false
+            syncSessionValidationUi()
             setLoading(false, isRegisterFlow = false)
             showError(result.error ?: getString(R.string.login_error_unexpected))
             if (result.statusCode in setOf(401, 403, 404)) {
@@ -293,6 +300,16 @@ class LoginActivity : AppCompatActivity() {
 
     private fun hideError() {
         binding.tvLoginError.visibility = View.GONE
+    }
+
+    private fun showSessionValidation(show: Boolean) {
+        validatingStoredSession = show
+        syncSessionValidationUi()
+    }
+
+    private fun syncSessionValidationUi() {
+        binding.layoutSessionValidation.visibility = if (validatingStoredSession) View.VISIBLE else View.GONE
+        binding.loginFormScroll.visibility = if (validatingStoredSession) View.GONE else View.VISIBLE
     }
 
     private fun setLoading(loading: Boolean, isRegisterFlow: Boolean) {

@@ -1,18 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_app"
-    android:fillViewport="true">
+    android:background="@color/bg_app">
 
-    <LinearLayout
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/login_form_scroll"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center_horizontal"
-        android:paddingHorizontal="@dimen/page_padding_h"
-        android:paddingTop="@dimen/page_padding_bottom_large"
-        android:paddingBottom="@dimen/page_padding_bottom_large">
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingHorizontal="@dimen/page_padding_h"
+            android:paddingTop="@dimen/page_padding_bottom_large"
+            android:paddingBottom="@dimen/page_padding_bottom_large">
 
         <ImageView
             android:id="@+id/iv_login_logo"
@@ -312,12 +317,55 @@
 
         </LinearLayout>
 
+            <TextView
+                style="@style/TextRemoteControlCaption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/login_footer"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <LinearLayout
+        android:id="@+id/layout_session_validation"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingHorizontal="@dimen/page_padding_h"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/login_icon_bg"
+            android:contentDescription="@string/login_icon"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/logo" />
+
+        <ProgressBar
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="16dp"
+            android:indeterminate="true" />
+
         <TextView
-            style="@style/TextRemoteControlCaption"
+            style="@style/TextRemoteControlTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/login_footer"
-            android:layout_marginTop="8dp" />
+            android:layout_marginBottom="6dp"
+            android:text="@string/login_session_validation_title" />
+
+        <TextView
+            style="@style/TextRemoteControlBody"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="@string/login_session_validation_subtitle"
+            android:textAlignment="center" />
 
     </LinearLayout>
-</androidx.core.widget.NestedScrollView>
+</FrameLayout>

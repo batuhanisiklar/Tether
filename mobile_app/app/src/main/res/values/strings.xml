@@ -25,6 +25,8 @@
   <string name="login_remember_me">Beni hatırla</string>
   <string name="toggle_password_visibility">Şifreyi göster veya gizle</string>
   <string name="login_loading">Giriş yapılıyor…</string>
+  <string name="login_session_validation_title">Oturum doğrulanıyor</string>
+  <string name="login_session_validation_subtitle">Kayıtlı hesabınız kontrol ediliyor. Kısa bir süre bekleyin.</string>
   <string name="register_button">Kayıt ekranına git</string>
   <string name="register_submit_button">Kayıt Ol</string>
   <string name="register_loading">Hesap oluşturuluyor…</string>

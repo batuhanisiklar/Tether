@@ -342,30 +342,50 @@ class MainActivity : AppCompatActivity() {
         getString(R.string.accessibility_summary_disabled)
     }
 
-    /** PC oturumu kapandi; telefon signaling'e bagli kalir, yeniden baglanti yalnizca masaustunden. */
-    private fun handlePeerSessionEnded() {
-        if (isFinishing || isDestroyed) return
-        Log.i(TAG, "PC oturumu sona erdi - yayın durduruldu, WS açık")
+    private fun resetRemoteSessionState(clearPairedPcIdentity: Boolean = false) {
         stopAllStreams()
         remoteSessionPaired = false
         hasRemoteRotationOverride = false
         remoteRotationDegrees = 0
         pairingAwaitingAccessibility = false
+        pendingScreenShareAfterPairApproval = false
+        lastAckPartnerOnline = null
+        partnerOfflineAckStreak = 0
+        if (clearPairedPcIdentity) {
+            sessionStore.clearPairedPcId()
+            sessionStore.clearPairedPcAddress()
+            pairedPcId = null
+            pairedPcAddress = null
+        }
+    }
+
+    /** PC oturumu kapandi; yayin ve signaling sifirlanir, telefon bekleme moduna temiz doner. */
+    private fun handlePeerSessionEnded() {
+        if (isFinishing || isDestroyed) return
+        Log.i(TAG, "PC oturumu sona erdi - yayın ve signaling temizleniyor")
+        resetRemoteSessionState(clearPairedPcIdentity = true)
+        signalingClient?.disconnect(sendServerLogout = true)
+        signalingClient = null
         currentStatus = getString(R.string.status_peer_disconnected_title)
         currentStatusDetail = getString(R.string.status_peer_disconnected_detail)
         addRecentEvent(getString(R.string.event_peer_session_ended))
         notifyDisconnectedIfEnabled(currentStatusDetail)
         navigateToHomeAfterDisconnect()
         refreshFragments()
+        scope.launch {
+            delay(350)
+            if (!isFinishing && !isDestroyed && sessionStore.isLoggedIn()) {
+                refreshPairings()
+                connectSignaling()
+            }
+        }
     }
 
     /** Soket koptu; oturumu yeniden kurmak icin (kullanici arayuzunden degil, transport). */
     private fun reconnectSignalingTransport() {
         if (isFinishing || isDestroyed || !sessionStore.isLoggedIn()) return
         Log.w(TAG, "Signaling soketi koptu - transport yenileniyor")
-        stopAllStreams()
-        remoteSessionPaired = false
-        pairingAwaitingAccessibility = false
+        resetRemoteSessionState(clearPairedPcIdentity = false)
         currentStatus = getString(R.string.status_connection_lost_title)
         currentStatusDetail = getString(R.string.status_connection_lost_detail)
         addRecentEvent(getString(R.string.event_transport_reconnecting))
@@ -384,10 +404,7 @@ class MainActivity : AppCompatActivity() {
     private fun restartSignalingAfterAccessibilityOpened() {
         if (isFinishing || isDestroyed || !sessionStore.isLoggedIn()) return
         Log.i(TAG, "Erişilebilirlik açıldı - signaling sıfırlanıyor (temiz hat)")
-        streamRunning = false
-        remoteSessionPaired = false
-        pairingAwaitingAccessibility = false
-        stopAllStreams()
+        resetRemoteSessionState(clearPairedPcIdentity = false)
         currentStatus = getString(R.string.status_accessibility_ready_title)
         currentStatusDetail = getString(R.string.status_accessibility_ready_detail)
         addRecentEvent(getString(R.string.event_accessibility_reconnected))
