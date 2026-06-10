@@ -2,20 +2,19 @@ package com.remotecontrol.auth
 
 import android.content.Intent
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.text.method.HideReturnsTransformationMethod
 import android.text.method.PasswordTransformationMethod
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.EditText
 import android.widget.ImageButton
 import androidx.appcompat.app.AppCompatActivity
 import com.remotecontrol.R
 import com.remotecontrol.data.BackendApi
 import com.remotecontrol.data.DeviceIdentityStore
+import com.remotecontrol.databinding.ActivityLoginBinding
 import com.remotecontrol.device.HardwareFingerprint
 import com.remotecontrol.ui.MainActivity
-import com.remotecontrol.databinding.ActivityLoginBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,7 +22,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Giriş: e-posta + şifre. Kayıt: ek alanlar + şifre tekrar (metin bağlantısı ile geçiş).
+ * Giris: e-posta + sifre. Kayit: ek alanlar + opsiyonel telefon + sifre tekrar.
  */
 class LoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityLoginBinding
@@ -47,7 +46,6 @@ class LoginActivity : AppCompatActivity() {
 
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        attachPhoneFormatter()
         bindViews()
         loadRememberedFields()
         applyAuthModeUi()
@@ -95,20 +93,21 @@ class LoginActivity : AppCompatActivity() {
 
     private fun wirePasswordToggle(
         button: ImageButton,
-        field: android.widget.EditText,
+        field: EditText,
         getVisible: () -> Boolean,
         setVisible: (Boolean) -> Unit,
     ) {
         fun applyUi() {
-            val vis = getVisible()
-            field.transformationMethod = if (vis) {
+            val visible = getVisible()
+            field.transformationMethod = if (visible) {
                 HideReturnsTransformationMethod.getInstance()
             } else {
                 PasswordTransformationMethod.getInstance()
             }
             field.setSelection(field.text.length)
-            button.setImageResource(if (vis) R.drawable.ic_visibility_off else R.drawable.ic_visibility)
+            button.setImageResource(if (visible) R.drawable.ic_visibility_off else R.drawable.ic_visibility)
         }
+
         button.setOnClickListener {
             setVisible(!getVisible())
             applyUi()
@@ -122,75 +121,24 @@ class LoginActivity : AppCompatActivity() {
         if (rememberStore.email().isNotEmpty()) {
             binding.etEmail.setText(rememberStore.email())
         }
-        val pd = rememberStore.phoneDigits()
-        if (pd.isNotEmpty()) {
-            binding.etPhone.setText(formatPhoneDisplay(pd))
-        }
-    }
-
-    /**
-     * Görünüm: 0(312) 456 78 90 — en fazla 11 rakam. API'ye yalnızca rakamlar gider.
-     */
-    private fun attachPhoneFormatter() {
-        var selfChange = false
-        binding.etPhone.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                if (selfChange) return
-                val digits = s?.toString()?.filter { it.isDigit() }?.take(11) ?: ""
-                val formatted = formatPhoneDisplay(digits)
-                if (formatted != s.toString()) {
-                    selfChange = true
-                    binding.etPhone.setText(formatted)
-                    binding.etPhone.setSelection(formatted.length)
-                    selfChange = false
-                }
-            }
-            override fun afterTextChanged(s: Editable?) {}
-        })
-    }
-
-    private fun formatPhoneDisplay(d: String): String {
-        if (d.isEmpty()) return ""
-        val sb = StringBuilder()
-        sb.append(d[0])
-        if (d.length >= 2) {
-            sb.append("(")
-            sb.append(d.substring(1, minOf(4, d.length)))
-            if (d.length >= 4) {
-                sb.append(") ")
-                sb.append(d.substring(4, minOf(7, d.length)))
-            }
-        }
-        if (d.length >= 7) {
-            sb.append(" ")
-            sb.append(d.substring(7, minOf(9, d.length)))
-        }
-        if (d.length >= 9) {
-            sb.append(" ")
-            sb.append(d.substring(9, minOf(11, d.length)))
-        }
-        return sb.toString()
     }
 
     private fun phoneDigitsOnly(): String =
         binding.etPhone.text.toString().filter { it.isDigit() }
 
     private fun refreshPhoneBlockVisibility() {
-        val reg = registerMode
-        val rememberedPhone = rememberStore.remember() && rememberStore.phoneDigits().isNotEmpty()
-        binding.phoneBlock.visibility = if (reg || rememberedPhone) View.VISIBLE else View.GONE
+        binding.phoneBlock.visibility = if (registerMode) View.VISIBLE else View.GONE
     }
 
     private fun applyAuthModeUi() {
-        val reg = registerMode
-        binding.registerFieldsBlock.visibility = if (reg) View.VISIBLE else View.GONE
-        binding.passwordConfirmRow.visibility = if (reg) View.VISIBLE else View.GONE
-        binding.labelPasswordConfirm.visibility = if (reg) View.VISIBLE else View.GONE
-        binding.chkRemember.visibility = if (reg) View.GONE else View.VISIBLE
-        binding.btnLogin.text = getString(if (reg) R.string.register_submit_button else R.string.login_button)
+        val register = registerMode
+        binding.registerFieldsBlock.visibility = if (register) View.VISIBLE else View.GONE
+        binding.passwordConfirmRow.visibility = if (register) View.VISIBLE else View.GONE
+        binding.labelPasswordConfirm.visibility = if (register) View.VISIBLE else View.GONE
+        binding.chkRemember.visibility = if (register) View.GONE else View.VISIBLE
+        binding.btnLogin.text = getString(if (register) R.string.register_submit_button else R.string.login_button)
         binding.tvAuthSwitch.text = getString(
-            if (reg) R.string.login_switch_to_login else R.string.login_switch_to_register,
+            if (register) R.string.login_switch_to_login else R.string.login_switch_to_register,
         )
         refreshPhoneBlockVisibility()
         resetPasswordVisibilityUi()
@@ -278,18 +226,18 @@ class LoginActivity : AppCompatActivity() {
             }
 
             if (isRegister) {
-                rememberStore.save(true, email, phone)
+                rememberStore.save(true, email)
             } else {
-                rememberStore.save(binding.chkRemember.isChecked, email, phone)
+                rememberStore.save(binding.chkRemember.isChecked, email)
             }
 
             sessionStore.save(result.data)
             val savedDeviceId = result.data.address.filter { it.isDigit() }.take(12).ifBlank { deviceIdentityStore.deviceId() }
             deviceIdentityStore.saveDeviceId(savedDeviceId)
-            
+
             val profileRes = backendApi.getProfile(result.data.token, savedDeviceId)
-            profileRes.data?.let { p ->
-                sessionStore.saveProfile(p.firstName, p.lastName, p.email, p.phone)
+            profileRes.data?.let { profile ->
+                sessionStore.saveProfile(profile.firstName, profile.lastName, profile.email, profile.phone)
             }
 
             hideError()
@@ -318,19 +266,17 @@ class LoginActivity : AppCompatActivity() {
                 deviceIdentityStore.saveDeviceId(savedDeviceId)
 
                 val profileRes = backendApi.getProfile(session.token, savedDeviceId)
-                profileRes.data?.let { p ->
-                    sessionStore.saveProfile(p.firstName, p.lastName, p.email, p.phone)
+                profileRes.data?.let { profile ->
+                    sessionStore.saveProfile(profile.firstName, profile.lastName, profile.email, profile.phone)
                 }
                 goToMain()
                 return@launch
             }
 
             setLoading(false, isRegisterFlow = false)
+            showError(result.error ?: getString(R.string.login_error_unexpected))
             if (result.statusCode in setOf(401, 403, 404)) {
                 sessionStore.clear()
-                showError(result.error ?: getString(R.string.login_error_unexpected))
-            } else {
-                showError(result.error ?: getString(R.string.login_error_unexpected))
             }
         }
     }

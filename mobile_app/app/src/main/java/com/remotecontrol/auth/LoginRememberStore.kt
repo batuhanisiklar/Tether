@@ -3,7 +3,7 @@ package com.remotecontrol.auth
 import android.content.Context
 
 /**
- * Giriş ekranı: e-posta + telefon (rakam) hatırlama. Oturum token'ı burada tutulmaz.
+ * Giris ekraninda yalnizca e-posta hatirlanir. Oturum token'i burada tutulmaz.
  */
 class LoginRememberStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -12,10 +12,7 @@ class LoginRememberStore(context: Context) {
 
     fun email(): String = prefs.getString(KEY_EMAIL, "").orEmpty()
 
-    /** Sadece rakamlar (ör. 05321234567). */
-    fun phoneDigits(): String = prefs.getString(KEY_PHONE_DIGITS, "").orEmpty()
-
-    fun save(remember: Boolean, email: String, phoneDigits: String) {
+    fun save(remember: Boolean, email: String) {
         val e = prefs.edit()
         if (!remember) {
             e.remove(KEY_REMEMBER).remove(KEY_EMAIL).remove(KEY_PHONE_DIGITS).apply()
@@ -23,7 +20,7 @@ class LoginRememberStore(context: Context) {
         }
         e.putBoolean(KEY_REMEMBER, true)
             .putString(KEY_EMAIL, email.trim())
-            .putString(KEY_PHONE_DIGITS, phoneDigits.filter { it.isDigit() }.take(11))
+            .remove(KEY_PHONE_DIGITS)
             .apply()
     }
 
