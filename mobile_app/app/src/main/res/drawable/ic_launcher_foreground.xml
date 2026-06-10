@@ -5,12 +5,12 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- White diamond (rotated square) -->
+    
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M20,54 L44,30 L68,54 L44,78 Z" />
 
-    <!-- Black chevron '>' -->
+    
     <path
         android:fillColor="#0B0B0B"
         android:pathData="M62,30 L86,54 L62,78 L54,70 L70,54 L54,38 Z" />

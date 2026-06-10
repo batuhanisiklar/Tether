@@ -32,13 +32,13 @@ data class PartnerIdentity(
     }
 }
 
-/**
- * Signaling sunucusuyla WebSocket üzerinden haberleşir.
- *
- * Kalici kimlik:
- *  - device_hello: cihaz Çevrimiçi ve presence takibi
- *  - register(code=deviceAddress): telefon bu adreste bekler; eslestirmeyi bilgisayar join ile baslatir
- */
+
+
+
+
+
+
+
 class SignalingClient(
     private val serverUrl: String,
     private val authToken: String,
@@ -50,22 +50,22 @@ class SignalingClient(
     private val onPaired: (streamPort: Int, partner: PartnerIdentity?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>, partnerOnline: Boolean) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
-    /** PC oturumu kapandi; WebSocket acik kalir (yeniden baglanti telefondan yapilmaz). */
+    
     private val onPeerSessionEnded: () -> Unit,
-    /** Soket hatasi / sunucu kapandi — otomatik transport yenilemesi. */
+    
     private val onTransportDisconnected: () -> Unit,
 ) {
     companion object {
         private const val TAG = "SignalingClient"
         private const val MAX_PENDING_FRAME_BYTES = 2_600_000L
         private const val PRESENCE_POLL_MS = 3_500L
-        /** Diğer servislerden frame göndermek için erişilebilir instance */
+        
         var instance: SignalingClient? = null
 
-        /**
-         * Tek OkHttpClient — her disconnect()'te dispatcher shutdown edilmez; yoksa yeniden baglantı
-         * veya arka planda ScreenStreamService + yeni SignalingClient yarışında baglantı kopar / ws null olur.
-         */
+        
+
+
+
         private val sharedHttpClient by lazy {
             OkHttpClient.Builder()
                 .pingInterval(25, TimeUnit.SECONDS)
@@ -105,7 +105,7 @@ class SignalingClient(
         }
     }
 
-    /** Erisilebilirlik acildiktan sonra (ayarlardan donus vb.) sunucudaki bayragi gunceller. */
+    
     fun pushAccessibilityToServer() {
         val socket = ws ?: return
         try {
@@ -123,7 +123,7 @@ class SignalingClient(
         }
     }
 
-    /** Telefonun anlik erisilebilirlik + medya mute durumunu sunucuya iter. */
+    
     fun pushPresenceSnapshotToServer() {
         val socket = ws ?: return
         sendPresenceSnapshot(socket)
@@ -144,7 +144,7 @@ class SignalingClient(
         }
     }
 
-    /** Erisilebilirlik kapali — eslesen PC'ye hata mesaji gonder (command relay uzerinden). */
+    
     fun sendAccessibilityError() {
         val socket = ws ?: return
         try {
@@ -164,7 +164,7 @@ class SignalingClient(
         disconnectNotified = false
         manualClose = false
         instance = this
-        // scope cancel edilmisse yenile
+        
         if (!scope.isActive) {
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         }
@@ -175,7 +175,7 @@ class SignalingClient(
                 if (webSocket != ws) return
                 Log.i(TAG, "Connected to signaling server, device_id=$deviceId code=$sessionCode")
 
-                // Önce device_hello gönder (persistent identity)
+                
                 val helloMsg = JSONObject().apply {
                     put("type", "device_hello")
                     put("auth_token", authToken)
@@ -295,7 +295,7 @@ class SignalingClient(
 
                         "error" -> Log.e(TAG, "Server error: ${json.optString("message")}")
 
-                        "heartbeat", "joined", "waiting" -> { /* PC keep-alive / sunucu ack (yok say) */ }
+                        "heartbeat", "joined", "waiting" -> {  }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Parse error: $e")
@@ -322,10 +322,10 @@ class SignalingClient(
         })
     }
 
-    /**
-     * İlk kod ile eşleşme gerçekleşince çağrılır.
-     * Sunucuya kalıcı pairing kaydedilir.
-     */
+    
+
+
+
     fun sendPairConfirm(pcDeviceId: String) {
         val msg = JSONObject().apply {
             put("type", "pair_confirm")
@@ -348,18 +348,18 @@ class SignalingClient(
         Log.i(TAG, "Sent pair_reject: $deviceId x $pcDeviceId")
     }
 
-    /** Anlik WebSocket gonderim kuyrugu (byte). */
+    
     fun pendingQueueBytes(): Long = ws?.queueSize() ?: 0L
 
-    /**
-     * JPEG'i binary WebSocket cercevesi olarak gonderir (sunucu `send_bytes` ile PC'ye iletir).
-     * Kucuk karelerde istege bagli JSON fallback (cok nadir proxy senaryolari).
-     *
-     * Binary frame format:
-     *   byte[0] = 0x01 (video marker)
-     *   byte[1] = rotation (0x00=0°, 0x01=90°, 0x02=180°, 0x03=270°)
-     *   byte[2..] = JPEG data
-     */
+    
+
+
+
+
+
+
+
+
     fun sendFrame(jpeg: ByteArray, rotation: Int = 0) {
         val currentWs = ws
         if (currentWs == null) {
@@ -381,7 +381,7 @@ class SignalingClient(
             }
             consecutiveDrops = 0
 
-            // Rotation → byte: Surface.ROTATION_0=0, _90=1, _180=2, _270=3
+            
             val rotByte: Byte = when (rotation) {
                 android.view.Surface.ROTATION_0   -> 0x00
                 android.view.Surface.ROTATION_90  -> 0x01
@@ -391,8 +391,8 @@ class SignalingClient(
             }
 
             val payload = ByteArray(jpeg.size + 2)
-            payload[0] = 0x01          // video marker
-            payload[1] = rotByte       // rotation metadata
+            payload[0] = 0x01          
+            payload[1] = rotByte       
             System.arraycopy(jpeg, 0, payload, 2, jpeg.size)
 
             var sent = currentWs.send(payload.toByteString())
@@ -417,10 +417,10 @@ class SignalingClient(
         }
     }
 
-    /**
-     * Ham PCM ses verisini binary WebSocket cercevesi olarak gonderir.
-     * Baslangicina 0x02 (Ses) bayragini ekler.
-     */
+    
+
+
+
     fun sendAudio(pcm: ByteArray) {
         val currentWs = ws ?: return
         try {

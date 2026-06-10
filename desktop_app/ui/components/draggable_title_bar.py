@@ -3,7 +3,6 @@ from PyQt6.QtWidgets import QFrame, QMainWindow, QWidget
 
 
 class DraggableTitleBar(QFrame):
-    """Frameless pencerede fare sürükleme ile taşıma sağlar."""
 
     def __init__(self, window: QMainWindow, parent: QWidget | None = None):
         super().__init__(parent)

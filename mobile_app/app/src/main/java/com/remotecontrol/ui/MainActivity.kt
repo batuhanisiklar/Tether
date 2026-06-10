@@ -99,22 +99,22 @@ class MainActivity : AppCompatActivity() {
     private var currentPairings: List<DeviceSummary> = emptyList()
     private val recentEvents: ArrayDeque<Pair<Long, String>> = ArrayDeque()
     private var streamRunning = false
-    /** MediaProjection sistem diyalogu acikken tekrar launch edilmesini engeller */
+    
     private var awaitingMediaProjectionConsent = false
-    /** Bilgisayar eslesti; ekran/kamera yayini kullanici Ekrani paylas ile baslatilir. */
+    
     private var remoteSessionPaired = false
     private var accessibilityEnabled = false
     private var connectionGeneration = 0
-    /** Son device_ack partner_online (PC presence). */
+    
     private var lastAckPartnerOnline: Boolean? = null
-    /** Gecici partner_online=false dalgalanmalari icin tolerans sayaci. */
+    
     private var partnerOfflineAckStreak = 0
-    /** paired geldi ama erisilebilirlik kapaliydi; kullanici ayarlardan acinca yayin dugmesi icin hazirlik. */
+    
     private var pairingAwaitingAccessibility = false
     private var pendingScreenShareAfterPairApproval = false
-    /** Erisilebilirlik ayarina gecis akisi aktifken zorla one getirmeyi engeller. */
+    
     private var openingAccessibilitySettings = false
-    /** Panelden gelen son mutlak ekran rotasyonu: 0, 90, 180, 270. */
+    
     private var remoteRotationDegrees = 0
     private var hasRemoteRotationOverride = false
     private var mediaMuteStatePushJob: Job? = null
@@ -187,7 +187,7 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermission()
 
         scope.launch {
-            // Oncelikle token'i yenile (suresi dolmus olabilir).
+            
             val tokenRefreshed = refreshSessionToken()
             if (!tokenRefreshed) {
                 if (!sessionStore.isLoggedIn()) {
@@ -359,7 +359,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** PC oturumu kapandi; yayin ve signaling sifirlanir, telefon bekleme moduna temiz doner. */
+    
     private fun handlePeerSessionEnded() {
         if (isFinishing || isDestroyed) return
         Log.i(TAG, "PC oturumu sona erdi - yayın ve signaling temizleniyor")
@@ -381,7 +381,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Soket koptu; oturumu yeniden kurmak icin (kullanici arayuzunden degil, transport). */
+    
     private fun reconnectSignalingTransport() {
         if (isFinishing || isDestroyed || !sessionStore.isLoggedIn()) return
         Log.w(TAG, "Signaling soketi koptu - transport yenileniyor")
@@ -397,10 +397,10 @@ class MainActivity : AppCompatActivity() {
         connectSignaling()
     }
 
-    /**
-     * Erisilebilirlik yeni acildiginda: sunucudaki eski WS / kod oturumu kalintilarini temizlemek icin
-     * device_logout + sifir SignalingClient ile yeniden baglanir. PC tarafinda tekrar join gerekir.
-     */
+    
+
+
+
     private fun restartSignalingAfterAccessibilityOpened() {
         if (isFinishing || isDestroyed || !sessionStore.isLoggedIn()) return
         Log.i(TAG, "Erişilebilirlik açıldı - signaling sıfırlanıyor (temiz hat)")
@@ -540,8 +540,8 @@ class MainActivity : AppCompatActivity() {
         return try {
             val am = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return null
             val volume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            // Cihaz/ROM farkliliklarinda isStreamMute tutarsiz kalabildigi icin
-            // mute durumunu dogrudan muzik stream seviyesi uzerinden hesapla.
+            
+            
             volume <= 0
         } catch (_: Exception) {
             null
@@ -563,10 +563,10 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "Pair confirmed with PC: $pcDeviceId")
     }
 
-    /**
-     * Bilgisayar oturumu bittiğinde (veya transport koptuğunda) kullanıcıyı ana ekrana geri al.
-     * Yayın sırasında `moveTaskToBack(true)` ile arka plana atılmış olabilir; bu yüzden activity'yi öne getiriyoruz.
-     */
+    
+
+
+
     private fun navigateToHomeAfterDisconnect() {
         if (openingAccessibilitySettings) {
             Log.i(TAG, "A11y ayari acik; disconnect sonrasi bring-to-front atlandi")
@@ -781,7 +781,7 @@ class MainActivity : AppCompatActivity() {
         mediaProjectionLauncher.launch(intent)
     }
 
-    /** Masaustunden gelen komut: eslestirme ve erisilebilirlik sonrasi ekran paylasimi. */
+    
     private fun startScreenShareFromRemote() {
         if (!remoteSessionPaired) {
             Log.w(TAG, "screen_capture_on yok sayildi: oturum eslesmemis")
@@ -840,7 +840,7 @@ class MainActivity : AppCompatActivity() {
         addRecentEvent(getString(R.string.event_camera_stream_started))
     }
 
-    /** Yalnizca masaustu camera_off komutu; telefon arayuzunde durdurma yok. */
+    
     private fun stopCameraStreamFromPc() {
         stopService(Intent(this, CameraStreamService::class.java))
         streamRunning = false
@@ -883,18 +883,18 @@ class MainActivity : AppCompatActivity() {
             }
     }
 
-    /**
-     * Sunucudan yeni token alir ve sessionStore'a kaydeder.
-     * Token suresi dolmussa sunucu otomatik yeniler (soft-refresh).
-     * Basarisiz olursa false doner.
-     */
+    
+
+
+
+
     private suspend fun refreshSessionToken(): Boolean {
         val token = sessionStore.authToken()
         if (token.isBlank()) return false
         val result = retryMeFetchResult(token, deviceId)
         val session = result.data
         if (session != null) {
-            // Sunucu yeni token dondurdu — kaydet.
+            
             sessionStore.save(session)
             if (session.address.isNotBlank()) {
                 deviceId = session.address.filter(Char::isDigit).take(12)
@@ -910,7 +910,7 @@ class MainActivity : AppCompatActivity() {
             return false
         }
         Log.w(TAG, "Token yenilenemedi — mevcut token ile devam ediliyor")
-        // Token yenilenemese bile mevcut token hala gecerli olabilir.
+        
         return sessionStore.authToken().isNotBlank()
     }
 

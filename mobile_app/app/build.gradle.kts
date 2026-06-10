@@ -64,18 +64,18 @@ dependencies {
     implementation(libs.material)
     implementation(libs.constraintlayout)
 
-    // CameraX
+    
     implementation(libs.camera.core)
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
 
-    // OkHttp (WebSocket)
+    
     implementation(libs.okhttp)
 
-    // Coroutines
+    
     implementation(libs.coroutines.android)
 
-    // Lifecycle Service (CameraStreamService için LifecycleService)
+    
     implementation(libs.lifecycle.service)
 }

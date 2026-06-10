@@ -30,6 +30,6 @@
     <color name="home_tile_alt_surface">#242030</color>
     <color name="home_tile_alt_stroke">#3A3550</color>
 
-    <!-- Launcher icon -->
+    
     <color name="ic_launcher_background">@color/primary</color>
 </resources>

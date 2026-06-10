@@ -1,4 +1,3 @@
-"""Masaüstü cihaz parmak izi (sunucu `mac_address` alanı için)."""
 
 from __future__ import annotations
 

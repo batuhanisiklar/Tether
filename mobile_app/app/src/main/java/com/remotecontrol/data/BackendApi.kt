@@ -32,7 +32,7 @@ data class DeviceSummary(
     val deviceName: String?,
     val address: String?,
     val online: Boolean,
-    /** Yalnızca pairings endpoint'inden gelen (gerçek eşleşme) */
+    
     val paired: Boolean = false,
 ) {
     fun displayName(): String = deviceName?.takeIf { it.isNotBlank() }
@@ -65,7 +65,7 @@ class BackendApi(
     private val client: OkHttpClient = Companion.defaultClient,
 ) {
     private companion object {
-        /** Render cold start / yavas ag icin uzun zaman asimlari */
+        
         val defaultClient: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(45, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
@@ -302,7 +302,7 @@ class BackendApi(
                 return@withContext runCatching {
                     val json = JSONObject(body)
                     val user = json.getJSONObject("user")
-                    // Sunucu yeni token donduruyorsa onu kullan (auto-refresh).
+                    
                     val refreshedToken = json.optString("token").orEmpty().ifBlank { token }
                     val uid = when {
                         user.has("id") -> user.getInt("id")

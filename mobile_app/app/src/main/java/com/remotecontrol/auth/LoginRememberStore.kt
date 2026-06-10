@@ -2,9 +2,9 @@ package com.remotecontrol.auth
 
 import android.content.Context
 
-/**
- * Giris ekraninda yalnizca e-posta hatirlanir. Oturum token'i burada tutulmaz.
- */
+
+
+
 class LoginRememberStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 

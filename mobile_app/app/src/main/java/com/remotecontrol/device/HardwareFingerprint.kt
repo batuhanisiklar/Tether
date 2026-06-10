@@ -5,9 +5,9 @@ import android.provider.Settings
 import java.net.NetworkInterface
 import java.util.Collections
 
-/**
- * Cihaz tanıma: mümkünse MAC (12 hex), degilse aid: + ANDROID_ID.
- */
+
+
+
 object HardwareFingerprint {
 
     fun macOrAndroidId(context: Context): String {

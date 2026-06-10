@@ -60,7 +60,6 @@ class ServerDbClient:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
-                    # ── users tablosu ───────────────────────────────────────
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS users (
@@ -74,12 +73,7 @@ class ServerDbClient:
                         );
                         """
                     )
-                    # Migration safety: eski DB'lerde phone kolonu yoksa ekle.
                     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT")
-
-                    # ── devices tablosu (yeni şema) ─────────────────────────
-                    # Yeni şema: id SERIAL PRIMARY KEY, UNIQUE(user_id, mac_address),
-                    # device_id artık global benzersiz değil — her kullanıcı için ayrı.
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS devices (
@@ -95,15 +89,12 @@ class ServerDbClient:
                         );
                         """
                     )
-
-                    # ── MIGRATION: eski şemadan yeni şemaya geçiş ──────────
-                    # 1) id kolonu yoksa ekle (eski DB'de PRIMARY KEY device_id TEXT idi)
                     cur.execute(
                         """
                         ALTER TABLE devices ADD COLUMN IF NOT EXISTS id SERIAL;
                         """
                     )
-                    # 2) Eski devices_pkey (device_id TEXT PRIMARY KEY) kısıtını kaldır
+                    
                     cur.execute(
                         """
                         DO $$ BEGIN
@@ -113,20 +104,16 @@ class ServerDbClient:
                                   AND contype = 'p'
                                   AND conrelid = 'devices'::regclass
                             ) THEN
-                                -- Önce connections tablosundaki FK'ları düşür (varsa)
                                 ALTER TABLE connections
                                     DROP CONSTRAINT IF EXISTS connections_target_device_id_fkey;
                                 ALTER TABLE connections
                                     DROP CONSTRAINT IF EXISTS connections_controller_device_id_fkey;
-                                -- Eski PRIMARY KEY kısıtını düşür
                                 ALTER TABLE devices DROP CONSTRAINT devices_pkey;
-                                -- id'yi yeni PRIMARY KEY yap
                                 ALTER TABLE devices ADD PRIMARY KEY (id);
                             END IF;
                         END $$;
                         """
                     )
-                    # 3) UNIQUE(user_id, mac_address) kısıtı ekle (yoksa)
                     cur.execute(
                         """
                         DO $$ BEGIN
@@ -142,7 +129,6 @@ class ServerDbClient:
                         END $$;
                         """
                     )
-                    # 4) Eski NOT NULL device_id kısıtı güvenliği (yeni kayıtlar için zaten NOT NULL)
                     cur.execute(
                         """
                         ALTER TABLE devices ALTER COLUMN device_id SET NOT NULL;
@@ -172,10 +158,6 @@ class ServerDbClient:
                         END $$;
                         """
                     )
-
-                    # ── connections tablosu ─────────────────────────────────
-                    # PC (controller) → telefon (target) tek yönlü bağlantı kaydı.
-                    # UNIQUE kısıtı ile duplicate girdi imkânsız.
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS connections (
@@ -187,7 +169,6 @@ class ServerDbClient:
                         );
                         """
                     )
-                    # Migration: eski tabloda UNIQUE yoksa ekle
                     cur.execute(
                         """
                         DO $$ BEGIN
@@ -323,11 +304,6 @@ class ServerDbClient:
         new_password: str | None = None,
         old_password: str | None = None,
     ) -> tuple[bool, str]:
-        """
-        Kullanıcı profil alanlarını günceller.
-        - email UNIQUE olduğu için çakışma olursa hata döner.
-        - Boş string gelirse ilgili alanı temizler (phone için None/'' -> NULL).
-        """
         if user_id <= 0:
             return False, "Gecersiz kullanici."
 
@@ -351,7 +327,6 @@ class ServerDbClient:
             fields.append("phone = %s")
             values.append(phone_norm)
         if password_norm is not None:
-            # Eski sifreyi dogrula
             try:
                 with self._get_conn() as conn:
                     with conn.cursor() as cur:
@@ -396,20 +371,9 @@ class ServerDbClient:
         user_id: int,
         mac_address: str,
     ) -> str | None:
-        """
-        Bu kullanıcı için cihazı kaydet veya mevcut kaydı döndür.
-
-        - Aynı (user_id, mac_address) zaten varsa: mevcut device_id'yi döndürür (no-op).
-        - Yoksa: yeni device_id üretir, INSERT eder ve yeni device_id'yi döndürür.
-        - Hata durumunda: None döndürür.
-
-        Aynı fiziksel cihaz (mac_address) başka bir kullanıcıya ait olabilir;
-        bu artık bir hata DEĞİLDİR — her kullanıcı kendi kaydını alır.
-        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
-                    # 1) Bu kullanıcı bu MAC'i daha önce kaydetmiş mi?
                     cur.execute(
                         "SELECT device_id FROM devices WHERE user_id = %s AND mac_address = %s",
                         (user_id, mac_address),
@@ -422,9 +386,8 @@ class ServerDbClient:
                         )
                         return str(row[0])
 
-                    # 2) Yeni kayıt — 12 haneli global olarak benzersiz bir device_id üret
                     new_device_id = None
-                    for _ in range(10):  # çakışma ihtimaline karşı retry
+                    for _ in range(10):
                         candidate = "".join(secrets.choice("0123456789") for _ in range(12))
                         cur.execute(
                             "SELECT 1 FROM devices WHERE device_id = %s",
@@ -450,8 +413,6 @@ class ServerDbClient:
             )
             return new_device_id
         except psycopg2.IntegrityError:
-            # Nadir yarış durumu: iki eşzamanlı istek aynı anda INSERT yapmaya çalıştı.
-            # Güvenle mevcut kaydı oku.
             try:
                 with self._get_conn() as conn:
                     with conn.cursor() as cur:
@@ -504,10 +465,6 @@ class ServerDbClient:
             return []
 
     def create_connection(self, controller_device_id: str, target_device_id: str) -> bool:
-        """
-        PC (controller) → telefon (target) bağlantısını kaydet.
-        Aynı çift zaten varsa sessizce geçer (ON CONFLICT DO NOTHING).
-        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -559,7 +516,6 @@ class ServerDbClient:
             return []
 
     def get_connected_devices_as_target(self, my_device_id: str) -> list[str]:
-        """Bu cihaz telefon (target) olarak bağlı olan PC'lerin ID listesi."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -575,7 +531,6 @@ class ServerDbClient:
             return []
 
     def get_all_connections_for_device(self, device_id: str) -> list[dict]:
-        """Bir cihazın controller veya target olarak yer aldığı tüm bağlantılar."""
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

@@ -3,10 +3,10 @@ package com.remotecontrol.data
 import org.json.JSONObject
 import java.util.Locale
 
-/**
- * Sunucudan gelen hata kodu/mesajini kullaniciya gosterilecek
- * tutarli ve anlasilir Turkce metne cevirir.
- */
+
+
+
+
 object BackendErrorMapper {
 
     fun mapHttpError(statusCode: Int, responseBody: String?, fallback: String): String {
@@ -86,7 +86,7 @@ object BackendErrorMapper {
     }
 
     private fun sanitizeServerMessage(message: String): String {
-        // Sunucudan dönen çok teknik veya boşluklu mesajları sadeleştir.
+        
         val clean = message.trim().replace(Regex("\\s+"), " ")
         if (clean.length > 220) {
             return "İşlem tamamlanamadı. Lütfen tekrar deneyin."

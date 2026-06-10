@@ -22,18 +22,18 @@ class ControlReceiver : AccessibilityService() {
     companion object {
         private const val TAG = "ControlReceiver"
 
-        // Singleton erişim — MainActivity'den komut göndermek için
+        
         var instance: ControlReceiver? = null
             private set
 
-        /** Sessize almadan önce STREAM_MUSIC seviyesi (geri yükleme için). */
+        
         private var musicVolBeforeMute: Int = -1
         private const val VOLUME_UI_MIN_INTERVAL_MS = 700L
         private var lastVolumeUiShownAtMs: Long = 0L
 
-        /** Tüm ses işlemlerini serileştirmek için ortak kilit. */
+        
         private val volumeLock = Any()
-        /** Mute toggle cooldown — hızlı ardışık basışları engeller. */
+        
         private const val MUTE_TOGGLE_COOLDOWN_MS = 250L
         private var lastMuteToggleAtMs: Long = 0L
     }
@@ -52,9 +52,9 @@ class ControlReceiver : AccessibilityService() {
         super.onDestroy()
     }
 
-    /**
-     * Ekrana dokunma (normalize koordinatlar: 0.0–1.0)
-     */
+    
+
+
     fun performTouch(normX: Float, normY: Float): Boolean {
         val display = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
         val metrics = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -87,9 +87,9 @@ class ControlReceiver : AccessibilityService() {
         return accepted
     }
 
-    /**
-     * Kaydırma (swipe) — normalize koordinatlar
-     */
+    
+
+
     fun performSwipe(nx1: Float, ny1: Float, nx2: Float, ny2: Float): Boolean {
         val display = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
         val metrics = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -118,9 +118,9 @@ class ControlReceiver : AccessibilityService() {
         return accepted
     }
 
-    /**
-     * Sistem tuşu (Back, Home, Recents, Volume, Power)
-     */
+    
+
+
     fun performKeyEvent(keyCode: Int): Boolean {
         val handled = when (keyCode) {
             KeyEvent.KEYCODE_BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
@@ -143,11 +143,11 @@ class ControlReceiver : AccessibilityService() {
         return performVolumeDelta(if (direction > 0) 1 else -1)
     }
 
-    /**
-     * Ses seviyesini delta kadar değiştirir.
-     * Tüm ses işlemleri [volumeLock] ile serileştirilir — eşzamanlı
-     * volume_delta + mute toggle çağrılarında AudioManager yarışması önlenir.
-     */
+    
+
+
+
+
     fun performVolumeDelta(delta: Int): Boolean {
         if (delta == 0) return true
         synchronized(volumeLock) {
@@ -183,13 +183,13 @@ class ControlReceiver : AccessibilityService() {
         }
     }
 
-    /**
-     * Medya sesini tamamen kes / önceki seviyeye döndür.
-     * ADJUST_TOGGLE_MUTE birçok OEM'de güvenilir değil; setStreamVolume kullanıyoruz.
-     *
-     * [volumeLock] ile serileştirilir ve cooldown uygulanır — hızlı ardışık
-     * toggle'lar AudioManager'ı tutarsız duruma düşürmez.
-     */
+    
+
+
+
+
+
+
     private fun toggleStreamMute(): Boolean {
         synchronized(volumeLock) {
             val now = SystemClock.uptimeMillis()
@@ -228,9 +228,9 @@ class ControlReceiver : AccessibilityService() {
         }
     }
 
-    /**
-     * Masaüstünden gelen düz metni odaklı alana yazar veya panoya yapıştırır.
-     */
+    
+
+
     fun performPasteText(text: String): Boolean {
         val t = text.ifBlank { return false }
         val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager

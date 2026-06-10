@@ -17,15 +17,15 @@ import com.remotecontrol.network.SignalingClient
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-/**
- * Kamera Yayın Servisi
- * =====================
- * CameraX ile arka/ön kamerayı yakalar.
- * Frameleri WebSocket ile masaüstüne relay eder.
- *
- * Başlatmak için:
- *   startForegroundService(Intent(context, CameraStreamService::class.java))
- */
+
+
+
+
+
+
+
+
+
 class CameraStreamService : LifecycleService() {
 
     companion object {
@@ -51,7 +51,7 @@ class CameraStreamService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         val useFront = intent?.getBooleanExtra(EXTRA_USE_FRONT, false) ?: false
 
-        // Android 10+ kamera foreground service type zorunlu
+        
         val notification = buildNotification(getString(R.string.notification_camera_active))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(2, notification,
@@ -108,7 +108,7 @@ class CameraStreamService : LifecycleService() {
             val uSize = uBuffer.remaining()
             val vSize = vBuffer.remaining()
 
-            // NV21: Y + VU sıralı
+            
             val nv21 = ByteArray(ySize + uSize + vSize)
             yBuffer.get(nv21, 0, ySize)
             vBuffer.get(nv21, ySize, vSize)
@@ -127,7 +127,7 @@ class CameraStreamService : LifecycleService() {
                 65,
                 out
             )
-            // WebSocket aracılığıyla PC'ye relay et
+            
             SignalingClient.instance?.sendFrame(out.toByteArray())
         } catch (e: Exception) {
             Log.e(TAG, "Frame process error: $e")

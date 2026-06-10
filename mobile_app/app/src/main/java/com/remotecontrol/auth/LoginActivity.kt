@@ -21,9 +21,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
-/**
- * Giris: e-posta + sifre. Kayit: ek alanlar + opsiyonel telefon + sifre tekrar.
- */
+
+
+
 class LoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityLoginBinding
     private lateinit var sessionStore: SessionStore

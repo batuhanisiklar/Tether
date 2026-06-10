@@ -79,7 +79,6 @@ class DeviceCard(QFrame):
         top_row.addWidget(self._btn_forget)
         root.addLayout(top_row)
 
-        # Sahip adı (Kişi bilgisi)
         owner = (self.owner_name or "").strip()
         if not owner:
             owner = (self.owner_email or self.owner_phone or "").strip()

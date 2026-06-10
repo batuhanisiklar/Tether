@@ -1,8 +1,3 @@
-"""
-Eşleşme kaldırma onay diyaloğu.
-app_window.py'den ayrılmış bağımsız bileşen.
-"""
-
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
@@ -29,7 +24,6 @@ from desktop_app.ui.styles.app_styles import (
 
 
 def confirm_forget_pairing(parent: QWidget, device_label: str) -> bool:
-    """Modal onay diyaloğu gösterir; True = kullanıcı onayladı."""
     dialog = QDialog(parent)
     dialog.setModal(True)
     dialog.setWindowFlags(
@@ -175,7 +169,6 @@ def confirm_forget_pairing(parent: QWidget, device_label: str) -> bool:
 
 
 def confirm_clear_all_pairings(parent: QWidget, total: int) -> bool:
-    """Mobile ayarlar ekranındaki temalı onay penceresine denk toplu kaldırma diyaloğu."""
     dialog = QDialog(parent)
     dialog.setModal(True)
     dialog.setWindowFlags(

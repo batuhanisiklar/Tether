@@ -8,13 +8,11 @@ from PyQt6.QtMultimedia import QAudio, QAudioFormat, QAudioSink, QMediaDevices
 
 logger = logging.getLogger(__name__)
 
-# ── Serileştirme sabitleri ────────────────────────────────────────────────
-_MUTE_TOGGLE_COOLDOWN_S = 0.25   # Mute toggle'lar arası minimum bekleme
-_VOLUME_OP_COOLDOWN_S   = 0.05   # Ses seviyesi değişiklikleri arası minimum bekleme
+_MUTE_TOGGLE_COOLDOWN_S = 0.25 
+_VOLUME_OP_COOLDOWN_S   = 0.05   
 
 
 class AudioJitterBuffer:
-    """Small PCM pre-buffer to smooth network jitter."""
 
     def __init__(self, pre_buffer_ms: int = 100, sample_rate: int = 16000, channels: int = 1, sample_bytes: int = 2):
         self._pre_buffer_bytes = int(sample_rate * channels * sample_bytes * (pre_buffer_ms / 1000))
@@ -40,11 +38,6 @@ class AudioJitterBuffer:
 
 
 class DesktopAudioPlayer:
-    """
-    PCM ses oynatıcı – tüm ses sink işlemleri ``_lock`` ile serileştirilir,
-    hızlı ardışık mute/unmute veya ses değişikliklerinde sink'in
-    bozulması / patlaması engellenir.
-    """
 
     def __init__(self, parent=None, sample_rate: int = 16000) -> None:
         self._audio_sink: QAudioSink | None = None
@@ -96,9 +89,7 @@ class DesktopAudioPlayer:
             now = time.monotonic()
 
             if key_code == volume_mute:
-                # Mute toggle — cooldown uygula
                 if now - self._last_mute_toggle_t < _MUTE_TOGGLE_COOLDOWN_S:
-                    logger.debug("Mute toggle cooldown — yok sayıldı")
                     return
                 self._last_mute_toggle_t = now
 
@@ -110,7 +101,6 @@ class DesktopAudioPlayer:
                     self._audio_sink.setVolume(max(0.1, self._last_volume))
                 return
 
-            # Volume up/down — cooldown uygula
             if now - self._last_volume_op_t < _VOLUME_OP_COOLDOWN_S:
                 return
             self._last_volume_op_t = now
@@ -127,7 +117,6 @@ class DesktopAudioPlayer:
             self._remote_muted = bool(muted)
 
             if self._remote_muted and not prev:
-                # Yeni mute — jitter buffer'ı temizle, sink seviyesini 0'a çek
                 self._jitter.reset()
 
             if self._audio_sink is None:
@@ -140,7 +129,6 @@ class DesktopAudioPlayer:
                 self._audio_sink.setVolume(0.0)
                 return
 
-            # Unmute — hedef seviyeye geri dön
             target = self._last_volume if self._last_volume > 0.0 else 1.0
             self._audio_sink.setVolume(min(1.0, max(0.05, target)))
 

@@ -30,22 +30,22 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Ekran Yayın Servisi — Android 14+ uyumlu
- * ==========================================
- * MediaProjection API ile ekrani yakalar ve
- * frameleri WebSocket uzerinden relay eder.
- *
- * Önemli: Android 14+ (API 34) startForeground() çağrısında
- * FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION gerektirir.
- *
- * Performans iyileştirmeleri:
- *   • Sabit 30 FPS frame limiter (FRAME_INTERVAL_30_FPS_MS)
- *   • Executor-tabanlı asenkron encoding (ImageReader callback'i bloklanmaz)
- *   • 720p / %65 JPEG kalitesi (bant genişliği optimizasyonu)
- *   • OrientationEventListener ile otomatik ekran döndürme algılama
- *   • VirtualDisplay yeniden oluşturma (döndürmede)
- */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class ScreenStreamService : Service() {
 
     companion object {
@@ -58,7 +58,7 @@ class ScreenStreamService : Service() {
         @Volatile var instance: ScreenStreamService? = null
             private set
 
-        // ── Performans sabitleri ─────────────────────────────────────────
+        
         private const val MAX_SIDE_HIGH = 900
         private const val MAX_SIDE_MED = 760
         private const val MAX_SIDE_LOW = 640
@@ -69,23 +69,23 @@ class ScreenStreamService : Service() {
         private const val QUEUE_BYTES_ELEVATED = 700_000L
         private const val QUEUE_BYTES_CONGESTED = 1_500_000L
         private const val QUEUE_BYTES_DROP_CAPTURE = 2_400_000L
-        private const val IMAGE_READER_BUFFERS = 5      // ImageReader tampon sayısı
+        private const val IMAGE_READER_BUFFERS = 5      
     }
 
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private val executor = Executors.newSingleThreadExecutor()
-    private var frameCount = 0L  // Frame sayacı (log için)
+    private var frameCount = 0L  
 
-    // ── Frame rate limiter ───────────────────────────────────────────────
+    
     private val encodingInProgress = AtomicBoolean(false)
     private var lastFrameSentMs = 0L
     private val jpegOut = ByteArrayOutputStream(512 * 1024)
     private val frameSlotLock = Any()
     private var pendingFrame: PendingFrame? = null
 
-    // ── Döndürme algılama ────────────────────────────────────────────────
+    
     private var orientationListener: OrientationEventListener? = null
     private var currentRotation: Int = Surface.ROTATION_0
     @Volatile private var remoteRotationOverride: Int? = null
@@ -93,13 +93,13 @@ class ScreenStreamService : Service() {
     private var captureHeight = 0
     private var captureDpi = 0
 
-    // ── Ses yakalama ─────────────────────────────────────────────────────
+    
     private var audioRecord: AudioRecord? = null
     private var audioThread: Thread? = null
     @Volatile private var isAudioRecording = false
     @Volatile private var lastMutedAudioLogMs = 0L
 
-    // ── MediaProjection parametreleri (yeniden oluşturma için) ────────────
+    
     private var savedResultCode: Int = Activity.RESULT_CANCELED
     private var savedResultData: Intent? = null
 
@@ -112,7 +112,7 @@ class ScreenStreamService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Sadece yayin servisini durdur; signaling MainActivity'de kalmali
+        
         stopSelf()
         super.onTaskRemoved(rootIntent)
     }
@@ -126,7 +126,7 @@ class ScreenStreamService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = buildNotification(getString(R.string.notification_screen_starting))
 
-        // Android 10+ için FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION zorunlu
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
         } else {
@@ -136,7 +136,7 @@ class ScreenStreamService : Service() {
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
             ?: Activity.RESULT_CANCELED
 
-        // API 33+ için getParcelableExtra değişti
+        
         val resultData: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent?.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
         } else {
@@ -179,7 +179,7 @@ class ScreenStreamService : Service() {
             }
             Log.i(TAG, "✅ MediaProjection oluşturuldu")
 
-            // Android 14+ (API 34+) için MediaProjection callback kaydetmek zorunlu
+            
             mediaProjection?.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     Log.i(TAG, "MediaProjection durdu - servisi durduruyoruz")
@@ -187,19 +187,19 @@ class ScreenStreamService : Service() {
                 }
             }, null)
 
-            // Mevcut ekran boyutlarını al
+            
             readDisplayMetrics()
 
-            // Mevcut ekran rotasyonunu kaydet
+            
             currentRotation = getCurrentDisplayRotation()
 
-            // VirtualDisplay ve ImageReader oluştur
+            
             createCaptureResources()
 
-            // Döndürme dinleyicisini başlat
+            
             startOrientationListener()
 
-            // WebSocket relay aktif
+            
             Log.i(TAG, "Screen stream started (WebSocket relay mode)")
 
             val notifManager = getSystemService(NotificationManager::class.java)
@@ -224,7 +224,7 @@ class ScreenStreamService : Service() {
         }
     }
 
-    // ── Ekran boyutlarını oku ────────────────────────────────────────────
+    
     private fun readDisplayMetrics() {
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         captureDpi = resources.displayMetrics.densityDpi
@@ -242,7 +242,7 @@ class ScreenStreamService : Service() {
         }
     }
 
-    // ── Mevcut ekran rotasyonunu al ─────────────────────────────────────
+    
     private fun getCurrentDisplayRotation(): Int {
         return try {
             val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -254,7 +254,7 @@ class ScreenStreamService : Service() {
         }
     }
 
-    // ── VirtualDisplay + ImageReader oluştur ─────────────────────────────
+    
     private fun createCaptureResources() {
         imageReader = ImageReader.newInstance(captureWidth, captureHeight, PixelFormat.RGBA_8888, IMAGE_READER_BUFFERS)
 
@@ -273,13 +273,13 @@ class ScreenStreamService : Service() {
                 val encodeProfile = encodeProfileForQueue(queuedBytes)
                 val now = SystemClock.elapsedRealtime()
 
-                // Kuyruk çok doluysa encode etmeden kareyi atla (CPU ve gecikme koruması).
+                
                 if (queuedBytes >= QUEUE_BYTES_DROP_CAPTURE) {
                     image.close()
                     return@setOnImageAvailableListener
                 }
 
-                // Frame rate limiter.
+                
                 if (now - lastFrameSentMs < encodeProfile.minFrameIntervalMs) {
                     image.close()
                     return@setOnImageAvailableListener
@@ -309,7 +309,7 @@ class ScreenStreamService : Service() {
                     cropped
                 }
 
-                // Mevcut frame rotasyonunu yakala (closure'a al)
+                
                 val rotation = frameRotation()
 
                 enqueueLatestFrame(bmp, rotation, queuedBytes)
@@ -419,7 +419,7 @@ class ScreenStreamService : Service() {
         pendingBitmap?.recycle()
     }
 
-    // ── Döndürme dinleyicisi ─────────────────────────────────────────────
+    
     private fun startOrientationListener() {
         orientationListener = object : OrientationEventListener(this) {
             override fun onOrientationChanged(orientation: Int) {
@@ -440,28 +440,28 @@ class ScreenStreamService : Service() {
         }
     }
 
-    /**
-     * Ekran döndüğünde VirtualDisplay ve ImageReader'ı yeniden oluşturur.
-     * Yeni boyutlara uygun capture başlatılır.
-     */
+    
+
+
+
     private fun recreateVirtualDisplay() {
         try {
-            // Eski kaynakları serbest bırak
+            
             virtualDisplay?.release()
             virtualDisplay = null
             imageReader?.close()
             imageReader = null
 
-            // Eski pending kareyi de at.
+            
             encodingInProgress.set(false)
             clearPendingFrame()
 
-            // Yeni boyutları oku
+            
             readDisplayMetrics()
 
             Log.i(TAG, "🔄 VirtualDisplay yeniden oluşturuluyor: ${captureWidth}x${captureHeight} dpi=$captureDpi rot=$currentRotation")
 
-            // Yeniden oluştur
+            
             createCaptureResources()
         } catch (e: Exception) {
             Log.e(TAG, "recreateVirtualDisplay error: $e", e)
@@ -555,7 +555,7 @@ class ScreenStreamService : Service() {
             isAudioRecording = true
             
             audioThread = Thread {
-                // Daha büyük buffer: daha az paket, daha az overhead
+                
                 val buffer = ByteArray(4096)
                 while (isAudioRecording) {
                     val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
@@ -587,7 +587,7 @@ class ScreenStreamService : Service() {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return true
         return try {
             val volume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            // isStreamMute OEM'e gore tutarsiz olabildigi icin stream seviyesini baz al.
+            
             volume > 0
         } catch (_: Exception) {
             true
