@@ -28,13 +28,9 @@ def format_address(addr: str) -> str:
 
 
 def load_logo_pixmap(size: int) -> QPixmap | None:
-    """
-    Proje kök dizinindeki `logo.png`'yi güvenli şekilde yükler.
-    Null pixmap ise `None` döner (scaled uyarısını engeller).
-    """
     logo_path = os.path.join(
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
-        "logo.png",
+        "assets/logo.png",
     )
     pm = QPixmap(logo_path)
     if pm.isNull():
@@ -47,12 +43,8 @@ def load_logo_pixmap(size: int) -> QPixmap | None:
 
 
 def load_app_icon() -> QIcon:
-    """
-    Proje kok dizinindeki uygulama ikonunu yukler.
-    Once `logo.ico`, yoksa `logo.png` kullanilir.
-    """
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    for filename in ("logo.ico", "logo.png"):
+    for filename in ("assets/logo.ico", "assets/logo.png"):
         icon_path = os.path.join(root_dir, filename)
         if os.path.exists(icon_path):
             icon = QIcon(icon_path)
