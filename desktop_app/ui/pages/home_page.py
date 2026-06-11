@@ -41,7 +41,6 @@ if TYPE_CHECKING:
 _C = Colors
 
 
-
 def build_home_page(window: "MainWindow") -> QWidget:
     """Ana sayfa widget'ını oluşturur."""
     page = QWidget()
@@ -75,7 +74,7 @@ def build_home_page(window: "MainWindow") -> QWidget:
     warning = _build_warning_banner(window)
     toast_host = QWidget()
     th = QVBoxLayout(toast_host)
-    th.setContentsMargins(18, 0, 0, 16)  # sol ve alttan boşluk
+    th.setContentsMargins(18, 0, 0, 16)
     th.setSpacing(0)
     th.addStretch(1)
     th.addWidget(warning, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
@@ -83,14 +82,13 @@ def build_home_page(window: "MainWindow") -> QWidget:
     return page
 
 
-
 def _build_address_input_bar(window: "MainWindow") -> QWidget:
     bar = QFrame()
-    bar.setFixedHeight(42)
+    bar.setFixedHeight(56)
     bar.setStyleSheet(f"QFrame {{ background-color: {_BG_RAISED}; }}")
     lay = QHBoxLayout(bar)
-    lay.setContentsMargins(14, 0, 14, 0)
-    lay.setSpacing(8)
+    lay.setContentsMargins(18, 8, 18, 8)
+    lay.setSpacing(10)
 
     dot = QFrame()
     dot.setFixedSize(8, 8)
@@ -98,19 +96,23 @@ def _build_address_input_bar(window: "MainWindow") -> QWidget:
     lay.addWidget(dot)
 
     window._inp_code = QLineEdit()
-    window._inp_code.setPlaceholderText("Telefon sabit adresi (12 hane)")
-    window._inp_code.setFixedHeight(34)
+    window._inp_code.setPlaceholderText("Telefon adresini girin (12 hane)")
+    window._inp_code.setFixedHeight(40)
     window._inp_code.setMaxLength(14)
-    window._inp_code.setFont(QFont("Segoe UI", 14))
+    window._inp_code.setFont(QFont("Segoe UI", 15))
     window._inp_code.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
     window._inp_code.customContextMenuRequested.connect(window._show_code_input_menu)
     window._inp_code.setStyleSheet(f"""
         QLineEdit {{
-            background-color: {_BG_INPUT}; border: 1px solid {_BORDER};
-            border-radius: 4px; padding: 0 10px; color: {_TEXT};
+            background-color: {_BG_INPUT};
+            border: 1px solid {_BORDER};
+            border-radius: 6px;
+            padding: 0 12px;
+            color: {_TEXT};
             selection-background-color: {_ACCENT};
         }}
         QLineEdit:focus {{ border-color: {_ACCENT}; }}
+        QLineEdit::placeholder {{ color: {_TEXT_DIM}; }}
     """)
     window._inp_code.returnPressed.connect(window._on_connect)
     window._inp_code.textChanged.connect(window._on_address_text_changed)
@@ -123,12 +125,13 @@ def _build_address_input_bar(window: "MainWindow") -> QWidget:
     lay.addWidget(window._btn_connect)
 
     window._addr_status_label = QLabel("Hazır")
-    window._addr_status_label.setStyleSheet(f"color: {_TEXT_DIM}; font-size: 12px;")
-    window._addr_status_label.setFixedWidth(50)
+    window._addr_status_label.setStyleSheet(
+        f"color: {_TEXT_DIM}; font-size: 12px; font-weight: 600;"
+    )
+    window._addr_status_label.setFixedWidth(60)
     lay.addWidget(window._addr_status_label)
 
     return bar
-
 
 
 def _build_your_address_hero(window: "MainWindow") -> QWidget:
@@ -191,7 +194,6 @@ def _build_your_address_hero(window: "MainWindow") -> QWidget:
     return hero
 
 
-
 def _build_warning_banner(window: "MainWindow") -> QWidget:
     banner = QFrame()
     banner.setObjectName("WarningToast")
@@ -241,7 +243,6 @@ def _build_warning_banner(window: "MainWindow") -> QWidget:
     return banner
 
 
-
 def _build_feature_cards() -> QWidget:
     wrapper = QFrame()
     wrapper.setStyleSheet("background: transparent;")
@@ -250,36 +251,38 @@ def _build_feature_cards() -> QWidget:
     lay.setSpacing(12)
 
     cards_data = [
-    (
-        "Hızlı bağlantı",
-        "Telefonunuzun sabit adresini üst çubuğa girerek saniyeler içinde bağlantı kurabilirsiniz. "
-        "Herhangi bir ek ayar yapmanıza gerek kalmadan, hızlı ve pratik bir şekilde cihazınıza erişim sağlayın.",
-        "#C84B31", "#A33B24"
-    ),
-    (
-        "Nasıl çalışır?",
-        "Uygulamayı kullanmak oldukça basittir:\n"
-        "1. Telefonda uygulamayı başlatın\n"
-        "2. Size verilen sabit adresi bu ekrana girin\n"
-        "3. Bağlan butonuna tıklayarak anında erişim sağlayın\n"
-        "Tüm süreç yalnızca birkaç saniye sürer.",
-        "#2D6A4F", "#1B4332"
-    ),
-    (
-        "Gizlilik",
-        "Tüm bağlantılar uçtan uca şifreleme ile korunur ve verileriniz üçüncü taraflarla paylaşılmaz. "
-        "Cihaz sahipliği tamamen sizde kalır ve sadece sizin onay verdiğiniz bağlantılar gerçekleştirilir. "
-        "Güvenliğiniz her zaman önceliğimizdir.",
-        "#4A3B8F", "#362C6B"
-    ),
-    (
-        "Cihaz yönetimi",
-        "Daha önce bağlandığınız cihazları kolayca görüntüleyebilir, düzenleyebilir ve yönetebilirsiniz. "
-        "İhtiyacınız olmayan cihazları kaldırabilir, sık kullandıklarınızı hızlı erişim için saklayabilirsiniz. "
-        "Tüm kontrol tek bir ekranda sizin elinizde.",
-        "#8B6914", "#6B5010"
-    ),
-]
+        (
+            "Hızlı bağlantı",
+            "Telefonunuzun sabit adresini üst çubuğa girerek saniyeler içinde bağlantı kurabilirsiniz. "
+            "Ek ayar yapmadan hızlı ve pratik şekilde cihazınıza erişim sağlayın.",
+            "#C84B31",
+            "#A33B24",
+        ),
+        (
+            "Nasıl çalışır?",
+            "Uygulamayı kullanmak oldukça basittir:\n"
+            "1. Telefonda uygulamayı başlatın\n"
+            "2. Size verilen sabit adresi bu ekrana girin\n"
+            "3. Bağlan butonuna tıklayarak anında erişim sağlayın\n"
+            "Tüm süreç yalnızca birkaç saniye sürer.",
+            "#2D6A4F",
+            "#1B4332",
+        ),
+        (
+            "Gizlilik",
+            "Tüm bağlantılar uçtan uca şifreleme ile korunur ve verileriniz üçüncü taraflarla paylaşılmaz. "
+            "Cihaz sahipliği tamamen sizde kalır ve sadece onay verdiğiniz bağlantılar gerçekleştirilir.",
+            "#4A3B8F",
+            "#362C6B",
+        ),
+        (
+            "Cihaz yönetimi",
+            "Daha önce bağlandığınız cihazları kolayca görüntüleyebilir, düzenleyebilir ve yönetebilirsiniz. "
+            "İhtiyacınız olmayan cihazları kaldırabilir, sık kullandıklarınızı hızlı erişim için saklayabilirsiniz.",
+            "#8B6914",
+            "#6B5010",
+        ),
+    ]
 
     for title, desc, bg_color, hover_color in cards_data:
         card = QFrame()
@@ -312,7 +315,6 @@ def _build_feature_cards() -> QWidget:
     return wrapper
 
 
-
 def _build_tab_strip(window: "MainWindow") -> QWidget:
     strip = QFrame()
     strip.setFixedHeight(32)
@@ -338,7 +340,6 @@ def _build_tab_strip(window: "MainWindow") -> QWidget:
     lay.addWidget(window._lbl_device_count)
 
     return strip
-
 
 
 def _build_recent_sessions(window: "MainWindow") -> QWidget:
@@ -367,18 +368,26 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     inner.addWidget(window._recent_cards_container)
 
     window._lbl_no_devices = QFrame()
+    window._lbl_no_devices.setMinimumHeight(168)
     window._lbl_no_devices.setStyleSheet(
-        f"QFrame {{ background-color: {_BG_CARD}; border-radius: 8px; }}"
+        f"QFrame {{ background-color: {_BG_CARD}; border-radius: 12px; border: 1px solid {_BORDER_SUBTLE}; }}"
     )
     no_dev_lay = QVBoxLayout(window._lbl_no_devices)
-    no_dev_lay.setContentsMargins(0, 30, 0, 30)
-    no_dev_lay.setSpacing(8)
+    no_dev_lay.setContentsMargins(32, 30, 32, 30)
+    no_dev_lay.setSpacing(12)
     no_dev_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    empty_icon = QLabel("📱")
+    empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    empty_icon.setStyleSheet(
+        "font-size: 24px; background: transparent; border: none;"
+    )
+    no_dev_lay.addWidget(empty_icon)
 
     empty_title = QLabel("Henüz eşleşmiş cihaz yok")
     empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_title.setStyleSheet(
-        f"color: {_TEXT_SEC}; font-size: 14px; font-weight: 600; background: transparent; border: none;"
+        f"color: {_TEXT_SEC}; font-size: 18px; font-weight: 700; background: transparent; border: none;"
     )
     no_dev_lay.addWidget(empty_title)
 
@@ -387,8 +396,9 @@ def _build_recent_sessions(window: "MainWindow") -> QWidget:
     )
     empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_desc.setWordWrap(True)
+    empty_desc.setMaximumWidth(620)
     empty_desc.setStyleSheet(
-        f"color: {_TEXT_DIM}; font-size: 12px; background: transparent; border: none;"
+        f"color: {_TEXT_DIM}; font-size: 14px; background: transparent; border: none;"
     )
     no_dev_lay.addWidget(empty_desc)
 

@@ -15,11 +15,6 @@ from signaling_server.ws.presence import register_or_reuse_device
 
 
 async def _try_soft_refresh(request: web.Request) -> tuple[int, str] | None:
-    """
-    Token suresi dolmusa, imza hala gecerliyse ve kullanici mevcutsa
-    yeniden dogrulama yapmadan (user_id, username) dondurur.
-    Bu sayede uygulama yeniden acildiginda sessiz token yenileme saglanir.
-    """
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
@@ -30,7 +25,6 @@ async def _try_soft_refresh(request: web.Request) -> tuple[int, str] | None:
     username = str(payload.get("username") or "")
     if not isinstance(user_id, int) or not username:
         return None
-    # Kullanicinin hala veritabaninda mevcut oldugunu dogrula.
     profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
     if not profile:
         return None
@@ -45,11 +39,11 @@ async def auth_register(request: web.Request) -> web.Response:
     last_name = str(data.get("last_name") or "").strip()
     phone = str(data.get("phone") or "").strip()
     if not email or not password:
-        return web.json_response({"ok": False, "message": "email ve password gerekli."}, status=400)
+        return web.json_response({"ok": False, "message": "E-posta ve şifre gerekli."}, status=400)
     if phone:
         phone_digits = "".join(ch for ch in phone if ch.isdigit())
         if len(phone_digits) != 11:
-            return web.json_response({"ok": False, "message": "Telefon numarasÄ± 11 hane olmalÄ±dÄ±r."}, status=400)
+            return web.json_response({"ok": False, "message": "Telefon numarası 11 hane olmalıdır."}, status=400)
         phone = phone_digits
 
     user_id = await asyncio.to_thread(
@@ -107,7 +101,7 @@ async def auth_login(request: web.Request) -> web.Response:
     password = str(data.get("password") or "")
     user_id = await asyncio.to_thread(request.app["db"].authenticate_user, email, password)
     if user_id is None:
-        return web.json_response({"ok": False, "message": "KullanÄ±cÄ± adÄ± veya ÅŸifre hatalÄ±."}, status=401)
+        return web.json_response({"ok": False, "message": "Kullanıcı adı veya şifre hatalı."}, status=401)
 
     device_id = str(data.get("device_id") or "")
     device_type = str(data.get("device_type") or "")
@@ -150,7 +144,6 @@ async def auth_login(request: web.Request) -> web.Response:
 async def auth_me(request: web.Request) -> web.Response:
     user = await require_user(request)
     if not user:
-        # Token suresi dolmus olabilir — soft-refresh denemesi yap.
         refreshed = await _try_soft_refresh(request)
         if not refreshed:
             return web.json_response({"ok": False, "message": "Yetkisiz istek."}, status=401)
@@ -168,7 +161,6 @@ async def auth_me(request: web.Request) -> web.Response:
     else:
         address = ""
 
-    # Her basarili /auth/me cagrisinda yeni token dondur (auto-refresh).
     new_email = str(profile.get("email") or "").strip().lower()
     refreshed_username = username_from_email(new_email) if new_email else username
     new_token = issue_token(int(user_id), refreshed_username)
@@ -203,17 +195,16 @@ async def auth_profile_update(request: web.Request) -> web.Response:
     pwd1 = data.get("password")
     pwd2 = data.get("password2")
 
-    # email varsa basit doÄŸrulama
     if email is not None:
         em = str(email).strip().lower()
         if not em or "@" not in em or len(em) < 5:
-            return web.json_response({"ok": False, "message": "GeÃ§erli bir e-posta girin."}, status=400)
+            return web.json_response({"ok": False, "message": "Geçerli bir e-posta girin."}, status=400)
         email = em
 
     if phone is not None:
         phone_digits = "".join(ch for ch in str(phone).strip() if ch.isdigit())
         if phone_digits and len(phone_digits) != 11:
-            return web.json_response({"ok": False, "message": "Telefon numarasÄ± 11 hane olmalÄ±dÄ±r."}, status=400)
+            return web.json_response({"ok": False, "message": "Telefon numarası 11 hane olmalıdır."}, status=400)
         phone = phone_digits
 
     new_password: str | None = None
@@ -222,15 +213,15 @@ async def auth_profile_update(request: web.Request) -> web.Response:
         p2 = str(pwd2 or "")
         op = str(old_pwd or "")
         if not op:
-            return web.json_response({"ok": False, "message": "Mevcut ÅŸifre gerekli."}, status=400)
+            return web.json_response({"ok": False, "message": "Mevcut şifre gerekli."}, status=400)
         if not p1 or not p2:
-            return web.json_response({"ok": False, "message": "Åžifre iki kere girilmelidir."}, status=400)
+            return web.json_response({"ok": False, "message": "Şifre iki kere girilmelidir."}, status=400)
         if p1 != p2:
-            return web.json_response({"ok": False, "message": "Åžifreler eÅŸleÅŸmiyor."}, status=400)
+            return web.json_response({"ok": False, "message": "Şifreler eşleşmiyor."}, status=400)
         if p1 == op:
             return web.json_response({"ok": False, "message": "Mevcut şifre ile yeni şifre aynı olamaz."}, status=400)
         if len(p1) < 6:
-            return web.json_response({"ok": False, "message": "Åžifre en az 6 karakter olmalÄ±."}, status=400)
+            return web.json_response({"ok": False, "message": "Şifre en az 6 karakter olmalı."}, status=400)
         new_password = p1
 
     ok, err = await asyncio.to_thread(
@@ -242,11 +233,11 @@ async def auth_profile_update(request: web.Request) -> web.Response:
         old_password=str(old_pwd or "").strip() if (pwd1 is not None or pwd2 is not None) else None,
     )
     if not ok:
-        return web.json_response({"ok": False, "message": err or "Profil gÃ¼ncellenemedi."}, status=400)
+        return web.json_response({"ok": False, "message": err or "Profil güncellenemedi."}, status=400)
 
     profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
     if not profile:
-        return web.json_response({"ok": False, "message": "KullanÄ±cÄ± bulunamadÄ±."}, status=404)
+        return web.json_response({"ok": False, "message": "Kullanıcı bulunamadı."}, status=404)
 
     new_email = str(profile.get("email") or "").strip().lower()
     new_username = username_from_email(new_email)
@@ -277,19 +268,19 @@ async def auth_delete(request: web.Request) -> web.Response:
     email = str(data.get("email") or "").strip().lower()
     password = str(data.get("password") or "")
     if not email or not password:
-        return web.json_response({"ok": False, "message": "E-posta ve ÅŸifre gereklidir."}, status=400)
+        return web.json_response({"ok": False, "message": "E-posta ve şifre gereklidir."}, status=400)
 
     profile = await asyncio.to_thread(request.app["db"].get_user_by_id, int(user_id))
     if not profile:
-        return web.json_response({"ok": False, "message": "KullanÄ±cÄ± bulunamadÄ±."}, status=404)
+        return web.json_response({"ok": False, "message": "Kullanıcı bulunamadı."}, status=404)
 
     profile_email = str(profile.get("email") or "").strip().lower()
     if profile_email != email:
-        return web.json_response({"ok": False, "message": "E-posta eÅŸleÅŸmiyor."}, status=400)
+        return web.json_response({"ok": False, "message": "E-posta eşleşmiyor."}, status=400)
 
     verified_user_id = await asyncio.to_thread(request.app["db"].authenticate_user, email, password)
     if verified_user_id is None or int(verified_user_id) != int(user_id):
-        return web.json_response({"ok": False, "message": "E-posta veya ÅŸifre hatalÄ±."}, status=401)
+        return web.json_response({"ok": False, "message": "E-posta veya şifre hatalı."}, status=401)
 
     deleted = await asyncio.to_thread(request.app["db"].delete_user, int(user_id))
     if not deleted:

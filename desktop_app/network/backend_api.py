@@ -49,7 +49,7 @@ class BackendApi:
                 last = e
                 if attempt == 0:
                     logger.info(
-                        "Sunucu ilk denemede yanıt vermedi. Hizmet uyku modundaysa uyanması 1–2 dakika sürebilir; tekrar deneniyor…"
+                        "Sunucu ilk denemede yanıt vermedi. Hizmet uyku modundaysa uyanması 1-2 dakika sürebilir; tekrar deneniyor..."
                     )
                     time.sleep(4)
         assert last is not None
@@ -101,16 +101,16 @@ class BackendApi:
                         continue
                     return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
                 return data, ""
-            return None, "Giris dogrulanamadi. Lutfen tekrar deneyin."
+            return None, "Giriş doğrulanamadı. Lütfen tekrar deneyin."
         except (ReadTimeout, ConnectTimeout) as e:
-            logger.warning("login zaman asimi: %s", e)
+            logger.warning("login zaman aşımı: %s", e)
             return (
                 None,
-                "Sunucu zaman aşımına uğradı. Hizmet uyku modundaysa ilk giriş 1–2 dakika sürebilir; "
+                "Sunucu zaman aşımına uğradı. Hizmet uyku modundaysa ilk giriş 1-2 dakika sürebilir; "
                 "kısa bir süre sonra tekrar deneyin.",
             )
         except RequestException as e:
-            logger.warning("login ag hatasi: %s", e)
+            logger.warning("login ağ hatası: %s", e)
             return None, str(e)
 
     def register(
@@ -144,14 +144,14 @@ class BackendApi:
                 return None, str(data.get("message") or r.text or f"HTTP {r.status_code}")
             return data, ""
         except (ReadTimeout, ConnectTimeout) as e:
-            logger.warning("register zaman asimi: %s", e)
+            logger.warning("register zaman aşımı: %s", e)
             return (
                 None,
                 "Sunucu zaman aşımına uğradı. Hizmet uyku modundaysa ilk kayıt/giriş denemesi gecikebilir; "
                 "bir süre bekleyip tekrar deneyin.",
             )
         except RequestException as e:
-            logger.warning("register ag hatasi: %s", e)
+            logger.warning("register ağ hatası: %s", e)
             return None, str(e)
 
     def get_me(self, token: str, device_id: str) -> tuple[dict[str, Any] | None, str]:

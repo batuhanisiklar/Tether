@@ -569,7 +569,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun navigateToHomeAfterDisconnect() {
         if (openingAccessibilitySettings) {
-            Log.i(TAG, "A11y ayari acik; disconnect sonrasi bring-to-front atlandi")
+            Log.i(TAG, "A11y ayarı açık; disconnect sonrası bring-to-front atlandı")
             return
         }
         try {
@@ -962,7 +962,7 @@ class MainActivity : AppCompatActivity() {
             if (isInvalidSessionStatus(result.statusCode)) return result
             if (attempt < 2) delay(500L * (attempt + 1))
         }
-        return lastResult ?: ApiResult(error = "Kullanici bilgisi alinamadi.")
+        return lastResult ?: ApiResult(error = "Kullanıcı bilgisi alınamadı.")
     }
 
     private fun isInvalidSessionStatus(statusCode: Int?): Boolean {

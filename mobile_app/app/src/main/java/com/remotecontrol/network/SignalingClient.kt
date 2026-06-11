@@ -1,8 +1,18 @@
 package com.remotecontrol.network
 
 import android.util.Log
-import kotlinx.coroutines.*
-import okhttp3.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import okio.ByteString.Companion.toByteString
 import org.json.JSONArray
 import org.json.JSONObject
@@ -32,13 +42,6 @@ data class PartnerIdentity(
     }
 }
 
-
-
-
-
-
-
-
 class SignalingClient(
     private val serverUrl: String,
     private val authToken: String,
@@ -50,21 +53,15 @@ class SignalingClient(
     private val onPaired: (streamPort: Int, partner: PartnerIdentity?) -> Unit,
     private val onPairedDevicesStatus: (pairedDeviceIds: List<String>, onlineDeviceIds: List<String>, partnerOnline: Boolean) -> Unit,
     private val onCommand: (action: String, params: Map<String, Any>) -> Unit,
-    
     private val onPeerSessionEnded: () -> Unit,
-    
     private val onTransportDisconnected: () -> Unit,
 ) {
     companion object {
         private const val TAG = "SignalingClient"
         private const val MAX_PENDING_FRAME_BYTES = 2_600_000L
         private const val PRESENCE_POLL_MS = 3_500L
-        
+
         var instance: SignalingClient? = null
-
-        
-
-
 
         private val sharedHttpClient by lazy {
             OkHttpClient.Builder()
@@ -105,7 +102,6 @@ class SignalingClient(
         }
     }
 
-    
     fun pushAccessibilityToServer() {
         val socket = ws ?: return
         try {
@@ -123,7 +119,6 @@ class SignalingClient(
         }
     }
 
-    
     fun pushPresenceSnapshotToServer() {
         val socket = ws ?: return
         sendPresenceSnapshot(socket)
@@ -144,7 +139,6 @@ class SignalingClient(
         }
     }
 
-    
     fun sendAccessibilityError() {
         val socket = ws ?: return
         try {
@@ -153,7 +147,7 @@ class SignalingClient(
                     put("type", "command")
                     put("action", "accessibility_error")
                     put("code", "accessibility_required")
-                    put("message", "Telefonda Erisilebilirlik servisi kapali. Ayarlardan acin ve tekrar deneyin.")
+                    put("message", "Telefonda Erişilebilirlik servisi kapalı. Ayarlardan açın ve tekrar deneyin.")
                 }.toString(),
             )
         } catch (_: Exception) {
@@ -164,7 +158,7 @@ class SignalingClient(
         disconnectNotified = false
         manualClose = false
         instance = this
-        
+
         if (!scope.isActive) {
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         }
@@ -175,7 +169,6 @@ class SignalingClient(
                 if (webSocket != ws) return
                 Log.i(TAG, "Connected to signaling server, device_id=$deviceId code=$sessionCode")
 
-                
                 val helloMsg = JSONObject().apply {
                     put("type", "device_hello")
                     put("auth_token", authToken)
@@ -289,13 +282,13 @@ class SignalingClient(
                         }
 
                         "peer_disconnected" -> {
-                            Log.i(TAG, "PC oturumu kapandi (signaling acik)")
+                            Log.i(TAG, "PC oturumu kapandı (signaling açık)")
                             onPeerSessionEnded()
                         }
 
                         "error" -> Log.e(TAG, "Server error: ${json.optString("message")}")
 
-                        "heartbeat", "joined", "waiting" -> {  }
+                        "heartbeat", "joined", "waiting" -> {}
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Parse error: $e")
@@ -322,10 +315,6 @@ class SignalingClient(
         })
     }
 
-    
-
-
-
     fun sendPairConfirm(pcDeviceId: String) {
         val msg = JSONObject().apply {
             put("type", "pair_confirm")
@@ -348,17 +337,7 @@ class SignalingClient(
         Log.i(TAG, "Sent pair_reject: $deviceId x $pcDeviceId")
     }
 
-    
     fun pendingQueueBytes(): Long = ws?.queueSize() ?: 0L
-
-    
-
-
-
-
-
-
-
 
     fun sendFrame(jpeg: ByteArray, rotation: Int = 0) {
         val currentWs = ws
@@ -366,7 +345,7 @@ class SignalingClient(
             val now = System.currentTimeMillis()
             if (now - lastNullWsLogMs > 5_000L) {
                 lastNullWsLogMs = now
-                Log.w(TAG, "WebSocket yok — frame atlandi (signaling yeniden baglanincaya kadar)")
+                Log.w(TAG, "WebSocket yok - frame atlandı (signaling yeniden bağlanıncaya kadar)")
             }
             return
         }
@@ -375,24 +354,23 @@ class SignalingClient(
             if (queuedBytes > MAX_PENDING_FRAME_BYTES) {
                 consecutiveDrops++
                 if (consecutiveDrops == 1 || consecutiveDrops % 50 == 0) {
-                    Log.w(TAG, "Frame atlandi: websocket kuyrugu dolu ($queuedBytes bytes, art arda $consecutiveDrops drop)")
+                    Log.w(TAG, "Frame atlandı: websocket kuyruğu dolu ($queuedBytes bytes, art arda $consecutiveDrops drop)")
                 }
                 return
             }
             consecutiveDrops = 0
 
-            
             val rotByte: Byte = when (rotation) {
-                android.view.Surface.ROTATION_0   -> 0x00
-                android.view.Surface.ROTATION_90  -> 0x01
+                android.view.Surface.ROTATION_0 -> 0x00
+                android.view.Surface.ROTATION_90 -> 0x01
                 android.view.Surface.ROTATION_180 -> 0x02
                 android.view.Surface.ROTATION_270 -> 0x03
                 else -> 0x00
             }
 
             val payload = ByteArray(jpeg.size + 2)
-            payload[0] = 0x01          
-            payload[1] = rotByte       
+            payload[0] = 0x01
+            payload[1] = rotByte
             System.arraycopy(jpeg, 0, payload, 2, jpeg.size)
 
             var sent = currentWs.send(payload.toByteString())
@@ -406,20 +384,16 @@ class SignalingClient(
                 sent = currentWs.send(msg.toString())
             }
             if (!sent) {
-                Log.w(TAG, "Frame gonderilemedi (binary/fallback)")
+                Log.w(TAG, "Frame gönderilemedi (binary/fallback)")
                 return
             }
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "Frame gonderildi: ${jpeg.size} bytes rot=$rotation")
+                Log.d(TAG, "Frame gönderildi: ${jpeg.size} bytes rot=$rotation")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Frame gönderme hatası: $e", e)
         }
     }
-
-    
-
-
 
     fun sendAudio(pcm: ByteArray) {
         val currentWs = ws ?: return

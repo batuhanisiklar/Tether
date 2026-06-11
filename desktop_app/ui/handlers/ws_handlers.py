@@ -1,17 +1,16 @@
 """
-WebSocket olay isleyici mixin'i.
-MainWindow tarafindan coklu kalitim ile kullanilir.
+WebSocket olay işleyici mixin'i.
+MainWindow tarafından çoklu kalıtım ile kullanılır.
 """
 
 from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import QTimer, pyqtSlot
 
-from desktop_app.config import ServerDefaults, Ui
+from desktop_app.config import Ui
 from desktop_app.config.prefs_store import (
-    clear_logged_in,
     load_paired_phone_address,
     load_paired_phone_id,
 )
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class WsHandlersMixin:
-    """WebSocket baglanti / eslesme / hata olaylari."""
+    """WebSocket bağlantı / eşleşme / hata olayları."""
 
     @pyqtSlot()
     def _on_ws_connected(self):
@@ -75,20 +74,20 @@ class WsHandlersMixin:
         if "10060" in reason or "timed out" in reason.lower():
             self._set_status(Ui.MSG_DISCONNECT_TIMEOUT, error=True)
         elif "already closed" in reason.lower():
-            self._set_status("Baglanti kapandi.", error=True)
+            self._set_status("Bağlantı kapandı.", error=True)
         else:
-            self._set_status(f"Baglanti kesildi: {reason}", error=True)
+            self._set_status(f"Bağlantı kesildi: {reason}", error=True)
 
     @pyqtSlot(str)
     def _on_paired(self, stream_url: str):
-        # Disconnect/presence moduna gecildiyse kuyrukta kalmis paired/stream_info olaylarini yok say.
+        # Disconnect/presence moduna geçildiyse kuyrukta kalmış paired/stream_info olaylarını yok say.
         if self._ws_mode != "session":
             logger.debug("paired/stream_info yoksayildi: ws_mode=%s", self._ws_mode)
             return
 
         already_streaming = self._connected and self._remote_frame_visible
         if already_streaming:
-            logger.debug("Tekrarlayan paired/stream_info sinyali - akis zaten aktif, yoksayildi")
+            logger.debug("Tekrarlayan paired/stream_info sinyali - akış zaten aktif, yoksayıldı")
             return
 
         self._remote_frame_visible = False
@@ -117,10 +116,10 @@ class WsHandlersMixin:
         if not self._connected:
             self._set_connected(True)
             self._switch_page(1)
-            self._set_status("Eslesme tamamlandi. Goruntu akisi bekleniyor...")
+            self._set_status("Eşleşme tamamlandı. Görüntü akışı bekleniyor...")
         self._refresh_home_summary()
 
-        # Akis tamamen WebSocket uzerinden yurur.
+        # Akış tamamen WebSocket üzerinden yürür.
         _ = stream_url
 
         if not self._screen_capture_prompt_sent:
@@ -170,20 +169,20 @@ class WsHandlersMixin:
 
         if not self._connected:
             if online_count:
-                self._set_status(f"Sunucuya baglandi - {online_count} cihaz cevrimici")
+                self._set_status(f"Sunucuya bağlandı - {online_count} cihaz çevrimiçi")
             else:
                 self._set_status(Ui.MSG_SERVER_CONNECTED)
 
         if phone_a11y is not WsClient.PHONE_A11Y_UNCHANGED:
             next_phone_a11y = None if phone_a11y is None else bool(phone_a11y)
-            # Canli kare akisi varken gelen False degeri kimi surumlerde stale olabiliyor.
+            # Canlı kare akışı varken gelen False değeri kimi sürümlerde stale olabiliyor.
             if (
                 next_phone_a11y is False
                 and self._connected
                 and self._remote_frame_visible
                 and self._phone_accessibility_enabled is True
             ):
-                logger.debug("Akis aktifken gelen phone_a11y=False stale kabul edilip yoksayildi")
+                logger.debug("Akış aktifken gelen phone_a11y=False stale kabul edilip yoksayıldı")
             else:
                 self._phone_accessibility_enabled = next_phone_a11y
         if phone_media_muted is not WsClient.PHONE_MEDIA_MUTED_UNCHANGED:
@@ -219,8 +218,8 @@ class WsHandlersMixin:
     def _on_error(self, msg: str, code: str = ""):
         text = (msg or "").strip()
         if is_accessibility_ws_error(text, code):
-            banner_title = "Erisilebilirlik kapali"
-            banner_body = text or "Telefonda Erisilebilirlik servisi acilmadan baglanti baslatilamaz."
+            banner_title = "Erişilebilirlik kapalı"
+            banner_body = text or "Telefonda Erişilebilirlik servisi açılmadan bağlantı başlatılamaz."
             self._a11y_recovery_token += 1
             recovery_token = self._a11y_recovery_token
 
@@ -231,7 +230,7 @@ class WsHandlersMixin:
                 session_code = address_digits(self._ws_client.join_session_code or "")
             if len(session_code) == 12:
                 self._a11y_pending_reconnect_code = session_code
-                logger.info("Erisilebilirlik hatasi - yeniden baglanti kodu: %s", session_code)
+                logger.info("Erişilebilirlik hatası - yeniden bağlantı kodu: %s", session_code)
 
             def _apply_banner() -> None:
                 self._screen.clear_frame()
@@ -263,5 +262,5 @@ class WsHandlersMixin:
 
     @pyqtSlot(int)
     def _on_reconnecting(self, attempt: int):
-        """Otomatik yeniden baglanma denemesi basladiginda durum guncelle."""
-        self._set_status(f"Yeniden baglaniliyor... (deneme {attempt})")
+        """Otomatik yeniden bağlanma denemesi başladığında durumu güncelle."""
+        self._set_status(f"Yeniden bağlanılıyor... (deneme {attempt})")

@@ -1,10 +1,3 @@
-"""
-Giriş penceresi — Tether
-=======================================
-Sekmeli kart tasarımı: Giriş yap / Kayıt ol.
-Kimlik doğrulama işlemleri `BackendApi` üzerinden yürütülür.
-"""
-
 import logging
 import os
 import sys
