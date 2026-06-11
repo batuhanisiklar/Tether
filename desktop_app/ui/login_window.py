@@ -36,7 +36,7 @@ from desktop_app.ui.theme import (
     tab_button_style,
     text_style,
 )
-from desktop_app.ui.utils import desktop_device_name, load_logo_pixmap
+from desktop_app.ui.utils import desktop_device_name, load_app_icon, load_logo_pixmap
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ class LoginWindow(QDialog):
         super().__init__(parent)
         self._backend_api = BackendApi()
         self.setWindowTitle(AppMeta.NAME)
+        self.setWindowIcon(load_app_icon())
         _win_slack = 24 if sys.platform == "win32" else 0
         self.setMinimumSize(920, 560)
         self.resize(920, 560 + (0 if sys.platform != "win32" else _win_slack))

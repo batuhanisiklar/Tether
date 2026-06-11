@@ -75,7 +75,7 @@ from desktop_app.ui.styles.app_styles import (
     _TEXT_DIM,
     _TEXT_SEC,
 )
-from desktop_app.ui.utils import address_digits, load_logo_pixmap, session_tab_label
+from desktop_app.ui.utils import address_digits, load_app_icon, load_logo_pixmap, session_tab_label
 from desktop_app.ui.components.device_card import DeviceCard
 from desktop_app.ui.components.draggable_title_bar import DraggableTitleBar
 from desktop_app.ui.pages.home_page import build_home_page
@@ -175,6 +175,7 @@ class MainWindow(
         self._mute_lock_timer.timeout.connect(self._unlock_mute_button)
 
         self.setWindowTitle(AppMeta.WINDOW_TITLE)
+        self.setWindowIcon(load_app_icon())
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(1320, 920)

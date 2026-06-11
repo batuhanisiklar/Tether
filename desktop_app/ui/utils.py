@@ -6,7 +6,7 @@ Adres biçimlendirmeden oturum etiketlerine kadar ortak yardımcılar.
 import os
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QIcon, QPixmap
 
 
 
@@ -44,6 +44,21 @@ def load_logo_pixmap(size: int) -> QPixmap | None:
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
+
+
+def load_app_icon() -> QIcon:
+    """
+    Proje kok dizinindeki uygulama ikonunu yukler.
+    Once `logo.ico`, yoksa `logo.png` kullanilir.
+    """
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    for filename in ("logo.ico", "logo.png"):
+        icon_path = os.path.join(root_dir, filename)
+        if os.path.exists(icon_path):
+            icon = QIcon(icon_path)
+            if not icon.isNull():
+                return icon
+    return QIcon()
 
 
 

@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt6.QtWidgets import QApplication, QDialog
 from desktop_app.config import AppMeta
+from desktop_app.ui.utils import load_app_icon
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -17,6 +18,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(AppMeta.NAME)
     app.setApplicationVersion(AppMeta.VERSION)
+    app.setWindowIcon(load_app_icon())
 
     from desktop_app.ui.login_window import LoginWindow
     login = LoginWindow()
